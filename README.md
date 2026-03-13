@@ -39,7 +39,7 @@ The framework borrows its structure from consultancy contract law. Every term ma
 master-prompt-agreement/
 ├── master_service_agreement.md    # Universal rules (MSA)
 ├── statement_of_work_template.md  # Project-specific template (SOW)
-├── CLAUDE.md                      # Per-project CLAUDE.md template
+├── CLAUDE.md                      # Per-project agent instruction template (rename per agent if needed)
 ├── TODO.md                        # Task state template (maintained by Contractor per project)
 ├── DECISIONS.md                   # Decision log template (maintained by Contractor per project)
 ├── FINDINGS.md                    # Findings template (maintained by Contractor per project)
@@ -70,7 +70,7 @@ master-prompt-agreement/
 
 **MSA** — one file, all projects. Contains five performance standards (Think Before Coding, Simplicity First, Surgical Changes, Goal-Driven Execution, Epistemic Standards), decision authority tiers, dispute resolution with Gutachten, testing requirements, git workflow, communication standards, licensing compliance, safety boundaries, and the continuous improvement loop.
 
-**SOW** — one file, one project. Defines the tech stack, commands, deliverables, constraints, and code review checklist. References the MSA for everything universal. Only states exceptions and additions.
+**SOW** — one file, one project. Defines the tech stack, commands, deliverables, constraints, and code review checklist. References the MSA for everything universal. Only states exceptions and additions. Optional sections are deleted if they do not apply.
 
 **Task Orders** — reusable prompts for recurring operations: project initialization, structured ideation, design evaluation, adversarial review, audit, commit, external PR review, sub-contracting, Gutachten, arbitration, compliance check, and insights report.
 
@@ -102,11 +102,11 @@ The agent prepares the case file (ARBITRATION.md), launches panelists as paralle
 Read ~/path/to/master_prompt_agreement/task_orders/init.md and help me set up this project.
 ```
 
-The agent reads the MSA and templates, interviews the Client for the SOW, and creates all project files (CLAUDE.md, TODO.md, DECISIONS.md).
+The agent reads the MSA and templates, interviews the Client for the SOW, and creates the project files needed for that project. Unused optional sections are deleted. Optional files are only created when relevant. The agent instruction file may be named `CLAUDE.md`, `AGENTS.md`, or the equivalent entrypoint for the agent in use.
 
-The framework is plain markdown with no agent-specific logic. It should work with any AI coding agent that can read files. For manual setup without an agent, `statement_of_work_template.md` is the starting point.
+The framework is plain markdown. The contract model is agent-agnostic. The concrete entrypoint file depends on the agent in use. For manual setup without an agent, `statement_of_work_template.md` is the starting point.
 
-**Context window cost:** The MSA is ~370 lines. The CLAUDE.md template uses `@` import syntax to load it. The SOW is embedded in CLAUDE.md directly. The framework's rule pruning process (Article 10.3) keeps the MSA concise.
+**Context window cost:** The MSA is ~370 lines. The included `CLAUDE.md` template uses `@` import syntax to load it. Other agents may use a different entrypoint format. The SOW is embedded in the agent instruction file directly. The framework's rule pruning process (Article 10.3) keeps the MSA concise.
 
 ## Continuous improvement
 
@@ -126,5 +126,6 @@ Rules that never trigger in 3+ projects are candidates for removal. Mistakes tha
 - **Adversarial by design**: Audits, reviews, and the agent's own reasoning include structured self-challenge before committing to decisions.
 - **Supply chain aware**: Dependency verification covers slopsquatting, typosquatting, and dependency confusion. The trust boundary model classifies all inputs.
 - **No preprocessing**: The agent reads definitions and resolves them naturally. No template rendering scripts.
+- **Selective instantiation**: The public framework is complete. Project initialization materializes only the sections and files the project actually needs.
 - **Token-efficient**: No preamble or padding. State files are pruned to preserve context budget.
 - **Self-optimizing**: The framework improves through use.
