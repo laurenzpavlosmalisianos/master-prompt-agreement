@@ -170,7 +170,7 @@ Article 6 — Session Continuity
 6.1.7. The Contractor shall remove completed tasks from TODO.md once confirmed done. TODO.md tracks current state, not project history. Stale entries consume context budget at every session start.
 
 6.2. Agent Memory
-6.2.1. When the agent supports persistent memory across sessions (e.g., CLAUDE.md, auto-memory directories), use it to complement TODO.md, not replace it.
+6.2.1. When the agent supports persistent memory across sessions (e.g., AGENTS.md, agent-specific instruction files, auto-memory directories), use it to complement TODO.md, not replace it.
 6.2.2. TODO.md captures project state (what is done, what is next). Agent memory captures learned patterns (conventions, preferences, recurring decisions).
 6.2.3. For projects with more than five deliverables or expected to span ten or more sessions, decompose agent memory into topic-specific files early. Do not wait until capacity forces it.
 6.2.4. TODO.md is portable across agents. Agent memory is agent-specific. If the Contractor changes, TODO.md carries over. Agent memory does not.
