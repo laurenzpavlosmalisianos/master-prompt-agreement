@@ -1,4 +1,4 @@
-# CLAUDE.md — [PROJECT NAME]
+# AGENTS.md — [PROJECT NAME]
 
 <framework-rules>
 Read @[path to master_prompt_agreement/master_service_agreement.md]. It governs this project.

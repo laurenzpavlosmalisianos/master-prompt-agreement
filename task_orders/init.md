@@ -2,7 +2,7 @@ Task Order — Project Initialization
 
 Objective
 
-Set up a new project with the Master Prompt Agreement framework: CLAUDE.md with SOW, TODO.md, DECISIONS.md, and optionally FINDINGS.md.
+Set up a new project with the Master Prompt Agreement framework: AGENTS.md with SOW, TODO.md, DECISIONS.md, and optionally FINDINGS.md.
 
 Procedure
 
@@ -65,13 +65,13 @@ Contractor profile (optional):
 - Are there specific capabilities or known limitations to document? (Annex B, SKILLS.md)
 
 6. Fill in the SOW from the Client's answers. Do not invent answers. If the Client skips a question, leave the section with a placeholder or omit optional sections.
-7. Copy the CLAUDE.md template to the project root. Replace the `@` path with the actual framework path and replace the SOW placeholder with the filled-in SOW content.
+7. Copy the AGENTS.md template to the project root. Replace the `@` path with the actual framework path and replace the SOW placeholder with the filled-in SOW content. If the target agent expects a different entrypoint file name, rename it at this step.
 8. Create TODO.md and DECISIONS.md in the project root.
 9. Ask the Client to review the generated files. Apply corrections.
 
 Acceptance Criteria
 
-- CLAUDE.md exists in the project root with framework path and filled SOW.
+- AGENTS.md or the target agent's equivalent entrypoint file exists in the project root with framework path and filled SOW.
 - TODO.md and DECISIONS.md exist in the project root.
 - Client has reviewed and approved the generated files.
 - The Contractor can begin work without further setup questions.

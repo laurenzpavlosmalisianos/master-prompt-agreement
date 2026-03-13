@@ -39,7 +39,7 @@ The framework borrows its structure from consultancy contract law. Every term ma
 master-prompt-agreement/
 ├── master_service_agreement.md    # Universal rules (MSA)
 ├── statement_of_work_template.md  # Project-specific template (SOW)
-├── CLAUDE.md                      # Per-project agent instruction template (rename per agent if needed)
+├── AGENTS.md                      # Per-project agent instruction template
 ├── TODO.md                        # Task state template (maintained by Contractor per project)
 ├── DECISIONS.md                   # Decision log template (maintained by Contractor per project)
 ├── FINDINGS.md                    # Findings template (maintained by Contractor per project)
@@ -102,11 +102,11 @@ The agent prepares the case file (ARBITRATION.md), launches panelists as paralle
 Read ~/path/to/master_prompt_agreement/task_orders/init.md and help me set up this project.
 ```
 
-The agent reads the MSA and templates, interviews the Client for the SOW, and creates the project files needed for that project. Unused optional sections are deleted. Optional files are only created when relevant. The agent instruction file may be named `CLAUDE.md`, `AGENTS.md`, or the equivalent entrypoint for the agent in use.
+The agent reads the MSA and templates, interviews the Client for the SOW, and creates the project files needed for that project. Unused optional sections are deleted. Optional files are only created when relevant. The public template uses `AGENTS.md` as the project entrypoint.
 
-The framework is plain markdown. The contract model is agent-agnostic. The concrete entrypoint file depends on the agent in use. For manual setup without an agent, `statement_of_work_template.md` is the starting point.
+The framework is plain markdown. The contract model is agent-agnostic. `AGENTS.md` is the public entrypoint template. If a specific agent expects a different file name, the agent or Client can rename it during project setup. For manual setup without an agent, `statement_of_work_template.md` is the starting point.
 
-**Context window cost:** The MSA is ~370 lines. The included `CLAUDE.md` template uses `@` import syntax to load it. Other agents may use a different entrypoint format. The SOW is embedded in the agent instruction file directly. The framework's rule pruning process (Article 10.3) keeps the MSA concise.
+**Context window cost:** The MSA is ~370 lines. The included `AGENTS.md` template shows one way to load it. The SOW is embedded in the agent instruction file directly. The framework's rule pruning process (Article 10.3) keeps the MSA concise.
 
 ## Continuous improvement
 
