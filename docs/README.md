@@ -33,7 +33,7 @@ of truth for agent behavior.
 | [Concepts](concepts.md) | You need the operating model: authority, runtime packets, Task Orders, Practice Guides, state, source discipline, and feedback. |
 | [Downstream Setup](downstream_setup.md) | You want the setup flow before following the full setup procedure in `GETTING_STARTED.md` and `task_orders/init.md`. |
 | [Updating A Generated Project](../UPDATING.md) | You need the operator recipe for inspecting, refreshing, revising, recovering, restoring, or triaging an unsupported generated format; `task_orders/framework_refresh.md` remains the workflow authority. |
-| [Migrating From v1 To v2](migrating_v1_to_v2.md) | You need the compatibility boundary and reviewed manual path for a project generated from the public pre-v2 line. |
+| [Migrating From v1 To v2](migrating_v1_to_v2.md) | You need the reviewed one-time transition for a project generated from the public pre-v2 line. |
 | [Repository Taxonomy](repository_taxonomy.md) | You need to know where a file belongs, which surfaces are public product surfaces, and which generated files are templates. |
 | [Source And Feedback](source_and_feedback.md) | You are reviewing external sources, source-monitor packets, or downstream project feedback. |
 | [Source-Chain Artifacts](source_chain_artifacts.md) | You need the complete, version-bound monitor, review, apply, and assurance artifact contract used by the public source-chain helpers. |
