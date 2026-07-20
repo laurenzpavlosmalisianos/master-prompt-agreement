@@ -2,14 +2,16 @@
 
 Use this page for a downstream project whose framework files came from the
 public pre-v2 line: the `v1.0.0` tag or a later unreleased public branch
-snapshot. It defines a compatibility boundary and a reviewed manual migration
-path; it is not an automatic converter.
+snapshot. It defines a breaking-version boundary and a reviewed, one-time
+manual migration path. It does not provide an automatic converter, a
+compatibility shim, or ongoing legacy support.
 
-## Scope And Compatibility Boundary
+## Scope And Version Boundary
 
 The v2 architecture changes required project files, authority projection,
 bootstrap semantics, state identity, and update verification. This document
-defines the incompatible `v2.0.0` compatibility boundary.
+defines the breaking boundary between the public v1 line and the current v2
+format.
 
 Do not run current bootstrap or current-format refresh over a v1 project. The
 current tools deliberately do not reverse-parse v1 prose, infer missing project

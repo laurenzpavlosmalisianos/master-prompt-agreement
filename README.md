@@ -38,13 +38,13 @@ effectiveness claim must stay within the evidence that was actually collected.
 | You want to understand the architecture | [Concepts](docs/concepts.md), [Architecture](ARCHITECTURE.md), and the [interactive guide](docs/interactive/index.html) |
 | You are maintaining or releasing the framework | [Governance](GOVERNANCE.md) and [Maintenance And Release](docs/maintenance_and_release.md) |
 
-This repository is the v2 major line. Its architecture is incompatible with
-projects generated from the public pre-v2 line. Current-format refresh does not
-accept or silently migrate those files; follow the
-[v1-to-v2 migration guide](docs/migrating_v1_to_v2.md) for a reviewed
-project-specific update. Public release versions are distinct from the version
-markers used by individual framework documents, generated contracts, and
-schemas.
+The current public line uses the v2/current-format architecture. A project
+created from `v1.0.0` or a later pre-v2 public snapshot is not a valid input to
+the current refresh workflow. Preserve that project and follow the
+[v1-to-v2 migration guide](docs/migrating_v1_to_v2.md) for a reviewed, one-time
+transition. The migration route does not add a compatibility layer or ongoing
+legacy support. Public release versions are distinct from the version markers
+used by individual framework documents, generated contracts, and schemas.
 
 In a Codex checkout, `$master-prompt-new-project` and
 `$master-prompt-refresh-project` are optional thin launchers for the same
@@ -275,7 +275,7 @@ and the [Framework Improvement Task Order](task_orders/framework_improvement.md)
 | Normative and informative surfaces | [Specification](SPECIFICATION.md) |
 | Setup | [Getting Started](GETTING_STARTED.md) |
 | Current-instance lifecycle | [Updating](UPDATING.md) |
-| v1-to-v2 compatibility boundary | [Migrating From v1 To v2](docs/migrating_v1_to_v2.md) |
+| One-time public v1 migration | [Migrating From v1 To v2](docs/migrating_v1_to_v2.md) |
 | Verification profiles | [Conformance](CONFORMANCE.md) |
 | Public change and release policy | [Governance](GOVERNANCE.md) |
 | Threat model and reporting | [Security](SECURITY.md) |
@@ -286,33 +286,10 @@ and the [Framework Improvement Task Order](task_orders/framework_improvement.md)
 The [interactive guide](docs/interactive/index.html) is a human-facing view of
 the same architecture. It is explanatory, not an authority source.
 
-## Public Release Boundary
-
-A richer authoring checkout may contain private authoring state and history.
-Never publish or mirror that checkout directly. Public releases contain only
-the neutral product files selected into a fresh sanitized export.
-
-Publication has two separately verified transitions:
-
-1. Authoring source to marker-bound sanitized export.
-2. That exact export payload to the staged tree of a fresh ordinary independent
-   clone of the public repository with a freshly established remote parent.
-
-The second transition must exclude the local export marker, remove obsolete
-public files, bind the freshly inspected public parent commit and expected
-remote, and reject shared authoring Git metadata or object storage. The
-resumable `scripts/public_release.py` controller records durable phase
-checkpoints and exposes `prepare`, `status`, `resume`, `publish`, and `readback`.
-Its branch push uses one exact approved candidate and a recorded-parent
-`--force-with-lease` compare-and-swap control. Tags and hosted releases remain
-separate external effects requiring their own authority.
-
-Follow [GOVERNANCE.md](GOVERNANCE.md) and
-[docs/maintenance_and_release.md](docs/maintenance_and_release.md) for the
-canonical release gates. A public visual change also requires rendered
-verification at every declared layout width and live GitHub inspection in
-light and dark themes. Host theme does not create a second asset palette for an
-opaque fixed-palette SVG.
+Framework maintainers should follow [Governance](GOVERNANCE.md) and
+[Maintenance And Release](docs/maintenance_and_release.md). Those documents own
+versioning, sanitized publication, and release verification; their procedures
+do not apply to ordinary downstream setup or updates.
 
 ## Principles
 
