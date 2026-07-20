@@ -1,0 +1,38 @@
+# CLAUDE.md
+
+<!-- mpa-entrypoint-contract: entrypoint-framework-core-v1 -->
+If the operative charter or another required framework resource cannot be read through the declared framework reference, stop ordinary project work. Report the unavailable resource and observed failure; limit activity to bounded read-only diagnosis or an explicitly User-authorized access or reference repair, and do not silently or without that approval substitute another checkout, runner, cached rules, or partial local rules.
+Read `{{FRAMEWORK_ROOT}}/runtime/operative_charter.md` before acting. It is the always-on operative charter.
+
+<!-- mpa-entrypoint-contract: entrypoint-recovery-guard-v2 -->
+After loading the operative charter and before loading `AGENT_PROJECT.md`, `STATEMENT_OF_WORK.md`, or project state, check for any member of the closed transaction-control set in the project root (the directory containing this entrypoint): `.mpa-bootstrap-recovery.json`, `.mpa-bootstrap.lock`, or `.mpa-bootstrap-recovery.tmp`. If any exists, stop ordinary project work and do not load generated project authority or state. Permit only bounded read-only recovery-status inspection through the selected framework's `scripts/project_refresh.py inspect` route and, only when that inspection reports a permitted recovery action and exact transaction ID, recovery through its `recover --action rollback|finalize --approve-transaction-id <transaction-id>` route. Invoke those routes only through a runner already supplied by the runtime or operator without reading generated project authority; if no such runner is available or inspection does not identify a permitted recovery action, report the recovery blocker and await direction. Do not edit or delete any transaction-control artifact manually.
+
+# Project Contract
+
+<!-- mpa-entrypoint-contract: entrypoint-project-contract-authority-v1 -->
+Read `AGENT_PROJECT.md` before acting. It is the compact runtime project contract whose governing project terms are distilled from `STATEMENT_OF_WORK.md`; its model-owned framework-reference binding is non-authoritative lifecycle data.
+
+Consult `STATEMENT_OF_WORK.md` only when interpreting SOW terms, resolving ambiguity, or revising the governing project terms projected into `AGENT_PROJECT.md`.
+After compaction, restart, or handoff, reload project files from disk; summaries and memory do not override them.
+If a governing project term in `AGENT_PROJECT.md` conflicts with `STATEMENT_OF_WORK.md`, the SOW governs interpretation. Stop relying on the conflicting term and diagnose the recorded preimage. An otherwise verified complete current-format retained-input/receipt pair with an intact recorded preimage may revise retained or candidate input through an exact approved refresh plan; invalid managed-file preimage requires a separately reviewed manual correction. Never hand-edit the generated file.
+
+# Project State
+
+<!-- mpa-entrypoint-contract: entrypoint-state-gated-loading-v1 -->
+Apply Article 5 of `{{FRAMEWORK_ROOT}}/runtime/operative_charter.md` to project state. Resolve every bare project-state filename in that article relative to the directory containing the rendered `AGENT_PROJECT.md`; current User scope, privacy, and approval limits still govern optional-state access.
+
+<!-- mpa-entrypoint-contract: entrypoint-routing-after-state-v1 -->
+Consult `{{FRAMEWORK_ROOT}}/master_service_agreement.md` only when interpreting framework rule text, resolving ambiguity, or revising the framework itself.
+When the workflow is known and a compact runtime module exists, load `{{FRAMEWORK_ROOT}}/runtime/task_modules/<workflow>.md` first. If the applicable procedure is unclear, consult `{{FRAMEWORK_ROOT}}/task_orders/README.md` and load only the matching Task Order.
+Native skills or plugins may route frequent workflows, but framework instructions remain in the framework files referenced here.
+
+# Common Practice Guide Shortcuts
+
+Open Practice Guides only when the task matches. Do not import them by default into the always-on context.
+
+- SEO work: `{{FRAMEWORK_ROOT}}/practice_guides/seo.md`
+- Security audit or risky review work: `{{FRAMEWORK_ROOT}}/practice_guides/security_audit.md`
+- Prompt, agent entrypoint, tool policy, skill, automation, or long-running workflow changes: `{{FRAMEWORK_ROOT}}/practice_guides/prompt_agent_quality.md`
+- Prompt injection, untrusted content, agentic retrieval, tool/MCP/connector, or persistent-memory workflows: `{{FRAMEWORK_ROOT}}/practice_guides/prompt_injection_review.md`
+
+For other domains, use `{{FRAMEWORK_ROOT}}/practice_guides/risk_routing.md`, `{{FRAMEWORK_ROOT}}/scripts/recommend_stack.py`, or the selected Task Order to choose additional guides.

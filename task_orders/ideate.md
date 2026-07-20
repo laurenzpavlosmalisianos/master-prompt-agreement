@@ -2,9 +2,13 @@ Task Order — Structured Ideation
 
 Objective
 
-Generate and evaluate solution approaches for a problem using epistemic rigor (MSA 2.5). Produce multiple competing hypotheses, check for reasoning biases, and deliver a ranked recommendation with explicit confidence levels.
+Generate and evaluate solution approaches for a problem using epistemic rigor. Produce multiple competing hypotheses, check for reasoning biases, and deliver a ranked recommendation with explicit confidence levels.
 
 Procedure
+
+0. Load Project Boundary
+
+Read `AGENT_PROJECT.md` for active constraints, approval boundaries, and project facts. Consult `STATEMENT_OF_WORK.md`, `TODO.md`, `DECISIONS.md`, or `PRECEDENTS.md` when authority, current state, durable decisions, or recorded triggers can affect the recommendation.
 
 1. Problem Decomposition
 
@@ -15,18 +19,20 @@ State clearly:
 
 2. Hypothesis Generation
 
-Generate at least three competing approaches. For each approach, describe the mechanism (how it solves the problem) and its key trade-offs.
+Generate two or three materially distinct viable approaches by default. Use one approach when evidence shows only one viable option; use more only when the problem materially benefits from more breadth. For each approach, describe the mechanism and its key trade-offs.
 
 Do not evaluate during generation. Separate divergent and convergent thinking. The goal is breadth before depth.
 
 3. Evidence Gathering
+
+<!-- mpa-full-order-obligation: IDEATE-escalate-source-or-safety -->
 
 For each approach:
 - What evidence supports it? (Prior art, documentation, empirical data, known patterns.)
 - What evidence contradicts it? (Known failure modes, incompatibilities, resource costs.)
 - What is unknown? (Untested assumptions, missing data.)
 
-Prefer primary sources over secondary (MSA 4.8). Flag evidence gaps explicitly.
+Prefer primary sources over secondary. Flag evidence gaps explicitly.
 
 4. Bias Check
 
@@ -36,7 +42,7 @@ Before ranking, verify:
 - Availability bias — Am I overweighting recent or memorable examples?
 - Sunk cost — Am I favoring an approach because of prior investment in similar solutions?
 
-If a bias is detected, re-evaluate the affected approach.
+Report disconfirming evidence and any bias that changed the ranking. Omit ceremonial "no bias detected" narration when no bias materially affected the ranking.
 
 5. Confidence Assessment
 
@@ -55,14 +61,20 @@ If strongest elements span multiple approaches: combine them into a hybrid recom
 
 Acceptance Criteria
 
-- At least three approaches considered.
+- Two or three materially distinct viable approaches considered by default, or the single viable approach is justified.
 - Evidence cited for and against each approach.
-- Bias check performed with explicit findings (including "no bias detected" with reasoning).
+- Bias check performed when it affects ranking, with material findings reported.
 - Confidence levels stated with justification.
 - Recommendation justified against the evaluation criteria defined in step 1.
 
 Notes
 
 - This task order is for open-ended problem solving. For evaluating an existing idea or external proposal, use task_orders/evaluate.md instead.
+- After an approach is chosen, classify its ownership. Use
+  `task_orders/plan.md` or `practice_guides/implementation_planning.md` only for
+  separately authorized downstream or project-local execution. Route a shared
+  or reusable framework-product candidate to
+  `task_orders/framework_semantic_audit.md`; a chosen direction does not bypass
+  semantic ownership review or authorize implementation.
 - When the problem is well-constrained and only one viable approach exists, say so. Do not force three alternatives when they do not exist.
 - The value is in the reasoning process, not the format. Adapt the structure to the problem's complexity.

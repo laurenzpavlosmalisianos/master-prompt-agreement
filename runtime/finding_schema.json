@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "fields": {
+    "category": ["Bug", "Edge Case", "Weakness", "Standards Violation", "Security", "Performance", "Documentation", "Process"],
+    "severity": ["Critical", "High", "Medium", "Low", "Not applicable"],
+    "gate_effect": ["Blocks acceptance", "Blocks release or deploy", "Follow-up required", "Advisory", "Accepted risk", "No gate effect"],
+    "evidence_status": ["Confirmed", "Reproduced", "Source-backed", "Unresolved hypothesis"],
+    "confidence": ["High", "Medium", "Low"],
+    "verification_state": ["Verified", "Partially verified", "Not run", "Not applicable"],
+    "disposition": ["Finding", "Open probe", "Candidate follow-up", "Rejected", "Accepted exception", "False positive"],
+    "tool_output_classification": ["Not tool output", "Confirmed defect", "Accepted project exception", "Current-tooling false positive", "Stale source, project, or tooling issue", "Environment or tool limitation", "Unresolved question"]
+  },
+  "conditional_constraints": [
+    {
+      "when": {"evidence_status": "Unresolved hypothesis"},
+      "then": {"disposition": ["Open probe", "Candidate follow-up"]}
+    },
+    {
+      "when": {"disposition": "Finding"},
+      "then": {"evidence_status": ["Confirmed", "Reproduced", "Source-backed"], "severity": ["Critical", "High", "Medium", "Low"], "gate_effect": ["Blocks acceptance", "Blocks release or deploy", "Follow-up required", "Advisory"]}
+    },
+    {
+      "when": {"disposition": "Accepted exception"},
+      "then": {"evidence_status": ["Confirmed", "Reproduced", "Source-backed"], "severity": ["Critical", "High", "Medium", "Low"], "gate_effect": ["Accepted risk"]}
+    },
+    {
+      "when": {"disposition": ["False positive", "Rejected"]},
+      "then": {"severity": ["Not applicable"], "gate_effect": ["No gate effect"]}
+    }
+  ],
+  "required_report_fields": [
+    "file",
+    "line",
+    "category",
+    "severity",
+    "gate_effect",
+    "evidence_status",
+    "confidence",
+    "verification_state",
+    "disposition",
+    "tool_output_classification",
+    "probe_or_reproduction",
+    "expected_result",
+    "actual_result",
+    "proposed_fix_or_test",
+    "residual_risk"
+  ]
+}

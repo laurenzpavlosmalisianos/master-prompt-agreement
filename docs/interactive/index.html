@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta
+      name="description"
+      content="Human-facing visual guide to the Master Prompt Agreement framework architecture."
+    >
+    <title>Master Prompt Agreement Interactive Guide</title>
+    <link rel="stylesheet" href="styles.css">
+    <script defer src="app.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#content">Skip to content</a>
+    <header class="site-header">
+      <nav aria-label="Documentation">
+        <a href="../README.md">Docs index</a>
+        <a href="../../README.md">Repository README</a>
+        <a href="../../ARCHITECTURE.md">Architecture</a>
+      </nav>
+      <div class="hero">
+        <p class="eyebrow">Human-facing visualization</p>
+        <h1>Master Prompt Agreement</h1>
+        <p>
+          An agent-first framework for authority, scope, evidence, verification,
+          and continuous improvement.
+        </p>
+      </div>
+    </header>
+
+    <div class="doc-shell">
+      <aside class="toc-sidebar" aria-label="Interactive guide contents">
+        <details class="toc-details" open>
+          <summary>Contents</summary>
+          <nav class="toc-nav" aria-label="Section links">
+            <a href="#source-boundary">Source boundary</a>
+            <a href="#runtime-loop-section">Runtime and refresh routes</a>
+            <a href="#visual-model">Visual model</a>
+            <a href="#canonical-surfaces">Canonical surfaces</a>
+            <a href="#quality-gates">Quality gates</a>
+            <a href="#reader-path-section">Reader path</a>
+          </nav>
+        </details>
+      </aside>
+
+      <main id="content">
+      <section id="source-boundary" class="notice" aria-labelledby="source-boundary-title">
+        <h2 id="source-boundary-title">Source-Of-Truth Boundary</h2>
+        <p>
+          This page illustrates concepts for humans. Agents should rely on the
+          canonical markdown files, task orders, practice guides, runtime files,
+          and deterministic checks linked from this guide.
+        </p>
+        <noscript>
+          <p>
+            JavaScript is disabled. Use the links in the header to read the
+            canonical markdown documentation.
+          </p>
+        </noscript>
+      </section>
+
+      <section id="runtime-loop-section" class="panel" aria-labelledby="runtime-loop-title">
+        <div class="section-heading">
+          <p class="eyebrow">Architecture</p>
+          <h2 id="runtime-loop-title">Runtime And Lifecycle Routes</h2>
+        </div>
+        <h3>Ordinary task route</h3>
+        <ol id="runtime-loop" class="runtime-loop" aria-label="Ordinary runtime stages"></ol>
+        <h3>Existing-instance lifecycle routes</h3>
+        <p>
+          Instances with a verified complete current-format identity pair and
+          intact recorded preimage may enter reviewed refresh planning; a
+          successful apply must then reach exact-current acceptance. Closed
+          transaction controls instead permit only exact-ID recovery, while a
+          verified approved plan may permit a bounded post-success restore.
+          Ordinary project work does not enter any of these routes.
+        </p>
+        <ol id="refresh-loop" class="runtime-loop" aria-label="Existing-instance lifecycle stages"></ol>
+      </section>
+
+      <section id="visual-model" class="panel" aria-labelledby="visual-model-title">
+        <div class="section-heading">
+          <p class="eyebrow">Interactive Diagram</p>
+          <h2 id="visual-model-title">Framework Movement</h2>
+        </div>
+        <div class="visual-grid">
+          <div id="architecture-diagram" class="diagram-shell"></div>
+          <div>
+            <div
+              id="diagram-controls"
+              class="diagram-controls"
+              role="group"
+              aria-label="Diagram focus controls"
+            ></div>
+            <p id="diagram-caption" class="diagram-caption" aria-live="polite"></p>
+          </div>
+        </div>
+      </section>
+
+      <section id="canonical-surfaces" class="panel split" aria-labelledby="file-map-title">
+        <div>
+          <div class="section-heading">
+            <p class="eyebrow">Framework Map</p>
+            <h2 id="file-map-title">Canonical Surfaces</h2>
+          </div>
+          <p>
+            Use the controls to inspect where a concept lives. Each item links
+            back to markdown or framework files that remain authoritative.
+          </p>
+        </div>
+        <div class="map-shell">
+          <div class="tabs" role="tablist" aria-label="Framework surface groups"></div>
+          <div id="surface-panel" class="surface-panel" role="tabpanel" tabindex="0"></div>
+        </div>
+      </section>
+
+      <section id="quality-gates" class="panel" aria-labelledby="quality-title">
+        <div class="section-heading">
+          <p class="eyebrow">Quality Gates</p>
+          <h2 id="quality-title">Verification Does Not Replace Judgment</h2>
+        </div>
+        <div id="quality-grid" class="quality-grid"></div>
+      </section>
+
+      <section id="reader-path-section" class="panel" aria-labelledby="reader-path-title">
+        <div class="section-heading">
+          <p class="eyebrow">Reader Path</p>
+          <h2 id="reader-path-title">Where To Go Next</h2>
+        </div>
+        <div id="reader-path" class="reader-path"></div>
+      </section>
+      </main>
+    </div>
+  </body>
+</html>

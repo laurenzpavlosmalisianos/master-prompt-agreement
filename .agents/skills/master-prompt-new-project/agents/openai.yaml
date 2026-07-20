@@ -1,0 +1,4 @@
+interface:
+  display_name: "MPA New Project"
+  short_description: "Bootstrap a downstream project with MPA"
+  default_prompt: "Use this skill to set up a downstream project with the Master Prompt Agreement framework. Ask me for the target project path and runtime if they are not clear."

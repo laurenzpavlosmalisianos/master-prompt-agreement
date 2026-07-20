@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "defaults": {
+    "execution_posture": "ask-when-ambiguous",
+    "dependency_posture": "justify-external-dependencies",
+    "source_originality_policy": "Independent implementation for external inspiration; external code or assets only after approval and applicable license, attribution, and notice review.",
+    "source_freshness_policy": "Verify current primary sources before recording or using latest/current stable/unpinned versions; use version-scoped docs for pinned versions; use user-supplied material when network acquisition is not approved; check project-approved and framework-approved source registries before duplicate research.",
+    "version_control_policy": "Use an existing repository when present; do not initialize or materially change version control without explicit approval.",
+    "backout_policy": "Prefer the smallest reversible fix; destructive reset, data, migration, deployment, or history operations require explicit approval.",
+    "include_findings": false,
+    "include_framework_feedback": false,
+    "include_reviewer_lane_feedback": false,
+    "include_precedents": false
+  }
+}
