@@ -1,0 +1,140 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-labelledby="title desc">
+  <title id="title">Reviewer lane evidence and feedback lifecycle</title>
+  <desc id="desc">A two-phase diagram. During live review, a coordinator plan routes bounded reviewers to candidate findings, which the coordinator validates against evidence. At closeout, used, skipped, accepted, rejected, and lane-fit outcomes become structured markers. When a reviewer feedback file already exists as receipt-declared mutable state, the markers pass narrowly scoped structural linting into that non-authoritative project-local record. Otherwise, the markers remain in the ordinary closeout report and no optional file is created ad hoc. Raw reviewer reports follow the declared lane retention rule; retained reports are audit evidence rather than the primary feedback path.</desc>
+  <defs>
+    <marker id="arrow-blue" viewBox="0 0 16 16" markerWidth="14" markerHeight="14" refX="14" refY="8" orient="auto" markerUnits="userSpaceOnUse">
+      <path class="arrow-blue-fill" d="M1,2 L15,8 L1,14 Z"/>
+    </marker>
+    <marker id="arrow-green" viewBox="0 0 16 16" markerWidth="14" markerHeight="14" refX="14" refY="8" orient="auto" markerUnits="userSpaceOnUse">
+      <path class="arrow-green-fill" d="M1,2 L15,8 L1,14 Z"/>
+    </marker>
+    <marker id="arrow-red" viewBox="0 0 16 16" markerWidth="14" markerHeight="14" refX="14" refY="8" orient="auto" markerUnits="userSpaceOnUse">
+      <path class="arrow-red-fill" d="M1,2 L15,8 L1,14 Z"/>
+    </marker>
+    <style>
+      .bg { fill: #f6f8fb; }
+      .title { font: 700 34px Arial, Helvetica, sans-serif; fill: #0f172a; }
+      .subtitle { font: 400 17px Arial, Helvetica, sans-serif; fill: #334155; }
+      .panel { fill: #ffffff; stroke: #64748b; stroke-width: 2; }
+      .plan, .trigger { fill: #eff6ff; stroke: #2563eb; stroke-width: 2.5; }
+      .lane { fill: #ecfdf5; stroke: #047857; stroke-width: 2.5; }
+      .finding, .marker { fill: #fff7ed; stroke: #c2410c; stroke-width: 2.5; }
+      .validation, .lint { fill: #fefce8; stroke: #a16207; stroke-width: 2.5; }
+      .record { fill: #f5f3ff; stroke: #7c3aed; stroke-width: 2.5; }
+      .report { fill: #f1f5f9; stroke: #64748b; stroke-width: 2.5; }
+      .audit { fill: #fff1f2; stroke: #be123c; stroke-width: 2.5; }
+      .chip { fill: #ffffff; stroke: #64748b; stroke-width: 1.5; }
+      .phase { font: 700 16px Arial, Helvetica, sans-serif; fill: #1d4ed8; letter-spacing: 1.1px; }
+      .section-title { font: 700 20px Arial, Helvetica, sans-serif; fill: #0f172a; }
+      .outcome-title { font: 700 18px Arial, Helvetica, sans-serif; fill: #0f172a; }
+      .label { font: 700 17px Arial, Helvetica, sans-serif; fill: #111827; }
+      .body { font: 400 16px Arial, Helvetica, sans-serif; fill: #334155; }
+      .tiny { font: 400 16px Arial, Helvetica, sans-serif; fill: #475569; }
+      .mono { font: 700 16px "SFMono-Regular", Consolas, Menlo, monospace; fill: #111827; }
+      .small-bold { font: 700 16px Arial, Helvetica, sans-serif; fill: #1d4ed8; }
+      .success-label { fill: #047857; }
+      .blue-line { stroke: #1d4ed8; stroke-width: 2.8; fill: none; marker-end: url(#arrow-blue); }
+      .green-line { stroke: #047857; stroke-width: 2.8; fill: none; marker-end: url(#arrow-green); }
+      .red-line { stroke: #be123c; stroke-width: 2.6; fill: none; stroke-dasharray: 7 7; marker-end: url(#arrow-red); }
+      .arrow-blue-fill { fill: #1d4ed8; }
+      .arrow-green-fill { fill: #047857; }
+      .arrow-red-fill { fill: #be123c; }
+
+      @media (forced-colors: active) {
+        .bg, .panel, .plan, .trigger, .lane, .finding, .marker, .validation, .lint, .record, .report, .audit, .chip { fill: Canvas; stroke: CanvasText; }
+        .title, .subtitle, .phase, .section-title, .outcome-title, .label, .body, .tiny, .mono, .small-bold, .success-label { fill: CanvasText; }
+        .blue-line, .green-line, .red-line { stroke: CanvasText; }
+        .arrow-blue-fill, .arrow-green-fill, .arrow-red-fill { fill: CanvasText; }
+      }
+    </style>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1280" height="720"/>
+  <text class="title" x="56" y="60">Reviewer-Lane Evidence Lifecycle</text>
+  <text class="subtitle" x="56" y="90">Bounded review informs a coordinator; closeout records lane fit without turning reviewer output into authority.</text>
+
+  <rect class="panel" x="48" y="112" width="1184" height="568" rx="16"/>
+  <text class="phase" x="72" y="146">LIVE REVIEW</text>
+
+  <rect class="plan" x="72" y="160" width="230" height="144" rx="11"/>
+  <text class="section-title" x="96" y="192">Coordinator Plan</text>
+  <text class="body" x="96" y="223">bounded question</text>
+  <text class="body" x="96" y="247">approved evidence packet</text>
+  <text class="body" x="96" y="271">clear output schema</text>
+
+  <rect class="lane" x="360" y="160" width="230" height="144" rx="11"/>
+  <text class="section-title" x="384" y="192">Bounded Reviewers</text>
+  <text class="body" x="384" y="223">approved reviewer lanes</text>
+  <text class="body" x="384" y="247">approved scoped evidence</text>
+  <text class="body" x="384" y="271">advisory output only</text>
+
+  <rect class="finding" x="648" y="160" width="230" height="144" rx="11"/>
+  <text class="section-title" x="672" y="192">Candidate Findings</text>
+  <text class="body" x="672" y="223">claims + evidence</text>
+  <text class="body" x="672" y="247">uncertainty + severity</text>
+  <text class="body" x="672" y="271">not yet accepted as fact</text>
+
+  <rect class="validation" x="936" y="160" width="272" height="144" rx="11"/>
+  <text class="section-title" x="960" y="190">Coordinator Evidence</text>
+  <text class="section-title" x="960" y="214">Validation</text>
+  <text class="body" x="960" y="247">check files, sources, and</text>
+  <text class="body" x="960" y="271">deterministic evidence</text>
+
+  <path class="blue-line" d="M302 232 H346"/>
+  <text class="small-bold" x="305" y="218">route</text>
+  <path class="blue-line" d="M590 232 H634"/>
+  <text class="small-bold" x="592" y="218">report</text>
+  <path class="blue-line" d="M878 232 H922"/>
+  <text class="small-bold" x="881" y="218">verify</text>
+
+  <path class="red-line" d="M475 304 V320"/>
+  <rect class="audit" x="360" y="324" width="518" height="68" rx="9"/>
+  <text class="label" x="384" y="350">Raw reports follow each lane's declared retention rule.</text>
+  <text class="body" x="384" y="376">Retained reports are audit evidence, not the feedback path.</text>
+
+  <text class="phase" x="72" y="426">CLOSEOUT — AFTER LIVE REVIEW OR A PLANNED-LANE SKIP</text>
+
+  <rect class="trigger" x="72" y="446" width="200" height="194" rx="11"/>
+  <text class="section-title" x="96" y="478">Outcome Trigger</text>
+  <text class="body" x="96" y="510">lane used or skipped</text>
+  <text class="body" x="96" y="534">finding accepted or</text>
+  <text class="body" x="96" y="558">rejected</text>
+  <text class="body" x="96" y="582">lane-fit observation</text>
+  <text class="tiny" x="96" y="614">No VCS hook required.</text>
+
+  <rect class="marker" x="302" y="446" width="330" height="194" rx="11"/>
+  <text class="section-title" x="322" y="478">Structured Markers</text>
+  <rect class="chip" x="322" y="490" width="290" height="26" rx="5"/>
+  <text class="mono" x="334" y="509">REVIEWER_LANE_USED</text>
+  <rect class="chip" x="322" y="520" width="290" height="26" rx="5"/>
+  <text class="mono" x="334" y="539">REVIEWER_LANE_SKIPPED</text>
+  <rect class="chip" x="322" y="550" width="290" height="26" rx="5"/>
+  <text class="mono" x="334" y="569">REVIEWER_FINDING_ACCEPTED</text>
+  <rect class="chip" x="322" y="580" width="290" height="26" rx="5"/>
+  <text class="mono" x="334" y="599">REVIEWER_FINDING_REJECTED</text>
+  <rect class="chip" x="322" y="610" width="290" height="24" rx="5"/>
+  <text class="mono" x="334" y="628">LANE_FIT_OBSERVATION</text>
+
+  <rect class="lint" x="662" y="446" width="180" height="194" rx="11"/>
+  <text class="section-title" x="684" y="478">Feedback File</text>
+  <text class="section-title" x="684" y="502">Maintained?</text>
+  <text class="body" x="684" y="540">receipt-declared</text>
+  <text class="body" x="684" y="565">mutable state only</text>
+
+  <rect class="record" x="872" y="446" width="336" height="86" rx="11"/>
+  <text class="outcome-title" x="896" y="476">Receipt-Declared Feedback File</text>
+  <text class="body" x="896" y="508">structural linter → local record</text>
+
+  <rect class="report" x="872" y="550" width="336" height="90" rx="11"/>
+  <text class="outcome-title" x="896" y="580">Ordinary Closeout Report</text>
+  <text class="body" x="896" y="612">retain • do not create optional file</text>
+
+  <path class="blue-line" d="M272 543 H288"/>
+  <path class="blue-line" d="M632 543 H648"/>
+  <path class="green-line" d="M842 489 H858"/>
+  <text class="small-bold success-label" x="844" y="476">yes</text>
+  <path class="blue-line" d="M842 595 H858"/>
+  <text class="small-bold" x="844" y="582">no</text>
+
+  <text class="tiny" x="72" y="666">Feedback-file lint establishes record validity only; it does not prove that a reviewer claim is true.</text>
+</svg>

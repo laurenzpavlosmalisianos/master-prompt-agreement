@@ -1,0 +1,17 @@
+---
+name: security-audit
+description: Use for security review of diffs, code, configs, workflows, agent systems, MCP/connectors, skills, plugins, and memory boundaries. This skill is a thin integration over the canonical framework security audit Practice Guide.
+---
+
+# Security Audit
+
+<!-- mpa-wrapper-contract: entrypoint-recovery-project-contract-v1 -->
+Run this wrapper only after the generated runtime entrypoint has confirmed that its recovery gate is clear and loaded the project contract in the current agent context. Otherwise, stop this wrapper and return to that entrypoint or its recovery route.
+
+Ensure `{{FRAMEWORK_ROOT}}/runtime/operative_charter.md` and project `AGENT_PROJECT.md` are loaded. Consult project `STATEMENT_OF_WORK.md` when constraints, approval boundaries, or acquisition boundaries matter. Then read `{{FRAMEWORK_ROOT}}/practice_guides/security_audit.md`; it is the source of truth for this workflow.
+
+When current standards matter, also read:
+
+- project `SOURCE_PACKS.md` or `SOURCE_UPDATE.md` when present
+
+Use the scope, evidence rules, and output structure owned by the Practice Guide. This wrapper grants no additional authority and defines no independent review methodology.

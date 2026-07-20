@@ -1,0 +1,825 @@
+{
+  "schema_version": 4,
+  "msa_version": "1.0.18",
+  "reviewed_on": "2026-07-18",
+  "allowed_dispositions": [
+    "projected",
+    "task-scoped",
+    "path-scoped",
+    "tool-enforced",
+    "canonical-only"
+  ],
+  "clauses": [
+    {
+      "source": "Article 1 Definitions",
+      "dispositions": [
+        "canonical-only"
+      ],
+      "operative_home": [
+        "master_service_agreement.md"
+      ],
+      "notes": "Canonical precision only. Do not load by default.",
+      "source_clause_ids": [
+        "Article 1",
+        "1.1",
+        "1.2",
+        "1.3",
+        "1.4",
+        "1.5",
+        "1.6",
+        "1.7",
+        "1.8",
+        "1.9",
+        "1.10",
+        "1.11",
+        "1.12",
+        "1.13",
+        "1.14",
+        "1.15",
+        "1.16",
+        "1.17",
+        "1.18",
+        "1.19",
+        "1.20",
+        "1.21",
+        "1.22",
+        "1.23",
+        "1.24",
+        "1.25",
+        "1.26",
+        "1.27",
+        "1.28",
+        "1.29",
+        "1.30",
+        "1.31"
+      ]
+    },
+    {
+      "source": "2.1 Think Before Coding",
+      "dispositions": [
+        "projected"
+      ],
+      "operative_home": [
+        "runtime/operative_charter.md"
+      ],
+      "notes": "Core truthfulness, ambiguity, and non-omission behavior.",
+      "source_clause_ids": [
+        "Article 2",
+        "2.1",
+        "2.1.1",
+        "2.1.2",
+        "2.1.3",
+        "2.1.4",
+        "2.1.5",
+        "2.1.6",
+        "2.1.7",
+        "2.1.8"
+      ],
+      "projection_id": "msa-2-1",
+      "target_markers": {
+        "runtime/operative_charter.md": [
+          "msa-2-1"
+        ]
+      }
+    },
+    {
+      "source": "2.2 Simplicity First",
+      "dispositions": [
+        "projected"
+      ],
+      "operative_home": [
+        "runtime/operative_charter.md"
+      ],
+      "notes": "Fundamental coding posture.",
+      "source_clause_ids": [
+        "2.2",
+        "2.2.1",
+        "2.2.2",
+        "2.2.3",
+        "2.2.4",
+        "2.2.5",
+        "2.2.6"
+      ],
+      "projection_id": "msa-2-2",
+      "target_markers": {
+        "runtime/operative_charter.md": [
+          "msa-2-2"
+        ]
+      }
+    },
+    {
+      "source": "2.3 Surgical Changes",
+      "dispositions": [
+        "projected"
+      ],
+      "operative_home": [
+        "runtime/operative_charter.md"
+      ],
+      "notes": "Change-scope discipline.",
+      "source_clause_ids": [
+        "2.3",
+        "2.3.1",
+        "2.3.2",
+        "2.3.3",
+        "2.3.4",
+        "2.3.5",
+        "2.3.6",
+        "2.3.7",
+        "2.3.8"
+      ],
+      "projection_id": "msa-2-3",
+      "target_markers": {
+        "runtime/operative_charter.md": [
+          "msa-2-3"
+        ]
+      }
+    },
+    {
+      "source": "2.4 Goal-Driven Execution",
+      "dispositions": [
+        "projected",
+        "task-scoped"
+      ],
+      "operative_home": [
+        "runtime/operative_charter.md",
+        "practice_guides/task_contract.md"
+      ],
+      "notes": "Always-on verification plus scoped task framing.",
+      "source_clause_ids": [
+        "2.4",
+        "2.4.1",
+        "2.4.2",
+        "2.4.3",
+        "2.4.4",
+        "2.4.5"
+      ],
+      "projection_id": "msa-2-4",
+      "target_markers": {
+        "runtime/operative_charter.md": [
+          "msa-2-4"
+        ],
+        "practice_guides/task_contract.md": [
+          "msa-2-4"
+        ]
+      }
+    },
+    {
+      "source": "2.5 Epistemic Standards",
+      "dispositions": [
+        "projected",
+        "task-scoped"
+      ],
+      "operative_home": [
+        "runtime/operative_charter.md",
+        "practice_guides/source_grounded_research.md",
+        "practice_guides/security_audit.md"
+      ],
+      "notes": "Short reasoning rules stay always-on. Deeper methods load on demand.",
+      "source_clause_ids": [
+        "2.5",
+        "2.5.1",
+        "2.5.2",
+        "2.5.3",
+        "2.5.4",
+        "2.5.5",
+        "2.5.6",
+        "2.5.7",
+        "2.5.8",
+        "2.5.9"
+      ],
+      "projection_id": "msa-2-5",
+      "target_markers": {
+        "runtime/operative_charter.md": [
+          "msa-2-5"
+        ],
+        "practice_guides/source_grounded_research.md": [
+          "msa-2-5"
+        ]
+      }
+    },
+    {
+      "source": "2.6 Decision Authority",
+      "dispositions": [
+        "projected",
+        "canonical-only"
+      ],
+      "operative_home": [
+        "runtime/operative_charter.md",
+        "runtime/project_template.md"
+      ],
+      "notes": "Short default in core, scoped overrides in project contract.",
+      "source_clause_ids": [
+        "2.6",
+        "2.6.1",
+        "2.6.2",
+        "2.6.3",
+        "2.6.4",
+        "2.6.5",
+        "2.6.6",
+        "2.6.7"
+      ],
+      "projection_id": "msa-2-6",
+      "target_markers": {
+        "runtime/operative_charter.md": [
+          "msa-2-6"
+        ],
+        "runtime/project_template.md": [
+          "msa-2-6"
+        ]
+      }
+    },
+    {
+      "source": "Article 3 Dispute Resolution",
+      "dispositions": [
+        "task-scoped",
+        "canonical-only"
+      ],
+      "operative_home": [
+        "task_orders/independent_assessment.md",
+        "task_orders/arbitrate.md",
+        "runtime/task_modules/arbitrate.md"
+      ],
+      "notes": "Load for independent assessment or arbitration; default quorum is a strict majority of configured seats returning valid, in-scope, verifier-accepted responses, while the recommendation threshold is a strict majority of configured seats supporting the same option. Panel output is a recommendation unless ratified or expressly binding by SOW. Blind independent arbitration remains the default; post-blind review tests evidence and remand packets, not consensus.",
+      "source_clause_ids": [
+        "Article 3",
+        "3.G.1",
+        "3.G.2",
+        "3.G.3",
+        "3.G.4",
+        "3.G.5",
+        "3.0.1",
+        "3.0.2",
+        "3.0.3",
+        "3.0.4",
+        "3.0.5",
+        "3.1.1",
+        "3.1.2",
+        "3.2.1",
+        "3.2.2",
+        "3.2.3",
+        "3.2.4",
+        "3.3.1",
+        "3.3.2",
+        "3.3.3",
+        "3.4.1",
+        "3.4.2",
+        "3.4.3",
+        "3.4.4"
+      ]
+    },
+    {
+      "source": "Article 4 Applicable Standards",
+      "dispositions": [
+        "projected",
+        "task-scoped"
+      ],
+      "operative_home": [
+        "runtime/operative_charter.md",
+        "practice_guides/source_grounded_research.md"
+      ],
+      "notes": "Keep source hierarchy and version checking close to the work.",
+      "source_clause_ids": [
+        "Article 4",
+        "4.1",
+        "4.2",
+        "4.3",
+        "4.4",
+        "4.5",
+        "4.6",
+        "4.7",
+        "4.8",
+        "4.9",
+        "4.10"
+      ],
+      "projection_id": "msa-article-4",
+      "target_markers": {
+        "runtime/operative_charter.md": [
+          "msa-article-4"
+        ]
+      }
+    },
+    {
+      "source": "Article 5 Acceptance and Verification",
+      "dispositions": [
+        "projected",
+        "task-scoped"
+      ],
+      "operative_home": [
+        "runtime/operative_charter.md",
+        "runtime/project_template.md",
+        "practice_guides/task_contract.md"
+      ],
+      "notes": "Always-on verification, scoped acceptance details.",
+      "source_clause_ids": [
+        "Article 5",
+        "5.1",
+        "5.1.1",
+        "5.1.2",
+        "5.2",
+        "5.3",
+        "5.4",
+        "5.5",
+        "5.6",
+        "5.7",
+        "5.8",
+        "5.9",
+        "5.10"
+      ],
+      "projection_id": "msa-article-5",
+      "target_markers": {
+        "runtime/operative_charter.md": [
+          "msa-article-5"
+        ],
+        "runtime/project_template.md": [
+          "msa-article-5"
+        ]
+      }
+    },
+    {
+      "source": "Article 6 Session Continuity",
+      "dispositions": [
+        "projected",
+        "task-scoped"
+      ],
+      "operative_home": [
+        "runtime/operative_charter.md",
+        "runtime/project_template.md",
+        "practice_guides/prompt_injection_review.md",
+        "TODO.md",
+        "DECISIONS.md",
+        "FINDINGS.md",
+        "REVIEWER_LANE_FEEDBACK.md",
+        "FRAMEWORK_FEEDBACK.md",
+        "PRECEDENTS.md"
+      ],
+      "notes": "Project authority and state load only after the exact closed transaction-control gate is clear; core state-management behavior plus scoped persistent-memory boundary review applies afterward.",
+      "source_clause_ids": [
+        "Article 6",
+        "6.1",
+        "6.1.1",
+        "6.1.2",
+        "6.1.3",
+        "6.1.4",
+        "6.1.5",
+        "6.1.6",
+        "6.1.7",
+        "6.1.8",
+        "6.2",
+        "6.2.1",
+        "6.2.2",
+        "6.2.3",
+        "6.2.4",
+        "6.2.5",
+        "6.2.6",
+        "6.3",
+        "6.3.1",
+        "6.3.2",
+        "6.3.3",
+        "6.3.4",
+        "6.3.5",
+        "6.3.6",
+        "6.4",
+        "6.4.1",
+        "6.4.2",
+        "6.4.3",
+        "6.4.4",
+        "6.4.5",
+        "6.4.6"
+      ],
+      "projection_id": "msa-article-6",
+      "target_markers": {
+        "runtime/operative_charter.md": [
+          "msa-article-6"
+        ],
+        "runtime/project_template.md": [
+          "msa-article-6"
+        ]
+      }
+    },
+    {
+      "source": "7.1 Writing Style",
+      "dispositions": [
+        "projected"
+      ],
+      "operative_home": [
+        "runtime/operative_charter.md"
+      ],
+      "notes": "Agent communication style.",
+      "source_clause_ids": [
+        "Article 7",
+        "7.1",
+        "7.1.0",
+        "7.1.1",
+        "7.1.2",
+        "7.1.3",
+        "7.1.4"
+      ],
+      "projection_id": "msa-7-1",
+      "target_markers": {
+        "runtime/operative_charter.md": [
+          "msa-7-1"
+        ]
+      }
+    },
+    {
+      "source": "7.2 Git Workflow",
+      "dispositions": [
+        "projected",
+        "task-scoped",
+        "tool-enforced"
+      ],
+      "operative_home": [
+        "runtime/operative_charter.md",
+        "task_orders/commit.md"
+      ],
+      "notes": "Core destructive-command bans, VCS freshness disclosure, and staging discipline are projected or tool-enforced; the full commit workflow, including recent-history inspection, is task-scoped.",
+      "source_clause_ids": [
+        "7.2",
+        "7.2.1",
+        "7.2.2",
+        "7.2.3",
+        "7.2.4",
+        "7.2.5",
+        "7.2.6",
+        "7.2.7",
+        "7.2.8",
+        "7.2.9",
+        "7.2.10",
+        "7.2.11",
+        "7.2.12",
+        "7.2.13",
+        "7.2.14",
+        "7.2.15",
+        "7.2.16"
+      ],
+      "projection_id": "msa-7-2",
+      "target_markers": {
+        "runtime/operative_charter.md": [
+          "msa-7-2"
+        ]
+      }
+    },
+    {
+      "source": "8.1 Universal Code Review Checklist",
+      "dispositions": [
+        "projected",
+        "task-scoped"
+      ],
+      "operative_home": [
+        "runtime/operative_charter.md",
+        "practice_guides/dependency_risk.md",
+        "practice_guides/backend_database_security.md",
+        "practice_guides/secure_development.md",
+        "practice_guides/security_audit.md"
+      ],
+      "notes": "Universal checks stay in core. Specialized dependency, backend-database, secure-development, and audit checks route to Practice Guides.",
+      "source_clause_ids": [
+        "Article 8",
+        "8.1",
+        "8.1.1",
+        "8.1.2",
+        "8.1.3",
+        "8.1.4",
+        "8.1.5",
+        "8.1.6",
+        "8.1.7",
+        "8.1.8",
+        "8.1.9",
+        "8.1.10",
+        "8.1.11",
+        "8.1.12",
+        "8.1.13"
+      ],
+      "projection_id": "msa-8-1",
+      "target_markers": {
+        "runtime/operative_charter.md": [
+          "msa-8-1"
+        ]
+      }
+    },
+    {
+      "source": "8.2 Feedback Loop",
+      "dispositions": [
+        "task-scoped"
+      ],
+      "operative_home": [
+        "task_orders/insights.md",
+        "task_orders/framework_improvement.md",
+        "FINDINGS.md",
+        "FRAMEWORK_FEEDBACK.md",
+        "REVIEWER_LANE_FEEDBACK.md"
+      ],
+      "notes": "Decision-triggered only: User request, an explicit retrospective checkpoint in the governing project contract, or material recurring evidence requiring a concrete framework decision. Ordinary completion is not a trigger; use proportionate evidence without discarding useful objective or real-work patterns.",
+      "source_clause_ids": [
+        "8.2",
+        "8.2.1",
+        "8.2.2"
+      ]
+    },
+    {
+      "source": "8.3 Dependency Hygiene",
+      "dispositions": [
+        "task-scoped",
+        "path-scoped"
+      ],
+      "operative_home": [
+        "practice_guides/dependency_risk.md"
+      ],
+      "notes": "Load only when dependencies are touched.",
+      "source_clause_ids": [
+        "8.3",
+        "8.3.1",
+        "8.3.2",
+        "8.3.3",
+        "8.3.4",
+        "8.3.5"
+      ]
+    },
+    {
+      "source": "Article 9 Intellectual Property and Licensing Compliance",
+      "dispositions": [
+        "projected",
+        "task-scoped",
+        "canonical-only"
+      ],
+      "operative_home": [
+        "runtime/operative_charter.md",
+        "runtime/project_template.md",
+        "practice_guides/source_originality_review.md",
+        "practice_guides/dependency_risk.md"
+      ],
+      "notes": "Keep short no-copy and disclosure rules always-on. Heavier clean-room, attribution, and dependency licensing detail is scoped.",
+      "source_clause_ids": [
+        "Article 9",
+        "9.1",
+        "9.1.1",
+        "9.1.2",
+        "9.1.3",
+        "9.2",
+        "9.2.1",
+        "9.2.2",
+        "9.3",
+        "9.3.1",
+        "9.3.2",
+        "9.4",
+        "9.4.1",
+        "9.5",
+        "9.5.1",
+        "9.5.2",
+        "9.6",
+        "9.6.1",
+        "9.6.2",
+        "9.6.3"
+      ],
+      "projection_id": "msa-article-9",
+      "target_markers": {
+        "runtime/operative_charter.md": [
+          "msa-article-9"
+        ],
+        "runtime/project_template.md": [
+          "msa-article-9"
+        ]
+      }
+    },
+    {
+      "source": "Article 10 Continuous Improvement",
+      "dispositions": [
+        "task-scoped"
+      ],
+      "operative_home": [
+        "task_orders/insights.md",
+        "task_orders/framework_improvement.md",
+        "FINDINGS.md",
+        "FRAMEWORK_FEEDBACK.md",
+        "REVIEWER_LANE_FEEDBACK.md",
+        "PRECEDENTS.md"
+      ],
+      "notes": "Improvement should come from proportionate objective, real-work, comparative, or causal evidence selected for a concrete decision, not from always-on prompt text or automatic completion retrospectives.",
+      "source_clause_ids": [
+        "Article 10",
+        "10.1",
+        "10.1.1",
+        "10.1.2",
+        "10.1.3",
+        "10.1.4",
+        "10.1.5",
+        "10.1.6",
+        "10.2",
+        "10.2.1",
+        "10.3",
+        "10.3.1",
+        "10.4",
+        "10.4.1",
+        "10.4.2",
+        "10.4.3",
+        "10.4.4",
+        "10.4.5",
+        "10.4.6",
+        "10.4.7",
+        "10.4.8",
+        "10.4.9",
+        "10.4.10",
+        "10.4.11",
+        "10.4.12",
+        "10.4.13",
+        "10.4.14",
+        "10.4.15"
+      ]
+    },
+    {
+      "source": "11.1 File System",
+      "dispositions": [
+        "projected",
+        "tool-enforced"
+      ],
+      "operative_home": [
+        "runtime/operative_charter.md"
+      ],
+      "notes": "Strong candidate for runtime enforcement.",
+      "source_clause_ids": [
+        "Article 11",
+        "11.1",
+        "11.1.1",
+        "11.1.2",
+        "11.1.3"
+      ],
+      "projection_id": "msa-11-1",
+      "target_markers": {
+        "runtime/operative_charter.md": [
+          "msa-11-1"
+        ]
+      }
+    },
+    {
+      "source": "11.2 External Systems",
+      "dispositions": [
+        "projected",
+        "tool-enforced"
+      ],
+      "operative_home": [
+        "runtime/operative_charter.md"
+      ],
+      "notes": "Approval policy should be runtime-enforced when possible.",
+      "source_clause_ids": [
+        "11.2",
+        "11.2.1",
+        "11.2.2",
+        "11.2.3",
+        "11.2.4"
+      ],
+      "projection_id": "msa-11-2",
+      "target_markers": {
+        "runtime/operative_charter.md": [
+          "msa-11-2"
+        ]
+      }
+    },
+    {
+      "source": "11.3 Secrets and Credentials",
+      "dispositions": [
+        "projected"
+      ],
+      "operative_home": [
+        "runtime/operative_charter.md"
+      ],
+      "notes": "High-risk universal rule.",
+      "source_clause_ids": [
+        "11.3",
+        "11.3.1",
+        "11.3.2",
+        "11.3.3",
+        "11.3.4"
+      ],
+      "projection_id": "msa-11-3",
+      "target_markers": {
+        "runtime/operative_charter.md": [
+          "msa-11-3"
+        ]
+      }
+    },
+    {
+      "source": "11.4 Failure Handling",
+      "dispositions": [
+        "projected"
+      ],
+      "operative_home": [
+        "runtime/operative_charter.md"
+      ],
+      "notes": "Universal operational discipline.",
+      "source_clause_ids": [
+        "11.4",
+        "11.4.1",
+        "11.4.2",
+        "11.4.3",
+        "11.4.4"
+      ],
+      "projection_id": "msa-11-4",
+      "target_markers": {
+        "runtime/operative_charter.md": [
+          "msa-11-4"
+        ]
+      }
+    },
+    {
+      "source": "11.5 Untrusted Content",
+      "dispositions": [
+        "projected",
+        "task-scoped"
+      ],
+      "operative_home": [
+        "runtime/operative_charter.md",
+        "practice_guides/prompt_injection_review.md",
+        "practice_guides/source_grounded_research.md"
+      ],
+      "notes": "Keep trust-boundary reminder always-on. Load deeper analysis when relevant.",
+      "source_clause_ids": [
+        "11.5",
+        "11.5.1",
+        "11.5.2",
+        "11.5.3",
+        "11.5.4",
+        "11.5.5",
+        "11.5.6"
+      ],
+      "projection_id": "msa-11-5",
+      "target_markers": {
+        "runtime/operative_charter.md": [
+          "msa-11-5"
+        ],
+        "practice_guides/prompt_injection_review.md": [
+          "msa-11-5"
+        ]
+      }
+    },
+    {
+      "source": "11.6 Irreversible Actions",
+      "dispositions": [
+        "projected",
+        "tool-enforced"
+      ],
+      "operative_home": [
+        "runtime/operative_charter.md"
+      ],
+      "notes": "High-risk rule reinforced by approvals.",
+      "source_clause_ids": [
+        "11.6",
+        "11.6.1",
+        "11.6.2"
+      ],
+      "projection_id": "msa-11-6",
+      "target_markers": {
+        "runtime/operative_charter.md": [
+          "msa-11-6"
+        ]
+      }
+    },
+    {
+      "source": "11.7 Trust Boundaries",
+      "dispositions": [
+        "projected",
+        "task-scoped"
+      ],
+      "operative_home": [
+        "runtime/operative_charter.md",
+        "practice_guides/prompt_injection_review.md",
+        "practice_guides/backend_database_security.md",
+        "practice_guides/secure_development.md",
+        "practice_guides/security_audit.md"
+      ],
+      "notes": "Core model plus deeper backend-database, secure-development, and audit workflows.",
+      "source_clause_ids": [
+        "11.7",
+        "11.7.1",
+        "11.7.2",
+        "11.7.3",
+        "11.7.4",
+        "11.7.5"
+      ],
+      "projection_id": "msa-11-7",
+      "target_markers": {
+        "runtime/operative_charter.md": [
+          "msa-11-7"
+        ],
+        "practice_guides/prompt_injection_review.md": [
+          "msa-11-7"
+        ]
+      }
+    },
+    {
+      "source": "Article 12 Default Values",
+      "dispositions": [
+        "canonical-only",
+        "task-scoped"
+      ],
+      "operative_home": [
+        "runtime/project_template.md"
+      ],
+      "notes": "Distill only active defaults into the project contract.",
+      "source_clause_ids": [
+        "Article 12"
+      ]
+    }
+  ],
+  "msa_digest_algorithm": "sha256-v2-utf8-strict-crlf-cr-to-lf-line-rstrip-ascii-sp-htab-drop-terminal-empty-lines-single-final-lf",
+  "msa_digest_sha256": "fdf7f9d445f05f0d8fd41d8ac87141adf42ff96e2b21aaca17233d4168afc348"
+}

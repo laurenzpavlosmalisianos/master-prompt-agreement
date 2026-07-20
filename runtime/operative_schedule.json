@@ -1,0 +1,558 @@
+{
+  "schema_version": 1,
+  "purpose": "routing-table-not-doctrine",
+  "authority": "Selects Risk Levels, Evidence Scope levels, and Practice Guides. Does not override MSA, SOW, Task Orders, Practice Guides, or inspected evidence.",
+  "authority_scope": {
+    "allowed_effect": "select-runtime-routing",
+    "selects": ["standards_of_care", "evidentiary_scopes", "practice_guides"],
+    "does_not_override": [
+      "master_service_agreement",
+      "statement_of_work",
+      "task_orders",
+      "practice_guides",
+      "inspected_evidence"
+    ],
+    "grants_permission": false,
+    "grants_doctrine": false
+  },
+  "standards_of_care": [
+    {
+      "name": "fast",
+      "rank": 1,
+      "path": "runtime/standards_of_care.md",
+      "description": "Small, local, reversible, low-risk work."
+    },
+    {
+      "name": "standard",
+      "rank": 2,
+      "path": "runtime/standards_of_care.md",
+      "description": "Default implementation work with normal verification."
+    },
+    {
+      "name": "careful",
+      "rank": 3,
+      "path": "runtime/standards_of_care.md",
+      "description": "Ambiguous, multi-file, user-facing, or hard-to-reverse work."
+    },
+    {
+      "name": "adversarial",
+      "rank": 4,
+      "path": "runtime/standards_of_care.md",
+      "description": "Security-sensitive, explicitly adversarial, or trust-boundary work."
+    },
+    {
+      "name": "forensic",
+      "rank": 5,
+      "path": "runtime/standards_of_care.md",
+      "description": "Incident, compromise, data-loss, or evidence-preservation work."
+    }
+  ],
+  "evidentiary_scopes": [
+    {
+      "name": "patch",
+      "rank": 1,
+      "description": "Single patch or hunk level evidence."
+    },
+    {
+      "name": "touched-files",
+      "rank": 2,
+      "description": "Only files changed by the task or diff."
+    },
+    {
+      "name": "commit-series",
+      "rank": 3,
+      "description": "A sequence of related commits."
+    },
+    {
+      "name": "feature-slice",
+      "rank": 4,
+      "description": "The feature path across modules and files."
+    },
+    {
+      "name": "trust-boundary",
+      "rank": 5,
+      "description": "The full control path across trust or privilege boundaries."
+    },
+    {
+      "name": "repo-slice",
+      "rank": 6,
+      "description": "A broad repository section or full incident surface."
+    }
+  ],
+  "practice_guides": [
+    {
+      "name": "task_contract",
+      "path": "practice_guides/task_contract.md",
+      "category": "task-framing",
+      "trigger_flags": [
+        "ambiguous",
+        "migration",
+        "multi_file",
+        "planning"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "implementation_planning",
+      "path": "practice_guides/implementation_planning.md",
+      "category": "planning",
+      "trigger_flags": [
+        "planning"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "scheduled_automation",
+      "path": "practice_guides/scheduled_automation.md",
+      "category": "automation",
+      "trigger_flags": [
+        "scheduled"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "root_cause_investigation",
+      "path": "practice_guides/root_cause_investigation.md",
+      "category": "investigation",
+      "trigger_flags": [
+        "debugging"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "change_impact_review",
+      "path": "practice_guides/change_impact_review.md",
+      "category": "review",
+      "trigger_flags": [
+        "review",
+        "audit",
+        "impact_review"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "source_grounded_research",
+      "path": "practice_guides/source_grounded_research.md",
+      "category": "research",
+      "trigger_flags": [
+        "current_info"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "source_freshness_review",
+      "path": "practice_guides/source_freshness_review.md",
+      "category": "research",
+      "trigger_flags": [
+        "source_refresh"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "logical_spec_review",
+      "path": "practice_guides/logical_spec_review.md",
+      "category": "analysis",
+      "trigger_flags": [
+        "logic_review"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "testing_strategy_quality",
+      "path": "practice_guides/testing_strategy_quality.md",
+      "category": "verification",
+      "trigger_flags": [
+        "testing_strategy"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "data_systems_review",
+      "path": "practice_guides/data_systems_review.md",
+      "category": "architecture",
+      "trigger_flags": [
+        "data_systems"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "api_contract_security",
+      "path": "practice_guides/api_contract_security.md",
+      "category": "security",
+      "trigger_flags": [
+        "api_contract_security"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "privacy_data_handling",
+      "path": "practice_guides/privacy_data_handling.md",
+      "category": "privacy",
+      "trigger_flags": [
+        "privacy_data_handling",
+        "delegated_communication_coverage"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "delegated_communication_coverage",
+      "path": "practice_guides/delegated_communications.md",
+      "category": "communication-safety",
+      "trigger_flags": [
+        "delegated_communication_coverage"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "backend_database_security",
+      "path": "practice_guides/backend_database_security.md",
+      "category": "security",
+      "trigger_flags": [
+        "database_security"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "platform_architecture_review",
+      "path": "practice_guides/platform_architecture_review.md",
+      "category": "architecture",
+      "trigger_flags": [
+        "platform_architecture"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "kubernetes_workload_review",
+      "path": "practice_guides/kubernetes_workload_review.md",
+      "category": "platform",
+      "trigger_flags": [
+        "kubernetes_quality"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "infrastructure_as_code_review",
+      "path": "practice_guides/infrastructure_as_code_review.md",
+      "category": "infrastructure",
+      "trigger_flags": [
+        "infrastructure_as_code"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "container_image_security",
+      "path": "practice_guides/container_image_security.md",
+      "category": "container",
+      "trigger_flags": [
+        "container_image_security"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "build_pipeline_integrity",
+      "path": "practice_guides/build_pipeline_integrity.md",
+      "category": "supply-chain",
+      "trigger_flags": [
+        "build_pipeline_integrity"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "apple_container_workflow",
+      "path": "practice_guides/apple_container_workflow.md",
+      "category": "container",
+      "trigger_flags": [
+        "apple_container_workflow"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "prompt_agent_quality",
+      "path": "practice_guides/prompt_agent_quality.md",
+      "category": "agent-quality",
+      "trigger_flags": [
+        "prompt_agent_quality"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "source_originality_review",
+      "path": "practice_guides/source_originality_review.md",
+      "category": "source-provenance",
+      "trigger_flags": [
+        "source_originality",
+        "dependency_change"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "dependency_risk",
+      "path": "practice_guides/dependency_risk.md",
+      "category": "dependency",
+      "trigger_flags": [
+        "dependency_change"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "migration_safety",
+      "path": "practice_guides/migration_safety.md",
+      "category": "migration",
+      "trigger_flags": [
+        "migration"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "release_readiness",
+      "path": "practice_guides/release_readiness.md",
+      "category": "release",
+      "trigger_flags": [
+        "release"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "visual_verification",
+      "path": "practice_guides/visual_verification.md",
+      "category": "ui",
+      "trigger_flags": [
+        "visual",
+        "frontend_quality"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "video_creation_quality",
+      "path": "practice_guides/video_creation_quality.md",
+      "category": "media",
+      "trigger_flags": [
+        "video_creation_quality"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "website_frontend_quality",
+      "path": "practice_guides/website_frontend_quality.md",
+      "category": "ui",
+      "trigger_flags": [
+        "frontend_quality"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "html_quality",
+      "path": "practice_guides/html_quality.md",
+      "category": "ui",
+      "trigger_flags": [
+        "html_quality",
+        "frontend_quality"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "css_quality",
+      "path": "practice_guides/css_quality.md",
+      "category": "ui",
+      "trigger_flags": [
+        "css_quality",
+        "frontend_quality"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "javascript_coding_quality",
+      "path": "practice_guides/javascript_coding_quality.md",
+      "category": "language",
+      "trigger_flags": [
+        "javascript_quality"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "swift_coding_quality",
+      "path": "practice_guides/swift_coding_quality.md",
+      "category": "language",
+      "trigger_flags": [
+        "swift_quality"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "rust_coding_quality",
+      "path": "practice_guides/rust_coding_quality.md",
+      "category": "language",
+      "trigger_flags": [
+        "rust_quality"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "typescript_coding_quality",
+      "path": "practice_guides/typescript_coding_quality.md",
+      "category": "language",
+      "trigger_flags": [
+        "typescript_quality"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "python_coding_quality",
+      "path": "practice_guides/python_coding_quality.md",
+      "category": "language",
+      "trigger_flags": [
+        "python_quality"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "go_coding_quality",
+      "path": "practice_guides/go_coding_quality.md",
+      "category": "language",
+      "trigger_flags": [
+        "go_quality"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "shell_cli_coding_quality",
+      "path": "practice_guides/shell_cli_coding_quality.md",
+      "category": "language",
+      "trigger_flags": [
+        "shell_cli_quality"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "sql_query_quality",
+      "path": "practice_guides/sql_query_quality.md",
+      "category": "data",
+      "trigger_flags": [
+        "sql_quality"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "prompt_injection_review",
+      "path": "practice_guides/prompt_injection_review.md",
+      "category": "agent-security",
+      "trigger_flags": [
+        "untrusted_input",
+        "agentic",
+        "delegated_communication_coverage"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "incident_response",
+      "path": "practice_guides/incident_response.md",
+      "category": "forensic",
+      "trigger_flags": [
+        "incident",
+        "secret_exposure",
+        "data_loss"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "security_audit",
+      "path": "practice_guides/security_audit.md",
+      "category": "security",
+      "trigger_flags": [
+        "security"
+      ],
+      "wrapper_status": "candidate"
+    },
+    {
+      "name": "secure_development",
+      "path": "practice_guides/secure_development.md",
+      "category": "security",
+      "trigger_flags": [
+        "secure_development"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "seo",
+      "path": "practice_guides/seo.md",
+      "category": "seo",
+      "trigger_flags": [
+        "seo"
+      ],
+      "wrapper_status": "candidate"
+    },
+    {
+      "name": "decision_brief",
+      "path": "practice_guides/decision_brief.md",
+      "category": "writing",
+      "trigger_flags": [
+        "briefing"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "scholarly_writing",
+      "path": "practice_guides/scholarly_writing.md",
+      "category": "writing",
+      "trigger_flags": [
+        "scholarly_writing"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "knowledge_transfer",
+      "path": "practice_guides/knowledge_transfer.md",
+      "category": "communication",
+      "trigger_flags": [
+        "knowledge_transfer"
+      ],
+      "wrapper_status": "not-applicable"
+    },
+    {
+      "name": "risk_routing",
+      "path": "practice_guides/risk_routing.md",
+      "category": "meta",
+      "trigger_flags": [],
+      "wrapper_status": "not-applicable"
+    }
+  ],
+  "minimum_evidence_by_risk": {
+    "fast": {
+      "minimum_scope": "patch",
+      "required_checks": [
+        "baseline.changed-surface"
+      ]
+    },
+    "standard": {
+      "minimum_scope": "touched-files",
+      "required_checks": [
+        "baseline.changed-file",
+        "baseline.applicable-verification"
+      ]
+    },
+    "careful": {
+      "minimum_scope": "touched-files",
+      "required_checks": [
+        "baseline.affected-edge",
+        "baseline.regression-acceptance"
+      ]
+    },
+    "adversarial": {
+      "minimum_scope": "trust-boundary",
+      "required_checks": [
+        "baseline.failure-mode-review",
+        "baseline.independent-validation"
+      ]
+    },
+    "forensic": {
+      "minimum_scope": "repo-slice",
+      "required_checks": [
+        "baseline.failure-mode-review",
+        "baseline.independent-validation",
+        "baseline.evidence-preservation",
+        "baseline.timeline-provenance",
+        "baseline.no-destructive-before-evidence"
+      ]
+    }
+  }
+}

@@ -1,0 +1,126 @@
+{
+  "schema_version": 2,
+  "purpose": "framework-quality-regression-contract",
+  "repeated_mistake_classes": [
+    {
+      "id": "private-path-leak",
+      "failure": "Public framework files mention local paths, private project names, or internal state surfaces.",
+      "guard_kind": "deterministic",
+      "guard": "Public release and framework quality checks reject host paths, private-state filenames, and unsanitized feedback intake."
+    },
+    {
+      "id": "vendor-specific-public-doctrine",
+      "failure": "A public template turns a source-specific tool, model, command, or product recipe into generic doctrine.",
+      "guard_kind": "semantic_review",
+      "guard": "Source-update and framework semantic audit require abstraction, rejected source-specific surfaces, and ownership review before adoption."
+    },
+    {
+      "id": "exact-url-monitor-root",
+      "failure": "A static article, title-slug post, PDF, release tag, or repository file path is treated as a recurring monitor root.",
+      "guard_kind": "deterministic",
+      "guard": "Source freshness lint rejects exact/static monitor roots unless a canonical exact-root metadata package is present."
+    },
+    {
+      "id": "prose-derived-source-control",
+      "failure": "Source-monitor scope, exact-root freshness, replacement discovery, or cross-host approval is inferred from explanatory prose.",
+      "guard_kind": "deterministic",
+      "guard": "Source validators use closed Monitoring Mode, freshness-mechanism, replacement-discovery, and monitor-host-relation fields plus positive revalidation intervals and safe resolvable record references; cadence and explanatory prose cannot grant control status."
+    },
+    {
+      "id": "lower-tier-source-adoption",
+      "failure": "Commentary, social posts, case studies, or AI summaries are used as doctrine without primary-source or project-evidence verification.",
+      "guard_kind": "deterministic",
+      "guard": "Source freshness lint binds every lower-tier source-pack or source-update row to its exact tier-compatible Allowed Use value; free-text action prose cannot override that structured boundary."
+    },
+    {
+      "id": "prose-derived-research-state",
+      "failure": "A browser research digest obtains completed, extracted, stale-input, verifier-role, claim, or evidence status from suggestive prose or product names.",
+      "guard_kind": "deterministic",
+      "guard": "The schema-versioned source deep-research contract uses closed status, extraction, disposition, verifier-role, claim-class, method, and evidence-role fields; prose is retained only as evidence or contradiction input."
+    },
+    {
+      "id": "unbounded-reviewer-lane",
+      "failure": "Extra model, browser, or subagent reviewer lanes are launched without purpose, data boundary, output contract, budget, or stop condition.",
+      "guard_kind": "semantic_review",
+      "guard": "Semantic review checks each launched lane against the purpose, data boundary, output contract, budget, and stop condition owned by task_orders/orchestrate.md; the guide ownership map routes prompt and agent quality guidance to that workflow."
+    },
+    {
+      "id": "unabstracted-external-source",
+      "failure": "A source-provided taxonomy, prompt text, example, command, or product workflow is copied instead of being abstracted and independently reviewed.",
+      "guard_kind": "semantic_review",
+      "guard": "Source-update and source-pack templates require original abstraction plus explicit rejection of source-specific surfaces before any retained source or framework change."
+    },
+    {
+      "id": "semantic-validator-gap",
+      "failure": "A validator proves shape, count, or parsing while the semantic invariant remains unchecked.",
+      "guard_kind": "semantic_review",
+      "guard": "Framework semantic audit covers every affected shared or reusable framework product surface and identifies the owning surface, repeated objective mistake class, proposed fixture, and stated semantic invariant; framework improvement and testing strategy own any authorized fixture implementation and verification before relying on the check."
+    },
+    {
+      "id": "durable-generator-snapshot-only",
+      "failure": "A durable generated system proves a fresh render but has no declared inspect, current-format refresh, recovery, or retirement contract, or silently assumes predecessor-format support.",
+      "guard_kind": "semantic_review",
+      "guard": "Framework semantic audit and testing strategy require objective evidence for every intentionally supported lifecycle transition; predecessor-to-current evidence is required only when that transition is intentionally supported, while unsupported formats require deterministic fail-closed evidence."
+    },
+    {
+      "id": "unclassified-authoring-workspace-residue",
+      "failure": "Framework readiness is inferred from Git status or selected-export checks without proving that every physical authoring-workspace root and fileless subtree is classified and that disposable generated residue is absent.",
+      "guard_kind": "deterministic",
+      "guard": "The final authoring-only compliance collector runs a stable workspace hygiene audit whose declared policy is the sole content input, rejects unknown roots, unapproved fileless subtrees, generated caches, lifecycle-declared disposable material, and filesystem anomalies, reserves transaction-control state for recovery, and reports exact approval-required cleanup candidates without deleting them."
+    }
+  ],
+  "required_task_orders": [
+    "task_orders/framework_semantic_audit.md",
+    "task_orders/framework_feedback_intake.md",
+    "task_orders/framework_improvement.md"
+  ],
+  "guide_surface_roles": [
+    {"path": "practice_guides/api_contract_security.md", "owns": ["api contract security"], "supports": ["secure development", "security audit"], "must_not_own": ["general platform architecture"]},
+    {"path": "practice_guides/apple_container_workflow.md", "owns": ["apple container workflow"], "supports": ["container execution", "project verification"], "must_not_own": ["generic container image security"]},
+    {"path": "practice_guides/backend_database_security.md", "owns": ["database security"], "supports": ["api contract security", "sql query quality"], "must_not_own": ["general SQL style"]},
+    {"path": "practice_guides/build_pipeline_integrity.md", "owns": ["build pipeline integrity"], "supports": ["release readiness", "dependency risk"], "must_not_own": ["general code style"]},
+    {"path": "practice_guides/change_impact_review.md", "owns": ["change impact analysis"], "supports": ["review", "audit"], "must_not_own": ["release decision"]},
+    {"path": "practice_guides/container_image_security.md", "owns": ["container image security"], "supports": ["build pipeline integrity", "secure development"], "must_not_own": ["host-specific setup"]},
+    {"path": "practice_guides/css_quality.md", "owns": ["css quality"], "supports": ["website frontend quality", "visual verification"], "must_not_own": ["semantic HTML"]},
+    {"path": "practice_guides/data_systems_review.md", "owns": ["data systems review"], "supports": ["privacy data handling", "platform architecture"], "must_not_own": ["source registry maintenance"]},
+    {"path": "practice_guides/decision_brief.md", "owns": ["decision brief"], "supports": ["ideation", "planning"], "must_not_own": ["arbitration"]},
+    {"path": "practice_guides/delegated_communications.md", "owns": ["delegated communication coverage", "absence coverage activation, disclosure, and communication-effect gating"], "supports": ["privacy data handling", "prompt injection review", "mailbox automation"], "must_not_own": ["general email composition", "mail-provider configuration recipe"]},
+    {"path": "practice_guides/dependency_risk.md", "owns": ["dependency risk"], "supports": ["secure development", "build pipeline integrity", "incident response"], "must_not_own": ["general package style", "active endpoint incident response"]},
+    {"path": "practice_guides/go_coding_quality.md", "owns": ["go coding quality"], "supports": ["secure development", "testing strategy"], "must_not_own": ["language-neutral architecture"]},
+    {"path": "practice_guides/html_quality.md", "owns": ["html quality"], "supports": ["website frontend quality", "accessibility"], "must_not_own": ["CSS layout"]},
+    {"path": "practice_guides/implementation_planning.md", "owns": ["implementation planning"], "supports": ["task contract", "change impact"], "must_not_own": ["source adoption"]},
+    {"path": "practice_guides/incident_response.md", "owns": ["incident response", "developer endpoint tooling compromise"], "supports": ["security audit", "root cause investigation"], "must_not_own": ["ordinary bug triage"]},
+    {"path": "practice_guides/infrastructure_as_code_review.md", "owns": ["infrastructure as code review"], "supports": ["platform architecture", "security audit"], "must_not_own": ["vendor-specific deployment recipe"]},
+    {"path": "practice_guides/javascript_coding_quality.md", "owns": ["javascript coding quality"], "supports": ["website frontend quality", "testing strategy"], "must_not_own": ["TypeScript type policy"]},
+    {"path": "practice_guides/knowledge_transfer.md", "owns": ["knowledge transfer"], "supports": ["review closeout", "handoff"], "must_not_own": ["acceptance authority"]},
+    {"path": "practice_guides/kubernetes_workload_review.md", "owns": ["kubernetes workload review"], "supports": ["container image security", "platform architecture"], "must_not_own": ["cloud-vendor recipe"]},
+    {"path": "practice_guides/logical_spec_review.md", "owns": ["logical specification review"], "supports": ["task contract", "testing strategy"], "must_not_own": ["source freshness"]},
+    {"path": "practice_guides/migration_safety.md", "owns": ["migration safety"], "supports": ["dependency risk", "release readiness"], "must_not_own": ["routine refactor style"]},
+    {"path": "practice_guides/platform_architecture_review.md", "owns": ["platform architecture review"], "supports": ["data systems review", "infrastructure review"], "must_not_own": ["language-specific coding rules"]},
+    {"path": "practice_guides/privacy_data_handling.md", "owns": ["privacy data handling"], "supports": ["security audit", "external reviewer egress"], "must_not_own": ["general source quality"]},
+    {"path": "practice_guides/prompt_agent_quality.md", "owns": ["prompt and agent quality", "reusable reviewer and scoped-worker workflow quality", "model routing evidence"], "supports": ["agent orchestration", "scheduled automation", "source grounded research"], "must_not_own": ["source registry role classification"]},
+    {"path": "practice_guides/prompt_injection_review.md", "owns": ["prompt injection review"], "supports": ["security audit", "browser agent review"], "must_not_own": ["general writing style"]},
+    {"path": "practice_guides/python_coding_quality.md", "owns": ["python coding quality"], "supports": ["testing strategy", "secure development"], "must_not_own": ["project-specific package manager choice"]},
+    {"path": "practice_guides/release_readiness.md", "owns": ["release readiness"], "supports": ["public release", "change impact"], "must_not_own": ["VCS approval"]},
+    {"path": "practice_guides/risk_routing.md", "owns": ["risk routing"], "supports": ["standards of care", "task contract"], "must_not_own": ["domain-specific verification"]},
+    {"path": "practice_guides/root_cause_investigation.md", "owns": ["root cause investigation"], "supports": ["incident response", "testing strategy"], "must_not_own": ["ordinary source adoption"]},
+    {"path": "practice_guides/rust_coding_quality.md", "owns": ["rust coding quality"], "supports": ["secure development", "testing strategy"], "must_not_own": ["general memory safety doctrine"]},
+    {"path": "practice_guides/scheduled_automation.md", "owns": ["scheduled automation"], "supports": ["source monitoring", "reviewer lane lifecycle"], "must_not_own": ["manual task execution"]},
+    {"path": "practice_guides/scholarly_writing.md", "owns": ["scholarly writing"], "supports": ["source grounded research"], "must_not_own": ["private author voice"]},
+    {"path": "practice_guides/secure_development.md", "owns": ["secure development"], "supports": ["security audit", "dependency risk"], "must_not_own": ["incident response"]},
+    {"path": "practice_guides/security_audit.md", "owns": ["security audit"], "supports": ["secure development", "prompt injection review"], "must_not_own": ["ordinary quality review"]},
+    {"path": "practice_guides/seo.md", "owns": ["seo"], "supports": ["website frontend quality", "html quality"], "must_not_own": ["content strategy"]},
+    {"path": "practice_guides/shell_cli_coding_quality.md", "owns": ["shell and cli quality"], "supports": ["automation safety", "testing strategy"], "must_not_own": ["host-specific workflow"]},
+    {"path": "practice_guides/source_freshness_review.md", "owns": ["source freshness", "monitor root classification"], "supports": ["source update", "source packs"], "must_not_own": ["external idea abstraction"]},
+    {"path": "practice_guides/source_grounded_research.md", "owns": ["source grounded research", "durable research workspace"], "supports": ["source freshness", "scholarly writing"], "must_not_own": ["recurring monitor scheduling"]},
+    {"path": "practice_guides/source_originality_review.md", "owns": ["source originality review"], "supports": ["external repository review", "license hygiene"], "must_not_own": ["source freshness"]},
+    {"path": "practice_guides/sql_query_quality.md", "owns": ["sql query quality"], "supports": ["database security", "data systems review"], "must_not_own": ["database administration"]},
+    {"path": "practice_guides/swift_coding_quality.md", "owns": ["swift coding quality", "SwiftUI and Apple-platform UI implementation quality"], "supports": ["testing strategy", "secure development"], "must_not_own": ["project-specific product design", "project design-system policy"]},
+    {"path": "practice_guides/task_contract.md", "owns": ["task contract"], "supports": ["implementation planning", "risk routing"], "must_not_own": ["domain-specific best practice"]},
+    {"path": "practice_guides/testing_strategy_quality.md", "owns": ["testing strategy quality"], "supports": ["negative fixtures", "verification planning"], "must_not_own": ["release approval"]},
+    {"path": "practice_guides/typescript_coding_quality.md", "owns": ["typescript coding quality"], "supports": ["javascript quality", "testing strategy"], "must_not_own": ["plain JavaScript runtime behavior"]},
+    {"path": "practice_guides/video_creation_quality.md", "owns": ["video creation quality", "audiovisual delivery verification"], "supports": ["visual verification", "source originality review", "accessibility"], "must_not_own": ["video research", "HTML media embedding"]},
+    {"path": "practice_guides/visual_verification.md", "owns": ["visual verification"], "supports": ["frontend quality", "visual asset QA"], "must_not_own": ["design taste"]},
+    {"path": "practice_guides/website_frontend_quality.md", "owns": ["website frontend quality"], "supports": ["html quality", "css quality", "javascript quality"], "must_not_own": ["backend architecture"]}
+  ]
+}

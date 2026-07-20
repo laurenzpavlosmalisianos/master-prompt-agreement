@@ -1,131 +1,335 @@
 # Master Prompt Agreement
 
-A framework for directing AI coding agents using the structure of professional service contracts.
+A file-backed operating model for coding agents.
 
-Universal rules live in one file (MSA). Project-specific rules live in another (SOW). Reusable prompts live in task orders. The hierarchy is strict: MSA > SOW > Task Order.
+Master Prompt Agreement gives a filesystem-capable agent explicit project
+authority, current facts, workflow routes, source boundaries, and acceptance
+evidence. It separates durable project instructions from chat history and loads
+specialist guidance only when the work needs it.
 
-Rules lead with what to do rather than what to avoid, include rationale so the agent generalizes beyond the literal instruction, and build in adversarial self-challenge before committing to decisions. The framework improves through use.
+The framework is designed to complement capable models and native agent
+runtimes, not to restate what they already do well. Implemented product behavior
+remains owned by code, configuration, tests, and other executable project
+sources. Framework text earns its place only when it supplies missing project
+authority, current context, verification duties, or a reusable procedure.
 
-**Disclaimer:** This framework governs what the AI agent does inside the codebase and assumes infrastructure and host security are handled separately.
+Repository checks establish structural and conformance properties. They do not,
+by themselves, prove that the framework universally improves agent output. Any
+effectiveness claim must stay within the evidence that was actually collected.
 
-## Terminology
+<picture>
+  <source media="(max-width: 960px)" srcset="assets/framework_runtime_loop_mobile.svg">
+  <img alt="Authority flows from the agreement and project Statement of Work into a runtime project contract. A recovery gate precedes ordinary loading; scoped work, verification, and reviewed evidence feed only accepted framework improvements." src="assets/framework_runtime_loop.svg">
+</picture>
 
-The framework borrows its structure from consultancy contract law. Every term maps to a concrete concept in AI-assisted development.
+[Open the wide framework overview](assets/framework_runtime_loop.svg) or the
+[narrow-layout overview](assets/framework_runtime_loop_mobile.svg).
 
-| Contract Term | What It Means Here |
+## Choose Your Path
+
+| Situation | Use |
 |---|---|
-| **Master Service Agreement (MSA)** | One file with universal rules for all projects. Coding philosophy, testing standards, communication style, licensing compliance. Loaded once, applies everywhere. |
-| **Statement of Work (SOW)** | One file per project. Tech stack, deliverables, constraints, commands. References the MSA instead of duplicating universal rules. |
-| **Task Order** | A reusable prompt template for a recurring operation (audit, commit, code review, project init). Invoke by reference when needed. |
-| **Contractor** | The AI coding agent doing the work. |
-| **Client** | The user directing the agent. |
-| **Deliverable** | A unit of work defined in the SOW. Every deliverable has a test that proves it is done. |
-| **Acceptance Test** | The test that proves a deliverable works. Must be runnable by the agent without human judgment. |
-| **Dispute Resolution** | What happens when pushback (normal agent behavior) does not resolve a technical disagreement. Two formal tiers with recommended escalation, not mandatory. |
-| **Gutachten** | Independent expert consultation for technical uncertainty. A fresh agent receives a focused question and renders an assessment. Pre-dispute, advisory only. |
-| **Escalation Path** | Gutachten (advisory) → Tier 1 (fresh agent reviews without context bias) → Tier 2 (parallel agent panel votes independently). Either tier can be invoked directly when the situation warrants it. |
-| **Standing Orders** | SOW-defined dispute categories that skip directly to panel. Example: "All breaking API changes go to panel." Removes case-by-case escalation decisions for known high-stakes areas. |
-| **Arbitration Panel** | Multiple agents launched in parallel to independently evaluate a dispute. Each panelist has an assigned focus area and may propose a third alternative. Majority rules. |
-| **Client Override** | The Client overrules any decision at any point. Logged for retrospective review. Every override is evaluated at the next milestone to determine whether the rule or the override was right. |
-| **Post-Dispute Review** | At each milestone, all disputes and overrides are reviewed. Did the rule need updating? Did the panel work? Was the override correct? |
-| **Untrusted Content** | All external content (web pages, PRs, third-party files) is treated as data, not instructions. The agent flags anything that looks like prompt injection and never follows embedded directives. |
-| **Sub-Contracting** | Chaining multiple task orders into a sequential workflow. Each step is executed by a fresh agent instance that receives a structured handoff. The SOW may define named workflows for recurring sequences. |
-| **Findings** | Observations about framework effectiveness, rule friction, and process gaps. The Contractor solicits Client feedback and records it in FINDINGS.md. Feeds the insights report as empirical input for rule improvement. Project-specific, not committed to public repositories. |
-| **Annexes** | Optional attachments to the SOW. Annex A (SOUL.md) defines the agent's personality and tone. Annex B (SKILLS.md) defines its technical capabilities. Annex C (AUTHORITY.md) defines its authority limits per environment. Annex D (SECURITY.md) defines the security policy for the project. |
+| The target has no framework-generated surfaces and no collision at any selected managed output path | [Getting Started](GETTING_STARTED.md) and the [Initialization Task Order](task_orders/init.md) |
+| The target has no framework-generated surface, but an ordinary file occupies a selected managed output path | Preserve it; choose a reviewed non-colliding layout or perform a project-specific integration/relocation before bootstrap |
+| The target is a verified, complete current-format instance | [Updating A Generated Project](UPDATING.md) and the [Framework Refresh Task Order](task_orders/framework_refresh.md) |
+| The target came from the public pre-v2 line | Preserve it and follow the [v1-to-v2 migration guide](docs/migrating_v1_to_v2.md) |
+| The target is partial, malformed, inconsistent, or otherwise unrecognized | Preserve it and follow the [unsupported-format route](UPDATING.md#unsupported-formats) for a reviewed project-specific update |
+| The target declares a newer schema | Use a framework checkout that supports it; do not interpret or rewrite it with the current checkout |
+| You want to understand the architecture | [Concepts](docs/concepts.md), [Architecture](ARCHITECTURE.md), and the [interactive guide](docs/interactive/index.html) |
+| You are maintaining or releasing the framework | [Governance](GOVERNANCE.md) and [Maintenance And Release](docs/maintenance_and_release.md) |
 
-## Structure
+This repository is the v2 major line. Its architecture is incompatible with
+projects generated from the public pre-v2 line. Current-format refresh does not
+accept or silently migrate those files; follow the
+[v1-to-v2 migration guide](docs/migrating_v1_to_v2.md) for a reviewed
+project-specific update. Public release versions are distinct from the version
+markers used by individual framework documents, generated contracts, and
+schemas.
 
+In a Codex checkout, `$master-prompt-new-project` and
+`$master-prompt-refresh-project` are optional thin launchers for the same
+canonical setup and update procedures. They are not separate workflows.
+
+## What The Framework Owns
+
+Master Prompt Agreement makes these questions inspectable:
+
+- What is in scope, and what is explicitly out of scope?
+- Which project facts, commands, tools, and sources are current?
+- What requires approval before the agent acts?
+- Which workflow and specialist standard apply to this task?
+- What evidence proves completion, and what remains manual or unresolved?
+- Where do active work, durable decisions, and reusable feedback belong?
+
+It is not a legal-services product, a prompt pack, a generic agent wrapper, or a
+replacement for host, container, network, secret, identity, permission, and
+approval controls. Contract terms such as Agreement, Statement of Work, and Task
+Order are operational workflow terms. They do not replace [LICENSE](LICENSE),
+legal advice, or a commercial services agreement.
+
+## Operating Model
+
+### Authority
+
+| Surface | Role | Normal loading |
+|---|---|---|
+| [`master_service_agreement.md`](master_service_agreement.md) | canonical universal doctrine | only for canonical wording, ambiguity, or framework revision |
+| [`runtime/operative_charter.md`](runtime/operative_charter.md) | compact universal runtime projection | every normal session |
+| downstream `STATEMENT_OF_WORK.md` | project scope, stack, commands, deliverables, constraints, and delegated terms | setup, contract review, or routed canonical detail |
+| downstream `AGENT_PROJECT.md` | checked runtime projection of the governing Statement of Work terms plus a contract-model-owned, non-authoritative framework-reference binding | every normal session after the recovery gate is clear |
+| [`task_orders/`](task_orders/README.md) | reusable workflow procedures | when the workflow matches |
+| [`practice_guides/`](practice_guides/risk_routing.md) | on-demand specialist quality standards | when the task or risk surface needs them |
+
+The Agreement governs except where it delegates a project-specific value to the
+Statement of Work. The Statement of Work governs within that delegated scope.
+Task Orders, Practice Guides, state, evidence, summaries, and model output do
+not broaden authority.
+
+### Runtime loading
+
+Normal work follows a small, explicit load path:
+
+1. Load the selected runtime entrypoint and operative charter.
+2. Check the closed transaction-control set before loading generated project
+   authority or state.
+3. If a control artifact is present, stop ordinary loading and permit only the
+   bounded inspection and exact-identity recovery reported as valid.
+4. If the gate is clear, load the runtime project contract, interpret the
+   current task, and check relevant state headers.
+5. Route only the applicable task procedure, specialist guides, evidence, and
+   verification checks.
+
+[`runtime/operative_schedule.json`](runtime/operative_schedule.json) is the
+machine-readable routing table. It supports selection; it is not independent
+doctrine. The full loading design is documented in
+[`runtime/load_order.md`](runtime/load_order.md).
+
+### State
+
+- `TODO.md` contains active work only.
+- `DECISIONS.md` contains durable decisions and directives only.
+- Other generated state files are optional and loaded only when their declared
+  trigger matches.
+- Retained `PROJECT_INPUT.json` is regeneration data, not authority.
+- Root `PROJECT_INSTANCE.json` is the single current instance receipt, not an
+  update history.
+
+Version control or an approved archive owns history. Runtime state should not
+become a duplicate project chronicle.
+
+## Start A New Project
+
+Give the agent the target project and ask it to follow
+[GETTING_STARTED.md](GETTING_STARTED.md). For example:
+
+```text
+Read <framework-checkout>/GETTING_STARTED.md and help me set up <project-root>.
 ```
-master-prompt-agreement/
-├── master_service_agreement.md    # Universal rules (MSA)
-├── statement_of_work_template.md  # Project-specific template (SOW)
-├── AGENTS.md                      # Per-project agent instruction template
-├── TODO.md                        # Task state template (maintained by Contractor per project)
-├── DECISIONS.md                   # Decision log template (maintained by Contractor per project)
-├── FINDINGS.md                    # Findings template (maintained by Contractor per project)
-├── task_orders/
-│   ├── init.md                    # Project initialization (interactive)
-│   ├── ideate.md                  # Structured ideation
-│   ├── evaluate.md                # Design evaluation
-│   ├── review.md                  # Adversarial code review
-│   ├── audit.md                   # Systematic code/site audit
-│   ├── commit.md                  # Cross-session commit
-│   ├── pull_request.md            # External PR review and reimplementation
-│   ├── subcontract.md             # Chained task order workflows
-│   ├── gutachten.md               # Independent expert consultation
-│   ├── arbitrate.md               # Dispute resolution panel
-│   ├── compliance.md              # Framework compliance check
-│   └── insights.md                # Milestone retrospective report
-├── annexes/
-│   ├── soul.md                    # Contractor profile (personality, tone)
-│   ├── skills.md                  # Contractor qualifications (capabilities, limitations)
-│   ├── authority.md               # Scope of authority (environment, data, commands)
-│   └── security.md               # Security policy (vulnerability checklist, compliance)
-├── LICENSE                        # Apache 2.0
-├── NOTICE                         # Attribution notice
-└── README.md                      # This file
+
+The setup procedure inspects the target, asks only for missing project facts,
+renders a complete plan, and requires the digest of that exact reviewed plan
+before any write. Its transactional acceptance gate must pass before the new
+instance is accepted. Human review of rendered authority and declared manual
+acceptance items remains separate.
+
+Bootstrap is only for a target with no framework-generated surfaces and no
+collision at a selected managed output path. The
+machine-readable answer contract and safety-relevant flag map live in
+[`examples/project_bootstrap_answers.schema.json`](examples/project_bootstrap_answers.schema.json)
+and [`scripts/README.md`](scripts/README.md); `--help` remains the executable
+source of truth. Start from the minimal example and inspect only the relevant
+schema definitions; the full schema is compiler input, not a mandatory prompt
+import.
+
+## Update A Generated Project
+
+Use [UPDATING.md](UPDATING.md) for inspection, current-format refresh, contract
+revision, recovery, and plan-bound restore.
+
+The update path has three important boundaries:
+
+- it uses an operator-selected local framework checkout and never fetches or
+  decides what “latest” means;
+- it accepts only a verified complete current-format retained-input/receipt
+  pair with the required preimage; and
+- every mutation is bound to one exact reviewed plan and verified inside the
+  transaction.
+
+Do not rerun bootstrap, reset state, or hand-edit generated authority as an
+update shortcut.
+
+## Command Reference
+
+The [complete command and script reference](scripts/README.md) is the
+inventory-checked catalog for every public command and import-only support
+module. Use an argument-parsing command's `--help` for its exact current flags,
+choices, argument requirements, and safety descriptions; `check_prereqs.py` emits its JSON
+diagnostic directly.
+
+For the two project lifecycle entrypoints, start with the
+[Bootstrap Flag Map](scripts/README.md#bootstrap-flag-map) or the
+[Refresh Command Map](scripts/README.md#refresh-command-map), then follow
+[GETTING_STARTED.md](GETTING_STARTED.md) or [UPDATING.md](UPDATING.md) for the
+owning procedure. The maps navigate the interfaces; they do not replace those
+workflow guides.
+
+## Workflows, Guides, And Scripts
+
+| Need | Owning index |
+|---|---|
+| Choose a workflow | [Task Orders](task_orders/README.md) |
+| Choose a risk and specialist standard | [Risk Routing and Practice Guide index](practice_guides/risk_routing.md) |
+| Inspect compact workflow metadata | [`runtime/workflow_catalog.json`](runtime/workflow_catalog.json) and [`runtime/task_modules/`](runtime/task_modules/) |
+| Navigate supported commands and flags | [Complete Command And Script Reference](scripts/README.md), including the [Bootstrap Flag Map](scripts/README.md#bootstrap-flag-map) and [Refresh Command Map](scripts/README.md#refresh-command-map), plus each argument-parsing command's `--help` |
+| Inspect conformance profiles | [Conformance](CONFORMANCE.md) |
+
+Routing flags describe observed task characteristics such as review, visual
+work, external effects, or source sensitivity. They are additive routing inputs,
+not product feature flags and never permission grants. The helper commands
+`recommend_stack.py`, `evidence_scope.py`, `verification_plan.py`, and
+`context_manifest.py` share the typed routing registry so automation can use
+stable check identifiers rather than copied prose.
+
+## Verification And Evidence
+
+The agent owns judgment, interpretation, implementation, and tradeoffs. Scripts
+and project commands check objective invariants.
+
+| Evidence class | Examples |
+|---|---|
+| structural and schema | framework validation, contract synchronization, instance and state lint |
+| behavioral | project tests, failure-path probes, transaction rollback and recovery checks |
+| rendered | browser or image inspection at declared viewports, themes, and states |
+| semantic | source-backed review, authority reconciliation, claim and documentation review |
+| external or manual | device, account, deployment, owner acceptance, or other evidence the local runtime cannot supply |
+
+Passing an aggregate check does not turn a weak oracle into strong evidence.
+Counts, links, sections, and green test totals matter only when they represent
+the actual invariant being accepted.
+
+Framework maintainers use this on-demand aggregate through the approved project
+runner. Here and in the release guide, `<runner>` means the locally validated
+exact interpreter from a no-error prerequisite report with
+`runner_usable: true`, or the unchanged container/`uv` invocation prefix only
+when that exact boundary ran the successful diagnostic.
+`<framework-checkout-as-visible-to-runner>` is the exact absolute framework
+checkout path inside that runner, which can differ from the host path when a
+wrapper or container is used:
+
+```bash
+<runner> <framework-checkout-as-visible-to-runner>/scripts/framework_compliance.py --tree-role authoring-source
 ```
 
-## How it works
+The command establishes the configured deterministic gate; semantic review and
+applicable manual acceptance still remain. See
+[Verification And Quality](docs/verification_and_quality.md).
 
-**MSA** — one file, all projects. Contains five performance standards (Think Before Coding, Simplicity First, Surgical Changes, Goal-Driven Execution, Epistemic Standards), decision authority tiers, dispute resolution with Gutachten, testing requirements, git workflow, communication standards, licensing compliance, safety boundaries, and the continuous improvement loop.
+### Visual assets
 
-**SOW** — one file, one project. Defines the tech stack, commands, deliverables, constraints, and code review checklist. References the MSA for everything universal. Only states exceptions and additions. Optional sections are deleted if they do not apply.
+Visuals are verified as rendered artifacts, not only as SVG or markup source.
+When visual risk warrants a durable record, use
+[`project_state_templates/VISUAL_ASSET_QA.md`](project_state_templates/VISUAL_ASSET_QA.md)
+with the [Visual Verification Practice Guide](practice_guides/visual_verification.md).
+Define real geometry and presentation contracts—such as no clipping at named
+widths and readable fixed-palette rendering on the asset's opaque canvas—rather
+than generic aesthetic scores. Framework diagrams use one self-contained color
+language across host themes; only the forced-colors accessibility fallback may
+replace that palette. Wide and narrow variants differ by geometry, not theme;
+duplicate light/dark SVG sets are unnecessary. When an asset or embedding
+changes, inspect the committed GitHub rendering in both host themes as well as
+the declared local viewports.
 
-**Task Orders** — reusable prompts for recurring operations: project initialization, structured ideation, design evaluation, adversarial review, audit, commit, external PR review, sub-contracting, Gutachten, arbitration, compliance check, and insights report.
+## Continuous Improvement And Reviewer Lanes
 
-**Hierarchy:** MSA > SOW > Task Order. Lower documents never contradict higher ones. If the SOW does not specify a value, the MSA default governs.
+Downstream feedback, source findings, reviewer output, tool output, and model
+suggestions begin as candidate evidence. A reusable framework change is retained
+only after it is abstracted into project-neutral language, assigned to an owning
+surface, evaluated with decision-relevant evidence, implemented within
+authority, verified, and reviewed as the exact candidate.
 
-## Dispute escalation
+<picture>
+  <source media="(max-width: 960px)" srcset="assets/reviewer_lane_feedback_loop_mobile.svg">
+  <img alt="A coordinator routes bounded reviewers, verifies candidate findings, and records accepted or rejected outcomes without giving reviewer output authority." src="assets/reviewer_lane_feedback_loop.svg">
+</picture>
 
-The agent pushes back as part of normal work. When pushback does not resolve the disagreement, it becomes a dispute:
+[Open the wide reviewer-lane lifecycle](assets/reviewer_lane_feedback_loop.svg)
+or the [narrow-layout lifecycle](assets/reviewer_lane_feedback_loop_mobile.svg).
 
-For technical uncertainty without disagreement, a Gutachten (independent expert consultation) can be requested before any dispute exists. It is advisory only.
+Reviewer lanes are optional and bounded. One coordinator remains accountable
+for scope, the evidence packet, data boundaries, validation, integration, and
+closeout. More reviewers or models do not create authority or proof. When a
+receipt-declared reviewer-feedback file is maintained, structured outcomes may
+be linted into that non-authoritative project-local record; otherwise they stay
+in the ordinary closeout report.
 
-```
-Normal work:  Agent pushes back with evidence (Article 2.1.3)
-              ↓ unresolved
-Tier 1:       Independent Review  →  Fresh agent evaluates without session bias
-              ↓ contested, recurring, or high-stakes
-Tier 2:       Arbitration Panel   →  N parallel agents vote, majority rules
-              ↓ any point
-Ultima Ratio: Client Override     →  Client overrules. Logged for review.
-```
+See [Source And Feedback](docs/source_and_feedback.md), the
+[Framework Feedback Intake Task Order](task_orders/framework_feedback_intake.md),
+and the [Framework Improvement Task Order](task_orders/framework_improvement.md).
 
-Escalation is recommended in order but not mandatory. Either tier can be invoked directly. The SOW can define **standing orders** for dispute categories that always go straight to panel (e.g., breaking changes, security decisions).
+## Documentation
 
-The agent prepares the case file (ARBITRATION.md), launches panelists as parallel subagents, collects independent verdicts, and reports the ruling. Panelists may propose a third alternative if neither original position is correct. Every dispute and override is reviewed at the next milestone to improve the rules.
+| Topic | Document |
+|---|---|
+| Orientation index | [Documentation](docs/README.md) |
+| Authority and runtime architecture | [Architecture](ARCHITECTURE.md) |
+| Normative and informative surfaces | [Specification](SPECIFICATION.md) |
+| Setup | [Getting Started](GETTING_STARTED.md) |
+| Current-instance lifecycle | [Updating](UPDATING.md) |
+| v1-to-v2 compatibility boundary | [Migrating From v1 To v2](docs/migrating_v1_to_v2.md) |
+| Verification profiles | [Conformance](CONFORMANCE.md) |
+| Public change and release policy | [Governance](GOVERNANCE.md) |
+| Threat model and reporting | [Security](SECURITY.md) |
+| Repository ownership boundaries | [Repository Taxonomy](docs/repository_taxonomy.md) |
+| Source intake and monitoring | [Source And Feedback](docs/source_and_feedback.md) |
+| Framework maintenance | [Maintenance And Release](docs/maintenance_and_release.md) |
 
-## Setup
+The [interactive guide](docs/interactive/index.html) is a human-facing view of
+the same architecture. It is explanatory, not an authority source.
 
-```
-Read ~/path/to/master_prompt_agreement/task_orders/init.md and help me set up this project.
-```
+## Public Release Boundary
 
-The agent reads the MSA and templates, interviews the Client for the SOW, and creates the project files needed for that project. Unused optional sections are deleted. Optional files are only created when relevant. The public template uses `AGENTS.md` as the project entrypoint.
+A richer authoring checkout may contain private authoring state and history.
+Never publish or mirror that checkout directly. Public releases contain only
+the neutral product files selected into a fresh sanitized export.
 
-The framework is plain markdown. The contract model is agent-agnostic. `AGENTS.md` is the public entrypoint template. If a specific agent expects a different file name, the agent or Client can rename it during project setup. For manual setup without an agent, `statement_of_work_template.md` is the starting point.
+Publication has two separately verified transitions:
 
-**Context window cost:** The MSA is ~370 lines. The included `AGENTS.md` template shows one way to load it. The SOW is embedded in the agent instruction file directly. The framework's rule pruning process (Article 10.3) keeps the MSA concise.
+1. Authoring source to marker-bound sanitized export.
+2. That exact export payload to the staged tree of a fresh ordinary independent
+   clone of the public repository with a freshly established remote parent.
 
-## Continuous improvement
+The second transition must exclude the local export marker, remove obsolete
+public files, bind the freshly inspected public parent commit and expected
+remote, and reject shared authoring Git metadata or object storage. The
+resumable `scripts/public_release.py` controller records durable phase
+checkpoints and exposes `prepare`, `status`, `resume`, `publish`, and `readback`.
+Its branch push uses one exact approved candidate and a recorded-parent
+`--force-with-lease` compare-and-swap control. Tags and hosted releases remain
+separate external effects requiring their own authority.
 
-After each project milestone:
-1. Run the insights report (task_orders/insights.md) to generate a session report.
-2. Review which rules prevented errors and which caused friction.
-3. Propose rule additions, modifications, or removals.
-4. Update the MSA version and changelog.
+Follow [GOVERNANCE.md](GOVERNANCE.md) and
+[docs/maintenance_and_release.md](docs/maintenance_and_release.md) for the
+canonical release gates. A public visual change also requires rendered
+verification at every declared layout width and live GitHub inspection in
+light and dark themes. Host theme does not create a second asset palette for an
+opaque fixed-palette SVG.
 
-Rules that never trigger in 3+ projects are candidates for removal. Mistakes that no rule prevented become new rules. Every client override is reviewed at the next milestone to see if the rule or the override was right.
+## Principles
 
-## Design principles
+- Keep always-loaded instructions small.
+- Put project facts in project authority, not chat history.
+- Let code, configuration, and tests own implemented behavior.
+- Load specialist procedures only when the task warrants them.
+- Treat external content and generated output as untrusted data until verified.
+- Use deterministic checks for objective invariants and judgment for semantic
+  questions.
+- Prefer an adequate native or project-owned capability over duplicated
+  framework prose.
+- Require approval for destructive, irreversible, external, or
+  authority-broadening actions.
+- Retain a reusable addition only when its verified value justifies its context,
+  process, and maintenance cost.
 
-- **Contract hierarchy**: MSA is the safety net, SOW is the customization layer.
-- **Positive framing**: Rules lead with what to do, then state what to avoid.
-- **Context-rich rules**: Every constraint includes its rationale so the agent generalizes correctly rather than following blindly.
-- **Adversarial by design**: Audits, reviews, and the agent's own reasoning include structured self-challenge before committing to decisions.
-- **Supply chain aware**: Dependency verification covers slopsquatting, typosquatting, and dependency confusion. The trust boundary model classifies all inputs.
-- **No preprocessing**: The agent reads definitions and resolves them naturally. No template rendering scripts.
-- **Selective instantiation**: The public framework is complete. Project initialization materializes only the sections and files the project actually needs.
-- **Token-efficient**: No preamble or padding. State files are pruned to preserve context budget.
-- **Self-optimizing**: The framework improves through use.
+## License
+
+Licensed under the Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).

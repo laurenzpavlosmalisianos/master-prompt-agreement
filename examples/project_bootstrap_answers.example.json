@@ -1,0 +1,69 @@
+{
+  "project_name": "Example Project",
+  "bootstrap_mode": "minimal",
+  "user": "User",
+  "agent": "Project agent role to confirm",
+  "execution_posture": "ask-when-ambiguous",
+  "decision_authority_grant": "Agent may choose implementation details inside inspected constraints; architecture, stack, dependencies, deployment, VCS, acquisition, memory, and policy choices require explicit approval unless listed.",
+  "dependency_posture": "justify-external-dependencies",
+  "source_originality_policy": "Independent implementation for external inspiration; external code or assets only after approval and applicable license, attribution, and notice review.",
+  "secret_store": "none required",
+  "credential_delivery": "none",
+  "security_policy_file": "none",
+  "persistent_memory_boundary": "Persistent memory is disabled unless an enabled project policy authorizes the write class; every write also requires a current User request or confirmation, or independent validation under that policy. Provenance is evidence only and never write authority; memory entries record declarative facts, not standing instructions.",
+  "source_freshness_policy": "Verify current primary sources before recording or using latest/current stable/unpinned versions; use version-scoped docs for pinned versions; use user-supplied material when network acquisition is not approved; check project-approved and framework-approved source registries before duplicate research.",
+  "version_review_policy": "Keep pinned versions unless the User approves an upgrade review; after an approved source check shows a pin is behind current stable, ask whether to keep, defer, or review upgrade.",
+  "version_control_policy": "Use the existing repository state; do not initialize repositories or modify VCS metadata without explicit User scope.",
+  "branch_policy": "Use the current branch unless the User defines a default/protected branch or side-branch workflow.",
+  "backout_policy": "Prefer the smallest reversible fix; require User approval before destructive VCS, data, migration, deploy, or reset operations.",
+  "recitals": [
+    "This repository is managed with the Master Prompt Agreement framework."
+  ],
+  "in_scope": [
+    "Define the initial project contract and active project state."
+  ],
+  "out_of_scope": [
+    "Deployment automation unless separately approved."
+  ],
+  "tech_stack": "To be confirmed by repository inspection or User answer.",
+  "architecture": "To be confirmed by repository inspection or User answer.",
+  "file_structure": [
+    "STATEMENT_OF_WORK.md",
+    "AGENT_PROJECT.md",
+    "runtime entrypoint",
+    "TODO.md",
+    "DECISIONS.md"
+  ],
+  "key_dependencies": [],
+  "key_directories": [],
+  "pattern_sources": [],
+  "deliverables": [],
+  "constraints": [
+    "Keep runtime entrypoints thin.",
+    "Prefer repo-local or relative commands."
+  ],
+  "critical_surfaces": [],
+  "verification_profiles": [],
+  "package_manager": "none",
+  "framework_verification_runner": "REPLACE WITH THE EXACT RUNNER REPORTED BY scripts/check_prereqs.py",
+  "language_runtime_standards": "To be confirmed before full bootstrap.",
+  "applicable_standards": [
+    "Master Prompt Agreement"
+  ],
+  "acquisition_boundary": [
+    "No external acquisition unless the project contract approves a method."
+  ],
+  "code_review_checklist": [
+    "Keep canonical and operative project files aligned.",
+    "Do not duplicate project-specific rules into the runtime entrypoint."
+  ],
+  "include_findings": false,
+  "include_framework_feedback": false,
+  "include_reviewer_lane_feedback": false,
+  "include_precedents": false,
+  "include_source_packs": false,
+  "include_source_update": false,
+  "include_source_monitor_researcher": false,
+  "include_security_verification": false,
+  "include_automation_orders": false
+}

@@ -1,0 +1,326 @@
+{
+  "schema_version": 2,
+  "description": "Critical-obligation coverage for compact runtime task modules. Markers identify the mapping; operative prose anchors prove that mapped obligations remain present. This is a narrow drift gate, not a full semantic parity mechanism.",
+  "coverage_statuses": ["satisfies", "delegates_to_full_order", "not_applicable"],
+  "common_precondition": {
+    "summary": "Every compact runtime task module reloads the project contract before acting and consults canonical/state files when authority or current state can affect the task.",
+    "module_marker": "mpa-common-precondition"
+  },
+  "modules": {
+    "runtime/task_modules/arbitrate.md": {
+      "source_task_order": "task_orders/arbitrate.md",
+      "critical_obligations": {
+        "ARB-approval-before-review": {
+          "risk_class": "authority",
+          "summary": "Confirm User or SOW authorization before convening independent review or a panel."
+        },
+        "ARB-read-only-launch-envelope": {
+          "risk_class": "security",
+          "summary": "Record a bounded read-only reviewer or panel launch envelope."
+        },
+        "ARB-independent-panel-responses": {
+          "risk_class": "quality",
+          "summary": "Keep panel responses independent until all responses are submitted."
+        },
+        "ARB-no-decision-boundary": {
+          "risk_class": "state",
+          "summary": "No-majority, abstention, insufficient-evidence, and unavailable-seat outcomes do not create decisions."
+        },
+        "ARB-ratification-boundary": {
+          "risk_class": "authority",
+          "summary": "Binding effect requires User or SOW-named owner ratification unless expressly delegated."
+        },
+        "ARB-post-blind-evidence-boundary": {
+          "risk_class": "quality",
+          "summary": "Post-blind evidence review is authorized, trigger-bound, evidence-directed, and does not update locked votes."
+        },
+        "ARB-challenge-packet-sanitization": {
+          "risk_class": "security",
+          "summary": "Coordinator challenge packets exclude identities, vote tallies, hidden reasoning, provider traces, and majority pressure."
+        },
+        "ARB-evidence-correction-remand": {
+          "risk_class": "authority",
+          "summary": "Revised voting after corrected evidence or rule material requires User or SOW-named owner authorization and sealed independent responses."
+        },
+        "ARB-neutral-coordinator": {
+          "risk_class": "authority",
+          "summary": "An interested position-holder cannot be the sole unchecked arbitration coordinator."
+        }
+      },
+      "runtime_coverage": {
+        "ARB-approval-before-review": {
+          "status": "satisfies",
+          "module_marker": "mpa-obligation: ARB-approval-before-review",
+          "operative_anchor": "Confirm current User approval or explicit SOW standing authorization before convening a reviewer or panel."
+        },
+        "ARB-read-only-launch-envelope": {
+          "status": "satisfies",
+          "module_marker": "mpa-obligation: ARB-read-only-launch-envelope",
+          "operative_anchor": "Record the reviewer launch envelope: read-only workspace or snapshot"
+        },
+        "ARB-independent-panel-responses": {
+          "status": "satisfies",
+          "module_marker": "mpa-obligation: ARB-independent-panel-responses",
+          "operative_anchor": "keep panelists isolated from each other's responses, votes, deliberation, and coordinator summaries until after all panel responses are submitted."
+        },
+        "ARB-no-decision-boundary": {
+          "status": "satisfies",
+          "module_marker": "mpa-obligation: ARB-no-decision-boundary",
+          "operative_anchor": "A no-majority, abstain, or insufficient-evidence result produces no recommendation and no operative decision unless the User or SOW-named owner decides directly."
+        },
+        "ARB-ratification-boundary": {
+          "status": "satisfies",
+          "module_marker": "mpa-obligation: ARB-ratification-boundary",
+          "operative_anchor": "binding effect is ratified by the User or SOW-named owner unless the SOW expressly delegates it within a defined scope"
+        },
+        "ARB-post-blind-evidence-boundary": {
+          "status": "satisfies",
+          "module_marker": "mpa-obligation: ARB-post-blind-evidence-boundary",
+          "operative_anchor": "Run post-blind evidence review only when the SOW or current User approval authorizes it"
+        },
+        "ARB-challenge-packet-sanitization": {
+          "status": "satisfies",
+          "module_marker": "mpa-obligation: ARB-challenge-packet-sanitization",
+          "operative_anchor": "Do not share identities, model/provider names, seniority markers, raw vote counts"
+        },
+        "ARB-evidence-correction-remand": {
+          "status": "satisfies",
+          "module_marker": "mpa-obligation: ARB-evidence-correction-remand",
+          "operative_anchor": "Open an Evidence Correction Remand only after User or SOW-named owner authorization"
+        },
+        "ARB-neutral-coordinator": {
+          "status": "satisfies",
+          "module_marker": "mpa-obligation: ARB-neutral-coordinator",
+          "operative_anchor": "If the active Agent holds a position, authored a disputed recommendation, or has another material stake, use a fresh neutral agent or the User/SOW-named owner"
+        }
+      }
+    },
+    "runtime/task_modules/audit.md": {
+      "source_task_order": "task_orders/audit.md",
+      "critical_obligations": {
+        "AUDIT-coverage-ledger": {
+          "risk_class": "quality",
+          "summary": "Broad or partitioned audits keep a coordinator-owned coverage ledger."
+        },
+        "AUDIT-shared-runtime-verifier-ownership": {
+          "risk_class": "verification",
+          "summary": "Partitioned audits centralize global verification, shared-state mutation or cleanup, non-isolated stateful work, and material bounded-resource contention without serializing ordinary isolated project-scoped commands or cleanup confined to worker-owned outputs."
+        },
+        "AUDIT-schema-classification": {
+          "risk_class": "quality",
+          "summary": "Material findings and open probes use the finding schema."
+        },
+        "AUDIT-remediation-gated": {
+          "risk_class": "authority",
+          "summary": "Fixes and state-file edits require remediation or state maintenance scope."
+        },
+        "AUDIT-verification-gap-disclosed": {
+          "risk_class": "verification",
+          "summary": "Relevant verification runs, or the gap is disclosed."
+        }
+      },
+      "runtime_coverage": {
+        "AUDIT-coverage-ledger": {
+          "status": "satisfies",
+          "module_marker": "mpa-obligation: AUDIT-coverage-ledger",
+          "operative_anchor": "For partitioned audits, keep a coordinator-owned coverage ledger with reviewer, evidence, findings, rejected/deferred claims, and validation status."
+        },
+        "AUDIT-shared-runtime-verifier-ownership": {
+          "status": "satisfies",
+          "module_marker": "mpa-obligation: AUDIT-shared-runtime-verifier-ownership",
+          "operative_anchor": "Coordinator or named-verifier ownership applies to global builds, full tests, packaging, benchmarks, global or shared-state cleanup, operations that mutate shared runtime, lifecycle, cache, or index state, other non-isolated stateful operations, and work that materially contends for a bounded shared resource; ordinary isolated project-scoped commands, including cleanup confined to worker-owned outputs, are not serialized merely because they execute in the same runtime."
+        },
+        "AUDIT-schema-classification": {
+          "status": "satisfies",
+          "module_marker": "mpa-obligation: AUDIT-schema-classification",
+          "operative_anchor": "Load `runtime/finding_schema.json`; use its fields, enums, and conditional constraints."
+        },
+        "AUDIT-remediation-gated": {
+          "status": "satisfies",
+          "module_marker": "mpa-obligation: AUDIT-remediation-gated",
+          "operative_anchor": "fix them only when remediation is explicitly in scope or approved."
+        },
+        "AUDIT-verification-gap-disclosed": {
+          "status": "satisfies",
+          "module_marker": "mpa-obligation: AUDIT-verification-gap-disclosed",
+          "operative_anchor": "Run relevant verification commands only when authorized and feasible."
+        }
+      }
+    },
+    "runtime/task_modules/automation.md": {
+      "source_task_order": "task_orders/automation.md",
+      "critical_obligations": {
+        "AUTO-authority-boundaries": {
+          "risk_class": "authority",
+          "summary": "Recurring work records objective, allowed effects, autonomy, and standing grants before enablement."
+        },
+        "AUTO-instruction-sources": {
+          "risk_class": "context",
+          "summary": "Reusable automation procedure is loaded through declared instruction sources, not copied into scheduler prompts."
+        },
+        "AUTO-external-packet-default-deny": {
+          "risk_class": "security",
+          "summary": "External reviewer jobs use an explicit typed data boundary that denies sensitive and unlisted data."
+        },
+        "AUTO-loop-stop-controls": {
+          "risk_class": "cost",
+          "summary": "Looped work has progress, budget, no-progress, and escalation stops."
+        },
+        "AUTO-scheduler-side-effects-gated": {
+          "risk_class": "authority",
+          "summary": "Rendering, installing, and enabling scheduler jobs are separate authorized effects."
+        },
+        "AUTO-standing-authority-source": {
+          "risk_class": "authority",
+          "summary": "Standing automation creation or revision consults canonical approval, external-system, VCS, source-acquisition, and automation terms before jobs are defined or changed."
+        }
+      },
+      "runtime_coverage": {
+        "AUTO-authority-boundaries": {
+          "status": "satisfies",
+          "module_marker": "mpa-obligation: AUTO-authority-boundaries",
+          "operative_anchor": "Every enabled job declares `authority`: allowed action and resource references, grant basis"
+        },
+        "AUTO-instruction-sources": {
+          "status": "satisfies",
+          "module_marker": "mpa-obligation: AUTO-instruction-sources",
+          "operative_anchor": "Keep scheduler prompts thin; do not duplicate framework procedure into each scheduled job."
+        },
+        "AUTO-external-packet-default-deny": {
+          "status": "satisfies",
+          "module_marker": "mpa-obligation: AUTO-external-packet-default-deny",
+          "operative_anchor": "sensitive and unlisted data are denied."
+        },
+        "AUTO-loop-stop-controls": {
+          "status": "satisfies",
+          "module_marker": "mpa-obligation: AUTO-loop-stop-controls",
+          "operative_anchor": "For looped work, require a progress metric, maximum iterations or elapsed time, rate or cost cap"
+        },
+        "AUTO-scheduler-side-effects-gated": {
+          "status": "satisfies",
+          "module_marker": "mpa-obligation: AUTO-scheduler-side-effects-gated",
+          "operative_anchor": "Rendering into the project root, installing, or enabling the schedule is a separate authorized effect."
+        },
+        "AUTO-standing-authority-source": {
+          "status": "satisfies",
+          "module_marker": "mpa-obligation: AUTO-standing-authority-source",
+          "operative_anchor": "Because automation creates or revises standing authority, consult `STATEMENT_OF_WORK.md` for canonical approval"
+        }
+      }
+    },
+    "runtime/task_modules/ideate.md": {
+      "source_task_order": "task_orders/ideate.md",
+      "critical_obligations": {
+        "IDEATE-competing-approaches": {
+          "risk_class": "quality",
+          "summary": "Consider competing viable approaches before ranking."
+        },
+        "IDEATE-evidence-and-unknowns": {
+          "risk_class": "quality",
+          "summary": "Record supporting evidence, contradicting evidence, and unknowns."
+        },
+        "IDEATE-escalate-source-or-safety": {
+          "risk_class": "verification",
+          "summary": "Use the full order when external sources, living standards, or evidence tradeoffs matter."
+        }
+      },
+      "runtime_coverage": {
+        "IDEATE-competing-approaches": {
+          "status": "satisfies",
+          "module_marker": "mpa-obligation: IDEATE-competing-approaches",
+          "operative_anchor": "Generate multiple competing approaches before ranking them."
+        },
+        "IDEATE-evidence-and-unknowns": {
+          "status": "satisfies",
+          "module_marker": "mpa-obligation: IDEATE-evidence-and-unknowns",
+          "operative_anchor": "Record supporting evidence, contradicting evidence, and unknowns for each."
+        },
+        "IDEATE-escalate-source-or-safety": {
+          "status": "delegates_to_full_order",
+          "module_marker": "mpa-obligation: IDEATE-escalate-source-or-safety",
+          "operative_anchor": "Load the full task order when external sources, living standards, or unresolved evidence tradeoffs matter.",
+          "catalog_condition_id": "IDEATE-escalate-source-or-safety",
+          "full_order_marker": "mpa-full-order-obligation: IDEATE-escalate-source-or-safety",
+          "full_order_anchor": "Prefer primary sources over secondary. Flag evidence gaps explicitly."
+        }
+      }
+    },
+    "runtime/task_modules/plan.md": {
+      "source_task_order": "task_orders/plan.md",
+      "critical_obligations": {
+        "PLAN-no-unapproved-execution": {
+          "risk_class": "authority",
+          "summary": "Plan-only requests do not execute without explicit implementation authorization."
+        },
+        "PLAN-proof-per-slice": {
+          "risk_class": "verification",
+          "summary": "Each work slice has concrete verification."
+        },
+        "PLAN-hold-points": {
+          "risk_class": "authority",
+          "summary": "Approval, architecture, and evidence hold points are explicit."
+        }
+      },
+      "runtime_coverage": {
+        "PLAN-no-unapproved-execution": {
+          "status": "satisfies",
+          "module_marker": "mpa-obligation: PLAN-no-unapproved-execution",
+          "operative_anchor": "Do not execute the plan unless the User explicitly asks for implementation."
+        },
+        "PLAN-proof-per-slice": {
+          "status": "satisfies",
+          "module_marker": "mpa-obligation: PLAN-proof-per-slice",
+          "operative_anchor": "Attach exact verification to each slice."
+        },
+        "PLAN-hold-points": {
+          "status": "satisfies",
+          "module_marker": "mpa-obligation: PLAN-hold-points",
+          "operative_anchor": "Add hold points for approvals, unresolved architecture, or missing evidence."
+        }
+      }
+    },
+    "runtime/task_modules/review.md": {
+      "source_task_order": "task_orders/review.md",
+      "critical_obligations": {
+        "REVIEW-evidence-scope": {
+          "risk_class": "quality",
+          "summary": "Use the smallest justified evidence scope before widening."
+        },
+        "REVIEW-schema-and-open-probes": {
+          "risk_class": "quality",
+          "summary": "Use the finding schema and route unsupported hypotheses to Open Probes."
+        },
+        "REVIEW-remediation-gated": {
+          "risk_class": "authority",
+          "summary": "Do not fix or edit state files unless remediation or state maintenance is in scope."
+        },
+        "REVIEW-multi-agent-validated": {
+          "risk_class": "quality",
+          "summary": "Coordinator validates external or multi-agent claims before final findings."
+        }
+      },
+      "runtime_coverage": {
+        "REVIEW-evidence-scope": {
+          "status": "satisfies",
+          "module_marker": "mpa-obligation: REVIEW-evidence-scope",
+          "operative_anchor": "Choose the smallest justified Evidence Scope."
+        },
+        "REVIEW-schema-and-open-probes": {
+          "status": "satisfies",
+          "module_marker": "mpa-obligation: REVIEW-schema-and-open-probes",
+          "operative_anchor": "Put consequential unresolved hypotheses in Open Probes, not Findings."
+        },
+        "REVIEW-remediation-gated": {
+          "status": "satisfies",
+          "module_marker": "mpa-obligation: REVIEW-remediation-gated",
+          "operative_anchor": "Report findings only unless remediation is explicitly in scope or approved; TODO/state edits also require scope or approval."
+        },
+        "REVIEW-multi-agent-validated": {
+          "status": "satisfies",
+          "module_marker": "mpa-obligation: REVIEW-multi-agent-validated",
+          "operative_anchor": "If multiple AI reviewers or external AI reports are used, coordinator must dedupe, source-check, reload evidence, preserve dissent, and validate claims before final findings."
+        }
+      }
+    }
+  }
+}

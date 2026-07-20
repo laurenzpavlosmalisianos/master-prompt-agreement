@@ -1,0 +1,69 @@
+{
+  "families": {
+    "claude-code": {
+      "entrypoint": {
+        "authority_load_syntax": "claude-markdown-read-v1",
+        "output": "CLAUDE.md",
+        "path": "integrations/templates/claude-code/CLAUDE.md.template"
+      },
+      "template_root": "integrations/templates/claude-code",
+      "wrappers": {
+        "security_audit": {
+          "authority_precondition": "entrypoint-recovery-project-contract-v1",
+          "lifecycle": "entrypoint-authority-consumer-v1",
+          "path": "integrations/templates/claude-code/.claude/agents/security-reviewer.md.template",
+          "repo_output": ".claude/agents/security-reviewer.md"
+        },
+        "seo": {
+          "authority_precondition": "entrypoint-recovery-project-contract-v1",
+          "lifecycle": "entrypoint-authority-consumer-v1",
+          "path": "integrations/templates/claude-code/.claude/agents/seo-auditor.md.template",
+          "repo_output": ".claude/agents/seo-auditor.md"
+        }
+      }
+    },
+    "codex": {
+      "entrypoint": {
+        "authority_load_syntax": "codex-markdown-read-v1",
+        "output": "AGENTS.md",
+        "path": "integrations/templates/codex/AGENTS.md.template"
+      },
+      "template_root": "integrations/templates/codex",
+      "wrappers": {
+        "project_init": {
+          "authority_precondition": null,
+          "lifecycle": "project-initialization-launcher-v1",
+          "path": "integrations/templates/codex/skills/project-init/SKILL.md.template",
+          "repo_output": ".agents/skills/master-prompt-new-project/SKILL.md"
+        },
+        "project_refresh": {
+          "authority_precondition": null,
+          "lifecycle": "project-refresh-launcher-v1",
+          "path": "integrations/templates/codex/skills/project-refresh/SKILL.md.template",
+          "repo_output": ".agents/skills/master-prompt-refresh-project/SKILL.md"
+        },
+        "security_audit": {
+          "authority_precondition": "entrypoint-recovery-project-contract-v1",
+          "lifecycle": "entrypoint-authority-consumer-v1",
+          "path": "integrations/templates/codex/skills/security-audit/SKILL.md.template",
+          "repo_output": ".agents/skills/security-audit/SKILL.md"
+        },
+        "seo": {
+          "authority_precondition": "entrypoint-recovery-project-contract-v1",
+          "lifecycle": "entrypoint-authority-consumer-v1",
+          "path": "integrations/templates/codex/skills/seo/SKILL.md.template",
+          "repo_output": ".agents/skills/seo/SKILL.md"
+        }
+      }
+    },
+    "generic": {
+      "entrypoint": {
+        "authority_load_syntax": "generic-markdown-read-v1",
+        "output": "AGENTS.md",
+        "path": "integrations/templates/generic/AGENTS.md.template"
+      },
+      "template_root": "integrations/templates/generic",
+      "wrappers": {}
+    }
+  }
+}

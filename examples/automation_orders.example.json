@@ -1,0 +1,61 @@
+{
+  "schema_version": 7,
+  "preferred_backend": "cron",
+  "jobs": [
+    {
+      "approval_mode": "per_run",
+      "autonomy_level": "observe",
+      "command": "printf 'disabled automation example; replace with an approved command before enabling'",
+      "concurrency": "forbid",
+      "cwd": ".",
+      "enabled": false,
+      "execution_sources": [],
+      "failure_policy": "log",
+      "id": "disabled_status_review",
+      "idempotency": {
+        "key": null,
+        "mode": "disabled_only"
+      },
+      "instruction_sources": [
+        {
+          "path": "task_orders/automation.md",
+          "root": "framework"
+        },
+        {
+          "path": "practice_guides/scheduled_automation.md",
+          "root": "framework"
+        }
+      ],
+      "objective": "Demonstrate the minimum lint-valid portable draft shape without activating a schedule",
+      "outputs": [],
+      "schedule": "0 9 * * 1",
+      "scheduler_artifacts": {
+        "lock_file": "locks/disabled_status_review.lock",
+        "log_file": "logs/disabled_status_review.log",
+        "max_log_bytes": 1048576,
+        "redaction": {
+          "mode": "retain_verbatim"
+        },
+        "retention": {
+          "days": null,
+          "manual_owner": "project_operator",
+          "manual_trigger": "when the scheduler log lacks capacity for another complete run record",
+          "mode": "manual_archive_or_truncate"
+        },
+        "root": ".automation"
+      },
+      "scheduler_context_mode": "fresh_run",
+      "state_policy": {
+        "checkpoint": "none",
+        "persistence": "none",
+        "reference": null,
+        "resume": "restart"
+      },
+      "standard_of_care": "careful",
+      "timeout_minutes": 30,
+      "timezone": "UTC",
+      "workload_class": "general",
+      "write_scope": "none"
+    }
+  ]
+}

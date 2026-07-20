@@ -1,0 +1,148 @@
+{
+  "documentation_consistency": {
+    "docs": {
+      "README.md": ["GETTING_STARTED.md", "task_orders/README.md", "runtime/workflow_catalog.json", "UPDATING.md", "task_orders/framework_refresh.md", "docs/migrating_v1_to_v2.md", "<framework-checkout-as-visible-to-runner>"],
+      "UPDATING.md": ["task_orders/framework_refresh.md", "scripts/project_refresh.py"],
+      "runtime/load_order.md": ["task_orders/README.md", "runtime/workflow_catalog.json"],
+      "task_orders/README.md": ["runtime/workflow_catalog.json", "Task Orders vs Runtime Task Modules"]
+    }
+  },
+  "clause_map": {"schema_version": 4, "allowed_dispositions": ["projected", "task-scoped", "path-scoped", "tool-enforced", "canonical-only"]},
+  "entrypoints": {
+    "forbid_eager_practice_guide_imports": true,
+    "forbidden_state_loading_fragments": [
+      "active_count: 0",
+      "directive_count: 0",
+      "known recurring pattern"
+    ]
+  },
+  "integration_readme": {
+    "required_options": ["--integration codex", "--integration claude-code", "--integration generic", "--integration all"]
+  },
+  "project_contract_first": {
+    "forbidden_phrases": ["Read STATEMENT_OF_WORK.md before AGENT_PROJECT.md"],
+    "required_references": ["AGENT_PROJECT.md", "STATEMENT_OF_WORK.md"],
+    "task_orders": [
+      "task_orders/plan.md",
+      "task_orders/automation.md",
+      "task_orders/source_update.md",
+      "task_orders/framework_improvement.md",
+      "task_orders/backout.md",
+      "task_orders/framework_refresh.md",
+      "task_orders/review.md",
+      "task_orders/audit.md",
+      "task_orders/evaluate.md",
+      "task_orders/knowledge_transfer.md",
+      "task_orders/pull_request.md"
+    ]
+  },
+  "setup_docs": {
+    "README.md": ["runner_usable: true", "<framework-checkout-as-visible-to-runner>", "no collision at any selected managed output path", "full schema is compiler input"],
+    "scripts/README.md": ["--runtime-wrapper <id>", "preview --project-root <root> --plan <file>", "--clear-runtime-wrappers", "ACCEPT-SELECTED-FRAMEWORK-CHANGE", "REVISE-RUNTIME-WRAPPERS", "RETIRE-MUTABLE-####", "RETIRE-IMMUTABLE-####", "POSIX rwx modes", "runner_usable", "<framework-checkout-as-visible-to-runner>", "exact tested stdlib-only Python interpreter", "Treat the full schema as compiler input", "no selected managed output collides", "task_orders/framework_refresh.md"],
+    "GETTING_STARTED.md": ["runtime/operative_charter.md", "task_orders/init.md", "scripts/check_prereqs.py", "scripts/project_bootstrap.py", "project_bootstrap_answers.schema.json", "scripts/project_contract_sync.py", "scripts/conformance_check.py", "PROJECT_INPUT.json", "PROJECT_INSTANCE.json", ".mpa-bootstrap-recovery.json", ".mpa-bootstrap.lock", ".mpa-bootstrap-recovery.tmp", "--framework-revision-policy", "--profile core-project", "--dry-run", "--approve-write-plan-sha256", "write_plan_sha256", "warnings_sha256", "--strict-warnings", "runner_usable", "<framework-checkout-on-diagnostic-host>", "<framework-checkout-as-visible-to-runner>", "exact tested interpreter", "full schema is compiler input", "every selected managed output path is free", "RETIRE-MUTABLE-####", "RETIRE-IMMUTABLE-####", "UPDATING.md", "task_orders/framework_refresh.md"],
+    "docs/downstream_setup.md": ["<framework-checkout-on-diagnostic-host>", "<framework-checkout-as-visible-to-runner>", "only its exact executing interpreter is qualified", "targeted schema lookup", "no selected managed output path collides"],
+    "CONFORMANCE.md": ["exact retained runner", "<framework-checkout-as-visible-to-runner>", "no selected managed output path collides"],
+    "UPDATING.md": ["STATEMENT_OF_WORK.md", "AGENT_PROJECT.md", "PROJECT_INPUT.json", "PROJECT_INSTANCE.json", ".mpa-bootstrap-recovery.json", ".mpa-bootstrap.lock", ".mpa-bootstrap-recovery.tmp", "scripts/project_refresh.py", "<framework-checkout-as-visible-to-runner>", "candidate", "inspect", "plan", "preview", "backout-create", "backout-verify", "backout-recover", "backout-restore", "apply", "recover", "--runtime-wrapper", "--clear-runtime-wrappers", "--backout-root", "--require-project-preimage", "--accept-no-post-apply-backout", "--approve-plan-sha256", "--approve-refresh-transaction-id", "--approve-transaction-id", "refresh_transaction_id", "contract_effective_date", "distribution-only-drift", "distribution_drift", "ACCEPT-SELECTED-FRAMEWORK-CHANGE", "REVISE-RUNTIME-WRAPPERS", "RETIRE-MUTABLE-####", "RETIRE-IMMUTABLE-####", "USE-EXACT-PREIMAGE-BUNDLE", "POSIX rwx", "task_orders/framework_refresh.md"],
+    "integrations/README.md": ["AGENT_PROJECT.md", "Scope of Authority", ".mpa-bootstrap-recovery.json", ".mpa-bootstrap.lock", ".mpa-bootstrap-recovery.tmp", "scripts/check_prereqs.py", "<framework-checkout-as-visible-to-runner>", "<runner> <framework-ref>/scripts/conformance_check.py --profile core-project --root <project-root> --project-kind <downstream|framework-authoring> --contract-root <contract-root>", "<runner> <framework-ref>/scripts/project_contract_sync.py <project-root> --project-kind <downstream|framework-authoring> --contract-root <contract-root>` only for focused diagnosis"],
+    "task_orders/compliance.md": ["AGENT_PROJECT.md", "STATEMENT_OF_WORK.md", "scripts/project_contract_sync.py", "<framework-ref>/scripts/conformance_check.py", "--profile core-project"],
+    "task_orders/init.md": ["AGENT_PROJECT.md", "STATEMENT_OF_WORK.md", "PROJECT_INPUT.json", "PROJECT_INSTANCE.json", ".mpa-bootstrap-recovery.json", ".mpa-bootstrap.lock", ".mpa-bootstrap-recovery.tmp", "scripts/project_bootstrap.py", "project_bootstrap_answers.schema.json", "scripts/project_contract_sync.py", "scripts/conformance_check.py", "<framework-checkout-on-diagnostic-host>", "<framework-checkout-as-visible-to-runner>", "exact interpreter that executed it", "Do not load the full schema", "Inventory the exact planned output paths before dry run.", "runner_usable", "--framework-revision-policy", "--profile core-project", "--approve-write-plan-sha256", "write_plan_sha256", "warnings_sha256", "--strict-warnings", "security_policy_file", "task_orders/framework_refresh.md"],
+    "task_orders/framework_refresh.md": ["AGENT_PROJECT.md", "STATEMENT_OF_WORK.md", "PROJECT_INPUT.json", "PROJECT_INSTANCE.json", ".mpa-bootstrap-recovery.json", ".mpa-bootstrap.lock", ".mpa-bootstrap-recovery.tmp", "scripts/project_refresh.py", "<framework-checkout-as-visible-to-runner>", "candidate", "inspect", "plan", "preview", "backout-create", "backout-verify", "backout-recover", "backout-restore", "apply", "recover", "--runtime-wrapper", "--clear-runtime-wrappers", "--backout-root", "--require-project-preimage", "--accept-no-post-apply-backout", "--approve-plan-sha256", "--approve-refresh-transaction-id", "--approve-transaction-id", "refresh_transaction_id", "contract_effective_date", "distribution-only-drift", "distribution_drift", "ACCEPT-SELECTED-FRAMEWORK-CHANGE", "REVISE-RUNTIME-WRAPPERS", "RETIRE-MUTABLE-####", "RETIRE-IMMUTABLE-####", "USE-EXACT-PREIMAGE-BUNDLE", "POSIX rwx"]
+  },
+  "bootstrap_acceptance_docs": {
+    "schema_version": 1,
+    "documents": [
+      "GETTING_STARTED.md",
+      "docs/downstream_setup.md",
+      "task_orders/init.md",
+      "CONFORMANCE.md"
+    ],
+    "required_anchors": [
+      "The approved non-dry bootstrap runs one strict union of the receipt-listed active profiles inside the write transaction; any conformance warning or error fails the transaction and triggers rollback.",
+      "Post-write human or manual review remains a distinct acceptance obligation; deterministic conformance does not replace it.",
+      "Do not immediately rerun the same conformance profiles; rerun conformance only for recovery verification, focused diagnosis, later drift, or independently requested evidence."
+    ],
+    "forbidden_fragments": [
+      "A successful write means the first instance was installed",
+      "Then repeat the same supported command for every remaining entry",
+      "then runs every remaining profile in its `active_profiles` list",
+      "Run this command first:",
+      "Repeat the same command with each remaining receipt-listed profile ID",
+      "Run conformance after initial setup"
+    ],
+    "codex_wrapper_orientation": {
+      "path": "integrations/README.md",
+      "required_fragments": [
+        "Generated optional skills: `codex/.agents/skills/<name>/SKILL.md`",
+        "The skill routes to `UPDATING.md` and `task_orders/framework_refresh.md`, never to `task_orders/init.md`"
+      ],
+      "forbidden_fragments": [
+        "Generated optional skills: `codex/skills/<name>/SKILL.md`"
+      ]
+    },
+    "refresh_wrapper_orientation": {
+      "path": "docs/downstream_setup.md",
+      "required_fragments": [
+        "The setup wrapper routes to `GETTING_STARTED.md` and `task_orders/init.md`.",
+        "The refresh wrapper routes to [`UPDATING.md`](../UPDATING.md) and [`task_orders/framework_refresh.md`](../task_orders/framework_refresh.md), never to initialization."
+      ],
+      "forbidden_fragments": [
+        "Runtime-native wrappers are launchers. They should point back to `GETTING_STARTED.md` and `task_orders/init.md`"
+      ]
+    }
+  },
+  "load_order_contract": {
+    "schema_version": 2,
+    "phase_order": ["platform_enforcement", "operative_charter", "recovery_gate", "project_contract", "user_request", "startup_state", "routing", "workflow_selection", "practice_guide_modules", "evidence_bundle", "tool_results"],
+    "phase_titles": {
+      "platform_enforcement": "Platform enforcement",
+      "operative_charter": "runtime/operative_charter.md",
+      "recovery_gate": "Recovery gate",
+      "project_contract": "Project contract",
+      "user_request": "User request",
+      "startup_state": "Startup state",
+      "routing": "Routing",
+      "workflow_selection": "Workflow selection",
+      "practice_guide_modules": "Practice Guide module(s)",
+      "evidence_bundle": "Evidence bundle",
+      "tool_results": "Tool results"
+    },
+    "startup_state": {
+      "header_files": ["TODO.md", "DECISIONS.md"],
+      "empty_count_markers": {"TODO.md": ["active_count: 0"], "DECISIONS.md": ["durable_decision_count: 0", "directive_count: 0"]},
+      "empty_markers": ["template-empty", "- None."],
+      "full_record_gate": ["header", "index", "scope", "task tag"],
+      "barred_by": ["scope", "privacy"],
+      "permission_effect": "none",
+      "conditional_files": {
+        "FINDINGS.md": ["insights", "framework-feedback"],
+        "REVIEWER_LANE_FEEDBACK.md": ["reviewer routing", "external-review orchestration", "source-monitoring strategy", "prompt-agent-quality", "decision-triggered insights"],
+        "FRAMEWORK_FEEDBACK.md": ["framework-maintenance", "sanitized feedback candidates"],
+        "PRECEDENTS.md": ["recorded trigger"]
+      }
+    },
+    "projection_paths": ["runtime/operative_charter.md", "runtime/load_order.md", "ARCHITECTURE.md"]
+  },
+  "orchestration_handoff": {
+    "path": "task_orders/orchestrate.md",
+    "required_markers": [
+      "orchestration-reload-bundle-v1",
+      "orchestration-authority-rule-v1",
+      "orchestration-handoff-context-only-v1",
+      "orchestration-sow-conflict-winner-v1",
+      "orchestration-procedural-modules-v1"
+    ],
+    "required_references": [
+      "runtime/operative_charter.md",
+      "master_service_agreement.md",
+      "AGENT_PROJECT.md",
+      "STATEMENT_OF_WORK.md"
+    ]
+  },
+  "runtime_module_contract": {
+    "schema_version": 1,
+    "module_dir": "runtime/task_modules",
+    "obligation_manifest": "runtime/task_module_obligations.json",
+    "common_marker": "mpa-common-precondition",
+    "obligation_marker_prefix": "mpa-obligation"
+  }
+}

@@ -1,0 +1,17 @@
+---
+name: seo
+description: Use for SEO audits, crawl and indexing diagnosis, metadata and structured data cleanup, Google Search readiness checks, and JavaScript SEO troubleshooting. This skill is a thin integration over the canonical framework Practice Guide.
+---
+
+# SEO
+
+<!-- mpa-wrapper-contract: entrypoint-recovery-project-contract-v1 -->
+Run this wrapper only after the generated runtime entrypoint has confirmed that its recovery gate is clear and loaded the project contract in the current agent context. Otherwise, stop this wrapper and return to that entrypoint or its recovery route.
+
+Ensure `{{FRAMEWORK_ROOT}}/runtime/operative_charter.md` and project `AGENT_PROJECT.md` are loaded. Consult project `STATEMENT_OF_WORK.md` when constraints, approval boundaries, or acquisition boundaries matter. Then read `{{FRAMEWORK_ROOT}}/practice_guides/seo.md`; it is the source of truth for this workflow.
+
+When latest guidance matters, also read:
+
+- project `SOURCE_PACKS.md` or `SOURCE_UPDATE.md` when present
+
+Use the scope, evidence rules, and output structure owned by the Practice Guide. This wrapper grants no additional authority and defines no independent audit methodology.

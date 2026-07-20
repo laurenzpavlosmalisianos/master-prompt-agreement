@@ -1,0 +1,4 @@
+interface:
+  display_name: "Refresh Master Prompt Project"
+  short_description: "Inspect, update, refresh, or recover an MPA instance"
+  default_prompt: "Use $master-prompt-refresh-project to update this project to the selected Master Prompt Agreement checkout."

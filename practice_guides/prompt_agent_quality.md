@@ -1,0 +1,121 @@
+# Prompt And Agent Quality Practice Guide
+
+Use this Practice Guide when changing maintained prompts, agent entrypoints, tool contracts, skills, evaluation rubrics, or reusable agent workflows. It tightens the task contract, context boundary, tool boundary, and verification path. It is not a place to copy provider-specific prompt recipes or procedures already owned by other framework surfaces.
+
+## Source Scope
+
+- Check current official model, runtime, API, security, and deprecation documentation before encoding defaults for model choice, effort, tool use, memory, context, or automation behavior.
+- Keep model names, provider-specific controls, thought or reasoning fields, and runtime-specific goal mechanics in source packs, provider adapters, project pins, or task-local migration notes.
+- For each pinned model or provider adapter, maintain a dated compatibility record outside always-on runtime guidance: model identifier; endpoint, platform, account, and regional availability; supported and rejected request parameters; default reasoning or thinking mode; control-token and chat-template defaults; tool or function-call formatting; cutoff date or benchmark-decontamination status where supplied; context and output limits; tokenizer or accounting changes that affect budget estimates; deprecation or migration notes; and official-source verification date. Adapters must fail closed for unsupported safety, permission, tool, reasoning, budget, or output-shape controls; they may strip only documented non-semantic optional parameters with an explicit compatibility note or test.
+- Treat provider prompt or KV caching and request-affinity routing as optimizations unless the provider contract guarantees stronger semantics. Correctness, authorization, and durable state continuity must survive cache misses, eviction, or route changes; validate claimed latency or cost gains with observed cache evidence.
+- Treat benchmark, launch, and vendor-efficiency claims as diagnostic evidence. Use project evals or objective checks before changing durable guidance.
+- Evaluate model and runtime capability in the intended harness, tool set, and context surface. Do not infer agent behavior from chat-only demos or vendor claims; before adding or removing durable examples, constraints, or tool rules, run small probes and record baseline behavior, changed behavior, and failure modes.
+- For a one-task model, effort, autonomy, trajectory-length, or worker-topology escalation, state the failure mode, budget or cap, and verifier. Before making that escalation a recurring default, compare task quality, scope adherence, approval behavior, unrequested side effects, cost, and latency with the simplest capable single-agent or direct-call baseline in the intended harness.
+- Treat agent-harness claims as system claims: inspect tool contracts, traces, data movement, permissions, memory, verifier quality, and approval behavior before adopting them.
+- For persistent or retrieval memory claims, distinguish raw episodes, domain facts, procedures, and generalized lessons; require source provenance, validation status, write authority, retention or rollback, contamination checks, retrieval/update traces, and matched ablation or simpler-baseline comparison before treating performance uplift as durable evidence.
+
+## Workflow
+
+1. Define the work contract.
+- state the objective, user-visible output, constraints, stopping condition, and acceptance evidence
+- for runtime-native goals or long-running agent workflows, define the outcome, verification surface, measurement environment, constraints, ownership boundaries, iteration policy, and blocked stop condition before execution
+- separate durable policy from task-local examples, source excerpts, and current-version facts
+- prefer the smallest prompt or workflow that satisfies the contract and passes the relevant checks
+- state each durable instruction once. When reducing a working prompt, remove one coherent instruction, example, or tool group at a time and rerun the same representative checks; retain examples or style rules when they encode a requirement or correct a measured failure
+
+2. Route specialized concerns to their owning guide.
+- unclear scope or acceptance: `task_contract`
+- multi-step execution after the approach is chosen: `implementation_planning`
+- current sources or source changes: `source_grounded_research` or `source_freshness_review`
+- untrusted retrieved content, tool output, memory, tool-protocol, or connector flows: `prompt_injection_review`
+- personal, customer, private, or production-derived prompts, traces, outputs, screenshots, account state, or regression corpora: `privacy_data_handling`
+- recurring, unattended, browser-assisted, or multi-agent automation: `scheduled_automation`
+- reviewer or owner understanding of a complex agent-generated change: `knowledge_transfer`
+- generated code quality, security, dependency, release, migration, or visual work: load the matching domain guide
+- before editing a maintained skill, tool-protocol server, connector, adapter, agent tool contract, or tool schema, record a short loading receipt in the working notes or final report: domain guide loaded, security guide loaded or explicitly not applicable, prompt-injection/tool-boundary guide loaded or explicitly not applicable, current runtime/source docs checked when behavior is volatile, and negative verification planned for the changed boundary
+
+3. Structure context deliberately.
+- keep always-on instructions short and stable
+- place volatile evidence and user data in the task bundle, not permanent entrypoints
+- pass only context that can materially affect the result or its verification; for each non-obvious input, state the decision, transformation, constraint, or check it is meant to inform
+- keep always-loaded trigger text separate from on-demand reference; inline a dependency only when every run needs it or when a pointer to it has proven unreliable for the task
+- choose the instruction surface by load timing, persistence or compaction behavior, authority, context cost, and whether deterministic enforcement is required
+- treat truncation, rolling windows, tool-exchange removal, and model summarization as ordered, lossy context transformations. Define their order and preservation invariants; keep governing authority, approvals, current task state, and decisive evidence or trace locators in reloadable sources outside transformed history; and test threshold crossings, repeated transformation, and resume behavior
+- when compressed context can affect trust, authority, or acceptance, preserve the transform type, source or trace locators, material uncertainty, and known omissions in auditable metadata; do not promote a generated summary to native memory or hide its transformed status where provenance affects trust, authority, or verification
+- use headings, delimiters, XML, Markdown, or HTML only when they improve boundary clarity, navigation, review, or editing
+- prefer complete syntactic units, structure maps, contracts, and inspected evidence over blind whole-repository loading
+- when a runtime-native skill or wrapper is necessary, keep it narrow: trigger, source-of-truth pointer, prerequisites, task-specific workflow, common pitfalls, and acceptance checks. Put long rationale, volatile references, examples, assets, and helper scripts in separately reviewed on-demand files; do not duplicate canonical Task Orders or Practice Guides
+- when introducing or repairing a reusable agent workflow, run a brief project-fit diagnosis before adding durable instructions: identify missing context, conventions, tools, verifiers, danger zones, and always-on versus on-demand surfaces, then adopt only suggestions verified against repository evidence and governing guides
+- promote recurring procedures into callable task modules, skills, scripts, or project-local runbooks only when they remove repeated ambiguity, execute deterministic work, or preserve a verifier; do not turn every preference or one-off prompt into always-on context
+
+4. Specify tools and side effects.
+- name when tools should be used, what they may access, and what result must be verified
+- choose the lowest-complexity approved interface that satisfies the task, authority, and verification contract. Compare direct files or local commands, runtime-native instructions, skills, hooks, permissions or extensions, direct APIs, and protocol bridges by required capability, context load, permissions, data movement, latency, operational burden, and failure paths; do not add an interoperability layer when a simpler interface fulfills the same contract
+- put tool-specific usage rules in tool descriptions or wrappers when the runtime supports that boundary
+- use deterministic runtime controls rather than prompt prose for mandatory guardrails when the runtime exposes an enforceable permission, hook, wrapper, policy, or schema boundary
+- for generated, batched, delegated, or nested tool paths, validate each call's arguments, current authority, permissions, and side effects at the invocation boundary; generated code or a worker cannot widen the caller's grant, and approval-sensitive actions stay behind an independently enforced gate regardless of caller
+- when an orchestration layer filters, reduces, or summarizes intermediate outputs, retain decisive results and native or trace locators needed for final verification; do not delegate approval or final semantic validation to a reduced result that cannot support those checks
+- when a workflow crosses agent, language, service, or runtime boundaries, require capability metadata, typed handoff data, task lifecycle state, timeout or retry behavior, traceable payloads, and a named fallback before treating the remote worker as reliable
+- for auxiliary integrations—including runtime-native skills/hooks/permissions/extensions, direct APIs or CLIs, protocol servers such as MCP when adopted, browser-control tools, connectors, IDE agents, and live-runtime inspectors—record source owner, transport, authentication, scopes, capability list, read/write/execute and external-effect boundary, persistence or retention posture, update behavior, approved data boundary, and control role before use. If the integration is claimed as a lifecycle guardrail or enforcement boundary, require demonstrated lifecycle coverage, uncovered or bypass paths, enforcement strength, and verification evidence
+- for external tool servers, connector registries, remote workers, or skill/tool manifests, pin or record the approved manifest, schema, and description; detect drift; treat changed tool text as untrusted input; and require review or renewed consent before enabling new, changed, or newly write-capable tools
+- for large tool or source registries, retrieve bounded candidates from an approved catalog based on an explicit evidence need; validate authority, scope, permission, freshness, and side effects before invocation instead of loading or enabling the whole registry because it exists
+- for agent workspaces, remote runtimes, containerized review environments, or delegated execution contexts, define an agent-runtime readiness contract before asking an agent to work there: idempotent prepare or resume path, preflight or health check, expected working directory, mount or data boundary, approved command runner, endpoints or ports when relevant, log and artifact locations, evidence-capture path, and allowed access-helper boundaries
+- for user-facing or full-stack agent applications, define state ownership, session and snapshot identity, resume, branch, abort, detach, streaming state or artifact semantics, human-approval interrupts, auth and tenant boundaries, persistence retention, and protocol compatibility before treating conversation state as reliable or safe
+- keep hard policy, compliance, safety, and deterministic validation in repeatable code where possible; use model agents for ambiguity, extraction, synthesis, or prioritization, then verify or enforce with auditable logic
+- verification, scanning, or reviewer output does not create authority unless the project adopted that surface as an approval mechanism
+- validate generated commands, multi-model deliberation, tool output, and external reviewer reports before treating them as evidence
+
+Reviewer and scoped-worker workflow quality:
+- Use `task_orders/orchestrate.md` for live fan-out, including reviewer manifests, worker handoffs, evidence packets, authority and data boundaries, lifecycle, first-pass isolation, coordinator validation, and bounded post-blind review. This guide evaluates reusable workflow design; it does not restate that execution procedure.
+- When designing or revising reusable fan-out, evaluate whether handoffs preserve scope, approval boundaries, decisive evidence, claimed independence, verifier quality, abort or fallback behavior, and enough trace or artifact evidence to validate the final result.
+
+5. Build evaluation around likely failure modes.
+- test instruction following, functional correctness, tool choice, formatting, handoffs, safety boundaries, and acceptance evidence
+- include typical, edge, adversarial, and regression cases when risk justifies them
+- use task-specific rubrics for expert or domain-heavy work; grade required claims, calculations, decisions, caveats, artifact use, uncertainty, and operational usefulness
+- for maintained instructions, validators, or automation briefs, test the semantic invariant the artifact claims to enforce. Do not accept word counts, source counts, link counts, row counts, or successful parsing as quality evidence unless that metric is the actual invariant
+- when changing a specific agent behavior, define one stable targeted metric or categorical rubric before the fix, preserve the baseline, and compare before/after deltas; use broader adaptive or expert rubrics as health signals, not as a substitute for the changed behavior
+- for recurrent generation, reasoning, or agent-loop failures, preserve representative traces, localize the earliest stable prompt, context, tool, memory, or decision point that initiates the repeat, and validate that the remedy reduces that failure without degrading adjacent cases
+- keep the proposer, optimizer, or artifact author separate from the evaluator when risk justifies it; same-author or same-agent grades are evidence to inspect, not independent acceptance
+- for maintained prompts, rubrics, skills, checklists, or workflow briefs, keep a small regression set of known-good and known-bad examples when risk justifies it; accept a change only when it improves or preserves the intended judgments without adding new failure modes
+- when a prompt or agent comparison depends on stochastic runs, sampled tasks, judgment, adaptive selection, or a claim-grade claim, apply the operative design, uncertainty, held-out lifecycle, and disposition contract owned by `task_orders/framework_improvement.md`. A deterministic exact-case regression remains within the narrow class defined there
+- for each routed comparison, bind the exact current and candidate prompt, skill, rubric, agent configuration, model route, runtime, harness, tools, permissions, context, memory, and budget identities; record every intentional difference as part of the treatment. For optimized artifacts, keep development, selection, and final roles plus candidate lineage explicit, constrain edits to reviewable add/delete/replace diffs, retain rejected edits with failure reasons, and promote only the compact winning artifact plus its evidence
+- for memory-enabled workflows, evaluate whether retrieved memories were relevant, authorized, current, and causally useful; memory growth counts, access counts, or benchmark wins alone do not prove quality
+- use synthetic scenarios as the default cold-start bootstrap when real examples are unavailable. Promote real user, project, or production traces into regression cases only for an approved purpose and authorized corpus after `privacy_data_handling` review establishes minimization or transformation, access and egress boundaries, retention and deletion paths, and verified redaction, with provenance recorded. Private storage alone is not authorization or a sufficient privacy control
+- when improving an agent system from traces, first classify the learning layer: model/provider choice, harness/tool/instruction behavior, or context/memory/personalization. Use offline regressions, live or field signals, and clustered trace evidence as complementary signals where available; do not optimize a reusable agent artifact from one aggregate score without inspecting representative failures, user-visible outcomes, privacy boundaries, and owner launch authority
+- when learning from reactions to emitted reviewer or agent findings, treat replies, edits, acceptance, resolution, dismissal, and silence as selectively observed, ambiguous signals rather than correctness labels. Bind the actor and current repository or specification evidence; distinguish verified defects or corrections, verified false positives, project preferences or local exceptions, unsupported rejections, and unknowns. Do not learn suppression from silence, resolution, or one actor's preference alone; sample independently for missed findings, then route only evidence-backed bounded candidates through independent regression and owner-controlled promotion
+- when generating synthetic tasks, eval items, source packets, or adversarial examples, keep the generation, solution, and verification roles separate; reject items that leak the answer, are solved by a trivial or weak baseline, fail a strong verifier for malformedness, or do not discriminate the intended capability on held-out cases
+- for behavioral or claim-grade evaluation corpora, apply the provenance and contamination receipt owned by `task_orders/framework_improvement.md`; distinguish authorized role-bounded delivery of task contents to the evaluated model and the declared grading packet to the evaluator from pre-run, development, optimization, answer-leakage, or undeclared-packet exposure through candidate prompts, context assembly, memory, retrieval, traces, evaluator or verifier packets, or evaluated-model inputs
+- for model-based verifiers used to choose among candidate outputs, score trajectories, or monitor progress, declare the required verifier capability, input packet, decomposed criteria, score and uncertainty representation, repetition or variance-reduction policy, tie or near-tie rule, cost and latency budget, and calibration against an independent oracle, known outcomes, or owner-reviewed examples; treat the verifier as a bounded signal, not acceptance authority
+- for research or experiment loops, record the hypothesis, experiment design, acceptance or rejection metric, result, failed-path lesson, and reproducibility evidence before promoting the output into a durable rule, source entry, workflow brief, or next-run memory
+- for research prototypes, benchmark artifacts, or experimental agent harnesses, separate demonstration value from deployment authority; require downstream validation, data-boundary review, and explicit owner approval before using them in high-stakes work, recurring automation, or reusable framework doctrine
+- for generated skills or workflow files learned from source material, local directories, pasted notes, or prior chat, treat the generated artifact as a candidate: record source provenance, reject invented commands or unsupported capabilities, review the diff before activation, and require the same authority and regression evidence as any other durable prompt artifact
+- for changes generated from prior chats, run logs, optimization traces, agent trajectories, or saved memories, treat the generated prompts, skills, subagent definitions, memory entries, and workflow edits as evidence inputs only. They do not create write authority and must not self-activate: keep candidates out of active instruction, configuration, memory, tool-registry, and automation paths until they are promoted. Promote them only through the normal artifact path: source provenance, contamination check, explicit authority, reviewed diff, regression or matched-baseline evidence, rollback path, and final owner approval when required
+- for exploratory codebase reports, architecture surveys, unfamiliar-area explanations, or generated bug inventories, require claim anchors such as file or line locators, command output, reproductions, test evidence, benchmark artifacts, or source references. Treat unanchored claims as hypotheses until independently inspected
+- when maintainer understanding is an acceptance condition for high-impact agent-generated work, require a bounded understanding artifact or review handoff tied to inspected evidence before treating the change as ready for owner approval
+- do not treat weak tests, LLM-judge agreement, or benchmark uplift as proof of correctness
+
+6. Keep durable prompt artifacts synchronized only when owned by the task.
+- update maintained prompts, task contracts, design specs, acceptance criteria, or test plans only when the task grants that maintenance scope
+- record the rationale, acceptance evidence, and rollback or supersession path for reusable artifact changes that affect repeated agent behavior
+- do not create permanent prompt files, skills, or memory from ordinary one-off work unless reuse, auditability, or cross-review justifies them
+
+## Output
+
+For prompt or agent workflow changes, report:
+
+1. affected prompt, runtime, tool, memory, evaluation, or automation surface
+2. source and model/runtime version scope
+3. accepted changes and rejected prompt bloat
+4. checks, evals, baseline or delta results, and verification commands
+5. residual risks, source-freshness triggers, and acceptance evidence
+
+## Guardrails
+
+- Do not add generic prompt wrappers when the runtime already separates instructions, user input, files, and tool output.
+- Do not put "latest model" names into always-on runtime guidance unless a project has pinned that model or a migration task requires it.
+- Do not copy provider system prompts, tool lists, chat-derived behavior, private logs, or internal maintenance notes into public guidance.
+- Do not import named external prompt methodologies, canvases, command surfaces, or ROI claims as doctrine. Translate only the smallest source-backed failure model that improves the framework.
+- Do not encode project-local runtime names, host paths, account routes, service names, package managers, or product-specific setup commands into reusable public agent-readiness guidance.
+- Do not use more agents, more context, more retries, or more examples as a substitute for a clear task contract and reliable verifier.
+- Do not treat runtime generation tweaks, broader context, or retry count as a durable fix for repeated-output failures. They may be diagnostic mitigations, but durable guidance needs a localized cause, target metric, regression cases, and collateral-behavior check.

@@ -1,0 +1,330 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://master-prompt-agreement.invalid/runtime/review_packet.schema.json",
+  "title": "Bounded reviewer packet and closure record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema", "schema_version", "review_id", "created_at", "lane_id",
+    "invocation_owner", "effect_mode", "purpose", "lane_controls", "planned_model_policy",
+    "lifecycle", "activation", "destination",
+    "approval", "packet", "questions", "output_contract", "validation_receipts", "preflight",
+    "invocation", "retention", "verification", "closeout",
+    "evidence_artifacts"
+  ],
+  "properties": {
+    "$schema": {"const": "runtime/review_packet.schema.json"},
+    "schema_version": {"const": 5},
+    "review_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_.-]*$"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "lane_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_.-]*$"},
+    "invocation_owner": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_.-]*$"},
+    "effect_mode": {"enum": ["observe", "propose"]},
+    "purpose": {"type": "string", "minLength": 1},
+    "lane_controls": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "manifest_kind", "independence_group", "fallback_or_abort_rule",
+        "auth_session_policy", "timeout", "rate_or_cost_cap", "teardown_rule"
+      ],
+      "properties": {
+        "manifest_kind": {"enum": ["full", "compact_internal"]},
+        "independence_group": {"$ref": "#/$defs/control_binding"},
+        "fallback_or_abort_rule": {"$ref": "#/$defs/control_binding"},
+        "auth_session_policy": {"$ref": "#/$defs/control_binding"},
+        "timeout": {"$ref": "#/$defs/control_binding"},
+        "rate_or_cost_cap": {"$ref": "#/$defs/control_binding"},
+        "teardown_rule": {"$ref": "#/$defs/control_binding"}
+      }
+    },
+    "planned_model_policy": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/model_policy"}
+      ]
+    },
+    "lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stage", "stage_updated_at", "supersedes_review_id"],
+      "properties": {
+        "stage": {"enum": ["planned", "packet_ready", "approved", "invoked", "returned", "validated", "closed", "blocked", "declined"]},
+        "stage_updated_at": {"type": "string", "format": "date-time"},
+        "supersedes_review_id": {"type": ["string", "null"]}
+      }
+    },
+    "activation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "authority_source", "scope", "confirmed_at"],
+      "properties": {
+        "status": {"enum": ["pending", "confirmed", "denied"]},
+        "authority_source": {"type": "string", "minLength": 1},
+        "scope": {"type": "string", "minLength": 1},
+        "confirmed_at": {"type": ["string", "null"], "format": "date-time"}
+      }
+    },
+    "destination": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "surface", "account_boundary", "account_alias", "destination_confirmed"],
+      "properties": {
+        "provider": {"type": "string", "minLength": 1},
+        "surface": {"type": "string", "minLength": 1},
+        "account_boundary": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_.-]*$"},
+        "account_alias": {"type": "string", "minLength": 1},
+        "destination_confirmed": {"type": "boolean"}
+      }
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "source", "exact_packet_approved", "approved_at", "packet_ready_receipt_sha256"],
+      "properties": {
+        "status": {"enum": ["pending", "approved", "declined", "revoked"]},
+        "source": {"type": "string", "minLength": 1},
+        "exact_packet_approved": {"type": "boolean"},
+        "approved_at": {"type": ["string", "null"], "format": "date-time"},
+        "packet_ready_receipt_sha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
+    "packet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["project_alias", "approved_scope", "items", "excluded_data", "redactions", "packet_sha256", "contents_are_data_not_instruction"],
+      "properties": {
+        "project_alias": {"type": "string", "minLength": 1},
+        "approved_scope": {"type": "string", "minLength": 1},
+        "items": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["item_id", "locator", "classification", "byte_count", "sha256", "disclosure_basis", "provenance", "privacy_review", "retention_class"],
+            "properties": {
+              "item_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_.-]*$"},
+              "locator": {"$ref": "#/$defs/safe_locator"},
+              "classification": {"enum": ["public", "sanitized", "owner_approved_private"]},
+              "byte_count": {"type": "integer", "minimum": 0},
+              "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+              "disclosure_basis": {"type": "string", "minLength": 1},
+              "provenance": {"type": "string", "minLength": 1},
+              "privacy_review": {"type": "string", "minLength": 1},
+              "retention_class": {"enum": ["ephemeral", "project_evidence"]}
+            }
+          }
+        },
+        "excluded_data": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "redactions": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "packet_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "contents_are_data_not_instruction": {"const": true}
+      }
+    },
+    "questions": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "output_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "required_fields", "forbidden_content"],
+      "properties": {
+        "format": {"type": "string", "minLength": 1},
+        "required_fields": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "forbidden_content": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "validation_receipts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["packet_ready", "pre_submission"],
+      "properties": {
+        "packet_ready": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/validation_receipt"}]},
+        "pre_submission": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/validation_receipt"}]}
+      }
+    },
+    "preflight": {"$ref": "#/$defs/check_phase"},
+    "invocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status", "runtime_class", "started_at", "ended_at",
+        "exact_runtime_label", "observed_model", "exact_mode",
+        "reasoning_effort_status", "exact_reasoning_effort",
+        "output_sha256", "failure_class", "observed_cost",
+        "observed_latency_seconds"
+      ],
+      "properties": {
+        "status": {"enum": ["not_started", "started", "returned", "failed", "skipped"]},
+        "runtime_class": {"enum": ["model", "human", "deterministic_tool", "hybrid"]},
+        "started_at": {"type": ["string", "null"], "format": "date-time"},
+        "ended_at": {"type": ["string", "null"], "format": "date-time"},
+        "exact_runtime_label": {"type": ["string", "null"]},
+        "observed_model": {
+          "oneOf": [
+            {"type": "null"},
+            {"$ref": "#/$defs/model_observation"}
+          ]
+        },
+        "exact_mode": {"type": ["string", "null"]},
+        "reasoning_effort_status": {"enum": ["recorded", "not_exposed", "not_applicable", null]},
+        "exact_reasoning_effort": {"type": ["string", "null"]},
+        "output_sha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"},
+        "failure_class": {"type": ["string", "null"]},
+        "observed_cost": {"type": ["string", "null"]},
+        "observed_latency_seconds": {"type": ["number", "null"], "minimum": 0}
+      }
+    },
+    "retention": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider_policy_confirmed", "provider_retention_choice", "local_retention_class", "local_artifacts", "deletion_trigger"],
+      "properties": {
+        "provider_policy_confirmed": {"type": "boolean"},
+        "provider_retention_choice": {"type": "string", "minLength": 1},
+        "local_retention_class": {"enum": ["ephemeral", "project_evidence"]},
+        "local_artifacts": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "deletion_trigger": {"type": "string", "minLength": 1}
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["coordinator", "claim_checks", "acceptance_rule", "findings_classified", "performed_at", "verification_record_sha256"],
+      "properties": {
+        "coordinator": {"type": "string", "minLength": 1},
+        "claim_checks": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "acceptance_rule": {"type": "string", "minLength": 1},
+        "findings_classified": {"type": "boolean"},
+        "performed_at": {"type": ["string", "null"], "format": "date-time"},
+        "verification_record_sha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
+    "closeout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "performed_at", "checks", "retention_action", "cleanup_status", "cleanup_evidence_ref", "account_or_external_side_effects"],
+      "properties": {
+        "status": {"enum": ["not_started", "passed", "failed"]},
+        "performed_at": {"type": ["string", "null"], "format": "date-time"},
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["check_id", "outcome", "evidence_ref"],
+            "properties": {
+              "check_id": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+              "outcome": {"enum": ["pass", "fail", "not_applicable"]},
+              "evidence_ref": {"type": "string", "minLength": 1}
+            }
+          }
+        },
+        "retention_action": {"type": "string", "minLength": 1},
+        "cleanup_status": {"enum": ["pending", "complete", "not_applicable", "failed"]},
+        "cleanup_evidence_ref": {"type": "string"},
+        "account_or_external_side_effects": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "evidence_artifacts": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/evidence_artifact"}
+    }
+  },
+  "$defs": {
+    "control_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resolution", "value", "basis"],
+      "properties": {
+        "resolution": {"enum": ["explicit", "inherited", "derived", "not_applicable"]},
+        "value": {"type": ["string", "null"], "minLength": 1},
+        "basis": {"type": "string", "minLength": 1}
+      }
+    },
+    "model_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model_identifier", "version_kind", "selection_basis"],
+      "properties": {
+        "model_identifier": {"type": ["string", "null"], "minLength": 1},
+        "version_kind": {"enum": ["immutable_snapshot", "stable_alias", "moving_alias", "not_exposed"]},
+        "selection_basis": {"type": "string", "minLength": 1}
+      }
+    },
+    "model_observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "model_identifier", "version_kind", "matches_planned_policy",
+        "comparison_basis"
+      ],
+      "properties": {
+        "model_identifier": {"type": ["string", "null"], "minLength": 1},
+        "version_kind": {"enum": ["immutable_snapshot", "stable_alias", "moving_alias", "not_exposed"]},
+        "matches_planned_policy": {"type": "boolean"},
+        "comparison_basis": {"type": "string", "minLength": 1}
+      }
+    },
+    "safe_locator": {
+      "type": "string",
+      "pattern": "^(?!.*(?:^|/)(?:\\.|\\.\\.)(?:/|$))[A-Za-z0-9_.@%+=,~-]+(?:/[A-Za-z0-9_.@%+=,~-]+)*$"
+    },
+    "check_phase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "performed_at", "checks"],
+      "properties": {
+        "status": {"enum": ["not_started", "passed", "failed"]},
+        "performed_at": {"type": ["string", "null"], "format": "date-time"},
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["check_id", "outcome", "evidence_ref"],
+            "properties": {
+              "check_id": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+              "outcome": {"enum": ["pass", "fail", "not_applicable"]},
+              "evidence_ref": {"type": "string", "minLength": 1}
+            }
+          }
+        }
+      }
+    },
+    "validation_receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "validator_contract_id", "phase", "validated_at", "packet_sha256",
+        "inventory_sha256", "approval_sha256", "preflight_sha256", "receipt_sha256"
+      ],
+      "properties": {
+        "validator_contract_id": {"const": "mpa-bounded-review-packet-v4"},
+        "phase": {"enum": ["packet_ready", "pre_submission"]},
+        "validated_at": {"type": "string", "format": "date-time"},
+        "packet_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "inventory_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "approval_sha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"},
+        "preflight_sha256": {"type": ["string", "null"], "pattern": "^[a-f0-9]{64}$"},
+        "receipt_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
+    "evidence_artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_id", "role", "locator", "sha256", "classification", "provenance", "privacy_review", "retention_status", "retention_basis", "deletion_evidence_ref"],
+      "properties": {
+        "artifact_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_.-]*$"},
+        "role": {"type": "string", "minLength": 1},
+        "locator": {"$ref": "#/$defs/safe_locator"},
+        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "classification": {"enum": ["public", "sanitized", "owner_approved_private"]},
+        "provenance": {"type": "string", "minLength": 1},
+        "privacy_review": {"type": "string", "minLength": 1},
+        "retention_status": {"enum": ["planned", "retained", "deleted"]},
+        "retention_basis": {"type": "string", "minLength": 1},
+        "deletion_evidence_ref": {"type": ["string", "null"]}
+      }
+    }
+  }
+}
