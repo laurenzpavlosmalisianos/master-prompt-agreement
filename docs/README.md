@@ -22,7 +22,7 @@ of truth for agent behavior.
 | [Architecture](../ARCHITECTURE.md) | You need the authority, runtime-assembly, lifecycle, and integration design. |
 | [Specification](../SPECIFICATION.md) | You need the normative/informative surface classification and authority rules. |
 | [Conformance](../CONFORMANCE.md) | You need profile meanings, checker behavior, and conformance limits. |
-| [Governance](../GOVERNANCE.md) | You are changing versions, compatibility policy, or release governance. |
+| [Governance](../GOVERNANCE.md) | You need product change classes, versioning, compatibility, or acceptance rules. |
 | [Security](../SECURITY.md) | You need the framework threat model, disclosure policy, or security boundary. |
 | [Command And Script Reference](../scripts/README.md) | You need the complete categorized command inventory, lifecycle command maps, or a route to each command's exact `--help` interface. |
 
@@ -33,21 +33,23 @@ of truth for agent behavior.
 | [Concepts](concepts.md) | You need the operating model: authority, runtime packets, Task Orders, Practice Guides, state, source discipline, and feedback. |
 | [Downstream Setup](downstream_setup.md) | You want the setup flow before following the full setup procedure in `GETTING_STARTED.md` and `task_orders/init.md`. |
 | [Updating A Generated Project](../UPDATING.md) | You need the operator recipe for inspecting, refreshing, revising, recovering, restoring, or triaging an unsupported generated format; `task_orders/framework_refresh.md` remains the workflow authority. |
-| [Migrating From v1 To v2](migrating_v1_to_v2.md) | You need the reviewed one-time transition for a project generated from the public pre-v2 line. |
-| [Repository Taxonomy](repository_taxonomy.md) | You need to know where a file belongs, which surfaces are public product surfaces, and which generated files are templates. |
+| [Repository Taxonomy](repository_taxonomy.md) | You need to know where a file belongs, which surfaces are product files, and which generated files are templates. |
 | [Source And Feedback](source_and_feedback.md) | You are reviewing external sources, source-monitor packets, or downstream project feedback. |
-| [Source-Chain Artifacts](source_chain_artifacts.md) | You need the complete, version-bound monitor, review, apply, and assurance artifact contract used by the public source-chain helpers. |
+| [Source-Chain Artifacts](source_chain_artifacts.md) | You need the complete, version-bound monitor, review, apply, and assurance artifact contract used by the product source-chain helpers. |
 | [Source Deep-Research Artifacts](source_deep_research_artifacts.md) | You need the typed digest contract for a completed browser research report retained as task-local evidence. |
-| [Verification And Quality](verification_and_quality.md) | You need to understand deterministic checks, semantic review, reviewer lanes, and publication-quality gates. |
-| [Maintenance And Release](maintenance_and_release.md) | You are maintaining or preparing the framework itself for publication. |
+| [Verification And Quality](verification_and_quality.md) | You need to understand deterministic checks, semantic review, reviewer lanes, and product-quality gates. |
+| [Integration Packaging](../integrations/README.md) | You need the generated Codex, Claude Code, or generic-agent entrypoint and optional integration surfaces. |
 
 ## Human-Facing Interactive View
 
 [Interactive Guide](interactive/index.html) is a static HTML and TypeScript
-presentation layer for humans. It exists to make the architecture easier to
-inspect visually. Agents may use it as an explanatory aid when teaching or
-walking a human through the framework, but it does not replace, override, or
-extend the markdown framework files.
+presentation layer for humans. Download or clone the product and open the file
+locally; GitHub's repository view displays its source instead of executing it.
+It exists to make the architecture easier to inspect visually. Agents may use
+it as an explanatory aid when teaching or walking a human through the framework,
+but it does not replace, override, or extend the Markdown framework files. Its
+[source layout and verification notes](interactive/README.md) explain the
+TypeScript/generated-JavaScript boundary.
 
 ## Canonical References
 

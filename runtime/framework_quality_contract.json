@@ -4,9 +4,9 @@
   "repeated_mistake_classes": [
     {
       "id": "private-path-leak",
-      "failure": "Public framework files mention local paths, private project names, or internal state surfaces.",
+      "failure": "A declared product file or generated downstream surface contains a host path, private project name, or internal state reference.",
       "guard_kind": "deterministic",
-      "guard": "Public release and framework quality checks reject host paths, private-state filenames, and unsanitized feedback intake."
+      "guard": "Exact product membership excludes undeclared maintenance files; product input and state validators reject host paths, private-state filenames, and unsanitized feedback inputs before generation."
     },
     {
       "id": "vendor-specific-public-doctrine",
@@ -61,12 +61,6 @@
       "failure": "A durable generated system proves a fresh render but has no declared inspect, current-format refresh, recovery, or retirement contract, or silently assumes predecessor-format support.",
       "guard_kind": "semantic_review",
       "guard": "Framework semantic audit and testing strategy require objective evidence for every intentionally supported lifecycle transition; predecessor-to-current evidence is required only when that transition is intentionally supported, while unsupported formats require deterministic fail-closed evidence."
-    },
-    {
-      "id": "unclassified-authoring-workspace-residue",
-      "failure": "Framework readiness is inferred from Git status or selected-export checks without proving that every physical authoring-workspace root and fileless subtree is classified and that disposable generated residue is absent.",
-      "guard_kind": "deterministic",
-      "guard": "The final authoring-only compliance collector runs a stable workspace hygiene audit whose declared policy is the sole content input, rejects unknown roots, unapproved fileless subtrees, generated caches, lifecycle-declared disposable material, and filesystem anomalies, reserves transaction-control state for recovery, and reports exact approval-required cleanup candidates without deleting them."
     }
   ],
   "required_task_orders": [

@@ -2,6 +2,76 @@
 
 from __future__ import annotations
 
+import _imp as _bootstrap_imp
+import sys as _bootstrap_sys
+
+
+def _require_python_startup_flags(label: str) -> None:
+    """Reject an entrypoint before it can load repository-local modules."""
+
+    if _bootstrap_sys.implementation.name != "cpython":
+        raise RuntimeError(f"{label} requires CPython")
+    required = (
+        ("-E", "ignore_environment"),
+        ("-S", "no_site"),
+        ("-B", "dont_write_bytecode"),
+    )
+    missing = [flag for flag, name in required if not getattr(_bootstrap_sys.flags, name)]
+    if missing:
+        raise RuntimeError(
+            f"{label} requires CPython startup flags -E -S -B before loading "
+            f"repository-local modules; missing active flags: {' '.join(missing)}"
+        )
+
+
+def _load_trusted_import_boundary(entrypoint: str) -> str:
+    """Load the shared boundary owner by exact regular-file source."""
+
+    if not _bootstrap_imp.is_frozen("os"):
+        raise RuntimeError("project bootstrap requires CPython's frozen os module")
+    import os as bootstrap_os
+    scripts_root = bootstrap_os.path.dirname(bootstrap_os.path.realpath(entrypoint))
+    source_path = bootstrap_os.path.join(scripts_root, "python_import_boundary.py")
+    close_on_exec = getattr(bootstrap_os, "O_CLOEXEC", 0)
+    no_follow = getattr(bootstrap_os, "O_NOFOLLOW", 0)
+    if not close_on_exec or not no_follow:
+        raise RuntimeError("project bootstrap requires O_CLOEXEC and O_NOFOLLOW")
+    flags = bootstrap_os.O_RDONLY | close_on_exec | no_follow
+    descriptor = bootstrap_os.open(source_path, flags)
+    try:
+        metadata = bootstrap_os.fstat(descriptor)
+        if metadata.st_mode & 0o170000 != 0o100000 or metadata.st_nlink != 1:
+            raise RuntimeError("project bootstrap import boundary is not a regular file")
+        chunks: list[bytes] = []
+        remaining = 65_537
+        while remaining:
+            chunk = bootstrap_os.read(descriptor, remaining)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+    finally:
+        bootstrap_os.close(descriptor)
+    source = b"".join(chunks)
+    if not source or len(source) > 65_536 or len(source) != metadata.st_size:
+        raise RuntimeError("project bootstrap import boundary source is invalid")
+    module = type(_bootstrap_sys)("python_import_boundary")
+    module.__file__ = source_path
+    _bootstrap_sys.modules["python_import_boundary"] = module
+    exec(compile(source, source_path, "exec"), module.__dict__)
+    return scripts_root
+
+
+if __name__ == "__main__":
+    _require_python_startup_flags("project bootstrap")
+    _bootstrap_scripts_root = _load_trusted_import_boundary(__file__)
+    import python_import_boundary as _python_import_boundary
+
+    _python_import_boundary.establish_import_boundary(
+        scripts_root=_bootstrap_scripts_root,
+        label="project bootstrap",
+    )
+
 import argparse
 from collections.abc import Iterable, Mapping, Set as AbstractSet
 from dataclasses import dataclass
@@ -20,10 +90,11 @@ import automation_orders_lint
 import bootstrap_transaction
 import generated_sow_text
 import integration_registry
+import markdown_structure
 import project_contract_model as contract_model
 import project_input
 import project_state_identity
-import public_surface
+import product_manifest
 import resource_cleanup
 import safe_paths
 from project_contract_model import (
@@ -68,7 +139,6 @@ from project_contract_model import (
     OPTIONAL_STATE_FLAGS,
     PANEL_CONFIG_KEYS,
     PANEL_SEAT_KEYS,
-    PROJECT_KINDS,
     PROJECTED_DEFINITION_FIELDS,
     PROJECT_LOADING_RULE_LINES,
     REQUIRED_AUXILIARY_TOOL_KEYS,
@@ -116,12 +186,6 @@ GENERATED_CONTRACT_BASENAMES = frozenset(
     }
 )
 GENERATED_STATE_BASENAMES = frozenset(STATE_TEMPLATES)
-FRAMEWORK_AUTHORING_STATE_TEMPLATE_SOURCE_PATHS = frozenset(
-    {
-        *STATE_TEMPLATES.values(),
-        *BOOTSTRAP_STATE_TEMPLATES.values(),
-    }
-)
 INTERNAL_LOCAL_STATE_PATTERNS = safe_paths.INTERNAL_LOCAL_STATE_PATTERNS
 CONTROL_RE = generated_sow_text.SINGLE_LINE_FORBIDDEN_CONTROL_RE
 LINE_CONTROL_RE = generated_sow_text.MULTILINE_FORBIDDEN_CONTROL_RE
@@ -289,7 +353,7 @@ def framework_effective_file_digests(framework_root: Path) -> dict[str, str]:
                 ),
             )
         )
-        for path in public_surface.iter_downstream_effective_files(framework_root)
+        for path in product_manifest.iter_downstream_effective_files(framework_root)
     }
 
 
@@ -297,7 +361,7 @@ def framework_distribution_sha256(framework_root: Path) -> str:
     """Bind the complete neutral public distribution to one provenance digest."""
 
     return _framework_inventory_sha256(
-        public_surface.iter_public_root_files(framework_root),
+        product_manifest.iter_product_files(framework_root),
         framework_root,
     )
 
@@ -415,7 +479,7 @@ def validate_setup_profile(profile: object) -> list[str]:
     }
     probe.setdefault("bootstrap_mode", "minimal")
     probe.setdefault("agent", "setup-profile validation agent")
-    probe.setdefault("framework_verification_runner", "python -B")
+    probe.setdefault("framework_verification_runner", "python -E -S -B")
     probe.setdefault("project_name", "setup-profile validation project")
     if bootstrap_mode(probe) == "full":
         probe.update(
@@ -1717,17 +1781,6 @@ def answer_file_warnings(answers_path: Path, project_root: Path) -> list[str]:
     return warnings
 
 
-def is_framework_authoring_root(path: Path) -> bool:
-    return all(
-        (path / marker).exists()
-        for marker in (
-            "master_service_agreement.md",
-            "runtime/operative_charter.md",
-            "scripts/project_bootstrap.py",
-        )
-    )
-
-
 def parent_context_warnings(project_root: Path, framework_root: Path) -> list[str]:
     warnings: list[str] = []
     for parent in project_root.parents:
@@ -1771,6 +1824,37 @@ def resolve_contract_root(
     return contract_root, relative, errors
 
 
+_INSTRUCTION_STRUCTURE_LINE_RE = re.compile(
+    r"(?:#{1,6}[ \t]+.+|</?[A-Za-z][A-Za-z0-9_.:-]*(?:[ \t]+[^<>]+)?/?>)"
+)
+
+
+def _normalized_operative_paragraphs(text: str) -> tuple[str, ...]:
+    """Return exact active prose paragraphs with wrapping normalized.
+
+    Fenced content and HTML comments are already excluded by the shared
+    Markdown visibility parser. Headings and repository-owned XML-like section
+    tags delimit prose but are not themselves executable directives.
+    """
+
+    paragraphs: list[str] = []
+    lines: list[str] = []
+
+    def finish() -> None:
+        if lines:
+            paragraphs.append(" ".join(" ".join(lines).split()))
+            lines.clear()
+
+    for _line_number, raw_line in markdown_structure.operative_lines(text):
+        line = raw_line.strip()
+        if not line or _INSTRUCTION_STRUCTURE_LINE_RE.fullmatch(line):
+            finish()
+            continue
+        lines.append(line)
+    finish()
+    return tuple(paragraphs)
+
+
 def project_layout_errors(
     project_root: Path,
     contract_root: Path,
@@ -1778,68 +1862,106 @@ def project_layout_errors(
     framework_root: Path,
     project_kind: str,
 ) -> list[str]:
-    if project_kind not in PROJECT_KINDS:
-        return [f"project kind must be one of: {', '.join(sorted(PROJECT_KINDS))}"]
-    if project_kind == "downstream":
-        if safe_paths.path_within_root(project_root, framework_root):
-            relation = "is" if project_root == framework_root else "is nested inside"
-            return [
-                f"target project root {relation} the framework authoring repository: {framework_root}. "
-                "Framework maintenance requires --project-kind framework-authoring and a separate non-public --contract-root."
-            ]
-        return []
-
+    try:
+        policy = contract_model.project_layout_policy(project_kind)
+    except ValueError as exc:
+        return [str(exc)]
     errors: list[str] = []
-    if project_root != framework_root or not is_framework_authoring_root(project_root):
-        errors.append(
-            "framework-authoring project kind requires the detected executing framework root as --project-root"
-        )
-    if contract_root == project_root or contract_root_ref == ".":
-        errors.append(
-            "framework-authoring project kind requires --contract-root to be a strict descendant of the framework root"
-        )
-    if contract_root != project_root and not safe_paths.path_within_root(contract_root, project_root):
-        errors.append("framework-authoring contract root must stay inside the framework root")
-    if contract_root_ref != "." and not public_surface.is_public_excluded(contract_root_ref):
-        errors.append(
-            "framework-authoring contract root must be an explicitly non-public path excluded by the framework public-surface selector"
-        )
-    maintainer_entrypoint = project_root / "AGENTS.md"
-    entrypoint_errors = safe_paths.bounded_input_errors(
-        maintainer_entrypoint,
+    if policy.forbid_target_within_framework_root and safe_paths.path_within_root(
         project_root,
-        description="framework maintainer AGENTS.md input",
-    )
-    errors.extend(entrypoint_errors)
-    if entrypoint_errors:
-        return errors
-    if not maintainer_entrypoint.is_file() or maintainer_entrypoint.is_symlink():
+        framework_root,
+    ):
+        relation = "is" if project_root == framework_root else "is nested inside"
         errors.append(
-            "framework-authoring project kind requires an existing regular root AGENTS.md maintainer entrypoint"
+            f"target project root {relation} the selected framework checkout: "
+            f"{framework_root}. Select a separate downstream project root."
         )
-    else:
+    if policy.require_framework_root_target and project_root != framework_root:
+        errors.append(
+            f"{policy.kind} project kind requires the selected framework root as --project-root"
+        )
+    missing_markers = [
+        marker
+        for marker in policy.required_framework_markers
+        if not (project_root / marker).exists()
+    ]
+    if policy.require_framework_root_target and missing_markers:
+        errors.append(
+            f"{policy.kind} project root is missing required framework markers: "
+            + ", ".join(missing_markers)
+        )
+    if policy.require_nested_contract_root and (
+        contract_root == project_root or contract_root_ref == "."
+    ):
+        errors.append(
+            f"{policy.kind} project kind requires --contract-root to be a strict descendant of the project root"
+        )
+    if policy.require_nested_contract_root and not safe_paths.path_within_root(
+        contract_root,
+        project_root,
+    ):
+        errors.append(f"{policy.kind} contract root must stay inside the project root")
+    if (
+        policy.require_non_product_contract_root
+        and contract_root_ref != "."
+        and product_manifest.is_product_location(contract_root_ref)
+    ):
+        errors.append(
+            f"{policy.kind} contract root must be excluded by the product manifest"
+        )
+    for requirement in policy.instruction_surfaces:
+        entrypoint = project_root / requirement.relative_path
+        description = requirement.description
+        entrypoint_errors = safe_paths.bounded_input_errors(
+            entrypoint,
+            project_root,
+            description=f"{description} input",
+        )
+        errors.extend(entrypoint_errors)
+        if entrypoint_errors:
+            continue
+        if not entrypoint.is_file() or entrypoint.is_symlink():
+            errors.append(
+                f"{policy.kind} project kind requires an existing regular root "
+                + entrypoint.name
+            )
+            continue
         try:
             entrypoint_bytes = safe_paths.read_regular_file_bytes(
-                maintainer_entrypoint,
-                description="framework maintainer AGENTS.md input",
+                entrypoint,
+                description=f"{description} input",
             )
         except (OSError, ValueError) as exc:
-            errors.append(f"framework maintainer AGENTS.md could not be read safely: {exc}")
-            return errors
+            errors.append(f"{description} could not be read safely: {exc}")
+            continue
         try:
             entrypoint_text = entrypoint_bytes.decode("utf-8")
         except UnicodeDecodeError as exc:
-            errors.append(f"framework maintainer AGENTS.md must be valid UTF-8: {exc}")
-            return errors
-        for required_reference in (
-            "runtime/operative_charter.md",
-            f"{contract_root_ref}/AGENT_PROJECT.md",
-        ):
-            if required_reference not in entrypoint_text:
+            errors.append(f"{description} must be valid UTF-8: {exc}")
+            continue
+        operative_paragraphs = _normalized_operative_paragraphs(entrypoint_text)
+        required_index = 0
+        for directive in requirement.ordered_directives:
+            required_paragraph = directive.exact_normalized_paragraph.replace(
+                "{contract_root}",
+                contract_root_ref,
+            )
+            try:
+                paragraph_index = operative_paragraphs.index(required_paragraph)
+            except ValueError:
                 errors.append(
-                    "framework maintainer AGENTS.md does not load required authoring reference: "
-                    + required_reference
+                    f"{description} is missing the exact affirmative directive "
+                    f"for {directive.description}: {required_paragraph}"
                 )
+                continue
+            if paragraph_index < required_index:
+                errors.append(
+                    f"{description} places the exact affirmative directive out "
+                    f"of policy order for {directive.description}: "
+                    + required_paragraph
+                )
+                continue
+            required_index = paragraph_index + 1
     return errors
 
 
@@ -2285,7 +2407,7 @@ def _bounded_generated_surface_candidates(
     project_root: Path,
     requested_outputs: AbstractSet[str],
     *,
-    framework_authoring_source_paths: AbstractSet[str] = frozenset(),
+    owned_state_template_source_paths: AbstractSet[str] = frozenset(),
 ) -> tuple[list[str], list[str]]:
     """Find only exact generated-surface basenames through a bounded no-link walk."""
 
@@ -2366,7 +2488,7 @@ def _bounded_generated_surface_candidates(
                     entry.name in GENERATED_STATE_BASENAMES
                     and relative_path.as_posix() not in requested_outputs
                 ):
-                    if relative_path.as_posix() in framework_authoring_source_paths:
+                    if relative_path.as_posix() in owned_state_template_source_paths:
                         try:
                             _read_discovered_candidate(
                                 directory_descriptor,
@@ -2376,7 +2498,7 @@ def _bounded_generated_surface_candidates(
                             )
                         except (OSError, ValueError) as exc:
                             raise ValueError(
-                                "could not bind framework-authoring state-template "
+                                "could not bind owned state-template "
                                 f"source: {relative_path.as_posix()}: {exc}"
                             ) from exc
                         continue
@@ -2491,7 +2613,8 @@ def outside_requested_generated_surface_errors(
 
     found: set[str] = set()
     discovery_errors: list[str] = []
-    if project_kind == "downstream":
+    policy = contract_model.project_layout_policy(project_kind)
+    if policy.manages_runtime_entrypoint:
         for relative, owners in _registered_runtime_target_labels(
             framework_root
         ).items():
@@ -2507,19 +2630,17 @@ def outside_requested_generated_surface_errors(
             elif raw is not None and _is_registered_mpa_runtime_surface(raw):
                 found.add(f"{relative} ({', '.join(owners)})")
 
-    framework_authoring_source_paths: AbstractSet[str] = frozenset()
+    owned_state_template_source_paths: AbstractSet[str] = frozenset()
     if (
-        project_kind == "framework-authoring"
+        policy.state_template_source_paths
         and project_root.resolve(strict=False)
         == framework_root.resolve(strict=False)
     ):
-        framework_authoring_source_paths = (
-            FRAMEWORK_AUTHORING_STATE_TEMPLATE_SOURCE_PATHS
-        )
+        owned_state_template_source_paths = policy.state_template_source_paths
     candidates, walk_errors = _bounded_generated_surface_candidates(
         project_root,
         requested_outputs,
-        framework_authoring_source_paths=framework_authoring_source_paths,
+        owned_state_template_source_paths=owned_state_template_source_paths,
     )
     discovery_errors.extend(walk_errors)
     found.update(candidates)
@@ -2656,8 +2777,7 @@ def active_project_profiles(
 ) -> list[str]:
     """Return the exact conformance profiles activated by retained inputs."""
 
-    if project_kind not in PROJECT_KINDS:
-        raise ValueError(f"unsupported project kind: {project_kind}")
+    contract_model.project_layout_policy(project_kind)
     profiles = ["core-project"]
     if answers.get("include_source_update") is True:
         profiles.append("source-managed")
@@ -2691,7 +2811,8 @@ def project_instance_file_sets(
             for name in immutable_optional_state_names(dict(answers))
         ),
     ]
-    if project_kind == "downstream":
+    policy = contract_model.project_layout_policy(project_kind)
+    if policy.manages_runtime_entrypoint:
         if runtime is None:
             raise ValueError("downstream project file partitioning requires a runtime")
         immutable.append(ENTRYPOINT_TEMPLATES[runtime][1])
@@ -2719,7 +2840,8 @@ def planned_output_names(
         project_relative_output(contract_root_ref, name)
         for name in contract_output_names(answers)
     ]
-    if project_kind == "downstream":
+    policy = contract_model.project_layout_policy(project_kind)
+    if policy.manages_runtime_entrypoint:
         if runtime is None:
             raise ValueError("downstream project output planning requires a runtime")
         outputs.insert(2, ENTRYPOINT_TEMPLATES[runtime][1])
@@ -2866,7 +2988,8 @@ def render_output_files(
             contract_root_ref=contract_root_ref,
         ),
     }
-    if project_kind == "downstream":
+    policy = contract_model.project_layout_policy(project_kind)
+    if policy.manages_runtime_entrypoint:
         if runtime is None:
             raise ValueError("downstream project rendering requires a runtime")
         entrypoint_name, entrypoint = render_entrypoint(
@@ -2882,7 +3005,7 @@ def render_output_files(
             framework_ref,
             contract_root_ref=contract_root_ref,
         )
-    if project_kind == "downstream":
+    if policy.manages_runtime_entrypoint:
         assert runtime is not None
         wrapper_outputs = integration_registry.render_wrapper_outputs(
             runtime,
@@ -3124,6 +3247,7 @@ def summary_payload(
     effective_date: str | None = None,
     runtime_wrappers: list[str] | tuple[str, ...] = (),
 ) -> dict[str, object]:
+    policy = contract_model.project_layout_policy(project_kind)
     batch_date = effective_date or render_date(answers)
     mode = bootstrap_mode(answers)
     persistent_memory_boundary = str(answers.get("persistent_memory_boundary", "")).strip()
@@ -3188,17 +3312,17 @@ def summary_payload(
             *absolute_path_warnings(answers),
             *(
                 find_local_state_references(answers)
-                if project_kind == "downstream"
+                if policy.emit_external_input_warnings
                 else []
             ),
             *(
                 answer_file_warnings(answers_path, project_root)
-                if project_kind == "downstream"
+                if policy.emit_external_input_warnings
                 else []
             ),
             *(
                 parent_context_warnings(project_root, framework_root)
-                if project_kind == "downstream"
+                if policy.emit_external_input_warnings
                 else []
             ),
             *framework_reference_warnings(framework_ref),
@@ -3212,7 +3336,7 @@ def summary_payload(
                     effective_date=batch_date,
                     runtime_wrappers=runtime_wrappers,
                 )
-                if project_kind == "downstream"
+                if policy.emit_external_input_warnings
                 else []
             ),
             *placeholder_answer_warnings(answers),
@@ -4191,19 +4315,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--project-root", required=True, help="Target project root.")
     parser.add_argument(
         "--project-kind",
-        choices=sorted(PROJECT_KINDS),
+        choices=sorted(contract_model.PROJECT_KINDS),
         default="downstream",
-        help="Project layout. Framework authoring uses a separate non-public contract root and preserves the root maintainer entrypoint.",
+        help="Registered project layout. The product command supports downstream projects.",
     )
     parser.add_argument(
         "--contract-root",
-        help="Safe project-relative directory for generated contract and state files. Defaults to the project root for downstream projects and is required for framework authoring.",
+        help="Safe project-relative directory for generated contract and state files. Defaults to the project root.",
     )
     parser.add_argument(
         "--setup-profile",
         help="Optional JSON setup profile whose allowed defaults fill only answer fields that are absent.",
     )
-    parser.add_argument("--runtime", choices=sorted(ENTRYPOINT_TEMPLATES), help="Target downstream runtime. Omit for framework authoring.")
+    parser.add_argument("--runtime", choices=sorted(ENTRYPOINT_TEMPLATES), help="Target downstream runtime.")
     parser.add_argument(
         "--runtime-wrapper",
         action="append",
@@ -4251,8 +4375,8 @@ class BootstrapOptions:
     approve_write_plan_sha256: tuple[str, ...] = ()
 
 
-def parse_options() -> BootstrapOptions:
-    args = build_parser().parse_args()
+def parse_options(argv: list[str] | None = None) -> BootstrapOptions:
+    args = build_parser().parse_args(argv)
     return BootstrapOptions(
         answers=args.answers,
         project_root=args.project_root,
@@ -4666,6 +4790,7 @@ def load_bootstrap_inputs(
 
 def bootstrap_validation_errors(inputs: BootstrapInputs) -> list[str]:
     options = inputs.options
+    policy = contract_model.project_layout_policy(options.project_kind)
     effective_answers = inputs.effective_answers
     errors = list(inputs.input_errors)
     errors.extend(inputs.framework_reference_errors)
@@ -4688,12 +4813,12 @@ def bootstrap_validation_errors(inputs: BootstrapInputs) -> list[str]:
             "missing required bootstrap answer key: framework_verification_runner; record the exact runner reported by scripts/check_prereqs.py or an approved wrapper"
         )
     if (
-        options.project_kind == "framework-authoring"
+        policy.require_explicit_render_date
         and isinstance(effective_answers, dict)
         and not str(effective_answers.get("date", "")).strip()
     ):
         errors.append(
-            "framework-authoring project kind requires an explicit date in the retained answers for reproducible rendering"
+            f"{policy.kind} project kind requires an explicit date in retained answers for reproducible rendering"
         )
     errors.extend(
         safe_paths.output_path_errors(
@@ -4705,19 +4830,19 @@ def bootstrap_validation_errors(inputs: BootstrapInputs) -> list[str]:
     errors.extend(inputs.contract_root_errors)
     if inputs.project_root.exists() and not inputs.project_root.is_dir():
         errors.append(f"target project root must be a directory: {inputs.project_root}")
-    if options.project_kind == "downstream" and options.runtime is None:
-        errors.append("downstream project kind requires --runtime")
-    if options.project_kind == "framework-authoring" and options.runtime is not None:
+    if policy.runtime_required and options.runtime is None:
+        errors.append(f"{policy.kind} project kind requires --runtime")
+    if policy.runtime_forbidden and options.runtime is not None:
         errors.append(
-            "framework-authoring project kind must not set --runtime because it preserves the root maintainer entrypoint"
+            f"{policy.kind} project kind must not set --runtime"
         )
     if len(options.runtime_wrappers) != len(set(options.runtime_wrappers)):
         errors.append("--runtime-wrapper values must not contain duplicates")
-    if options.project_kind == "framework-authoring" and options.runtime_wrappers:
+    if not policy.runtime_wrappers_allowed and options.runtime_wrappers:
         errors.append(
-            "framework-authoring project kind must not select runtime wrappers"
+            f"{policy.kind} project kind must not select runtime wrappers"
         )
-    if options.project_kind == "downstream" and options.runtime is not None:
+    if policy.runtime_wrappers_allowed and options.runtime is not None:
         try:
             integration_registry.wrapper_output_map(
                 options.runtime,
@@ -4726,15 +4851,15 @@ def bootstrap_validation_errors(inputs: BootstrapInputs) -> list[str]:
             )
         except (KeyError, ValueError) as exc:
             errors.append(str(exc))
-    if options.project_kind == "framework-authoring" and options.contract_root is None:
-        errors.append("framework-authoring project kind requires --contract-root")
+    if policy.require_nested_contract_root and options.contract_root is None:
+        errors.append(f"{policy.kind} project kind requires --contract-root")
     if options.framework_revision_policy not in FRAMEWORK_REVISION_POLICIES:
         errors.append(
             "framework revision policy must be one of: "
             + ", ".join(sorted(FRAMEWORK_REVISION_POLICIES))
         )
     if isinstance(effective_answers, dict) and (
-        options.project_kind == "framework-authoring" or options.runtime is not None
+        not policy.manages_runtime_entrypoint or options.runtime is not None
     ):
         errors.extend(
             existing_instance_bootstrap_errors(
@@ -4970,6 +5095,7 @@ def render_bootstrap_write_outputs(
 ) -> dict[str, str]:
     del answers_bytes  # The retained, fully materialized project input owns rerenders.
     options = inputs.options
+    policy = contract_model.project_layout_policy(options.project_kind)
     materialized_answers = dict(answers)
     materialized_answers["date"] = effective_date
     outputs = render_output_files(
@@ -5026,7 +5152,7 @@ def render_bootstrap_write_outputs(
                 list(options.runtime_wrappers),
                 inputs.framework_root,
             )
-            if options.project_kind == "downstream" and options.runtime is not None
+            if policy.runtime_wrappers_allowed and options.runtime is not None
             else {}
         ),
         rendered_outputs=outputs,
@@ -5123,8 +5249,8 @@ def write_bootstrap_outputs(
     )
 
 
-def main() -> int:
-    options = parse_options()
+def main(argv: list[str] | None = None) -> int:
+    options = parse_options(argv)
     (
         project_root_preflight,
         recovery_payload,

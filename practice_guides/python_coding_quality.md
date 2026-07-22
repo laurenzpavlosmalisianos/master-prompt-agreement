@@ -13,7 +13,7 @@ Before making source-sensitive recommendations, use project `SOURCE_PACKS.md` an
 - distinguish application code, libraries, one-off scripts, notebooks, generated code, migrations, and framework repository scripts; do not apply one category's packaging or runtime assumptions to another
 - use the project-recorded Python invocation first; do not substitute `uv run` for plain `python` unless the workflow already uses `uv`, the repository instructions select `uv`, or the script depends on project-managed dependencies
 - for repository-maintenance scripts, use the runner documented by the repository's prerequisite or setup check instead of guessing; mark any command that may create or update environments, download Python, resolve dependencies, or install packages as state-changing
-- keep direct `python3 -B` or `py -3 -B` as a fallback for stdlib-only scripts only when the repository prerequisite or setup check reports a supported interpreter and no errors
+- keep direct `python3 -E -S -B` or `py -3 -E -S -B` as a fallback for stdlib-only scripts only when the repository prerequisite or setup check reports a supported interpreter and no errors
 
 2. Keep packaging, environments, and entry points reproducible.
 

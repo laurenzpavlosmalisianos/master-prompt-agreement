@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import copy
+import errno
 import hashlib
 import io
 import json
 import os
 from pathlib import Path
 import shutil
+import socket
 import tempfile
 import unittest
 from unittest import mock
@@ -396,11 +398,11 @@ _COMMON_ARTIFACT_HEADERS: dict[str, _FixtureValue] = {
     "run_slot": "0930",
     "monitor_scope": "framework-sources",
     "monitor_scope_sha256": _FIXTURE_SCOPE_SHA256,
-    "model_route": "quality_first",
+    "model_route": "fixture_route",
     "model_label": "fixture-model",
     "reasoning_effort": "high",
     "execution_mode": "standard",
-    "timezone": "Europe/Vienna",
+    "timezone": "Europe/Paris",
 }
 _STAGE_ARTIFACT_HEADERS: dict[str, dict[str, _FixtureValue]] = {
     "monitor": {
@@ -1013,11 +1015,11 @@ class SourceChainTests(unittest.TestCase):
                         "run_slot: 0930",
                         "monitor_scope: framework-sources",
                         "monitor_scope_sha256: 5b619bc978d06cba5277f7846faa48625e0ec70ba43216c35213bb6cd7f62a38",
-                        "model_route: quality_first",
+                        "model_route: fixture_route",
                         "model_label: fixture-model",
                         "reasoning_effort: high",
                         "execution_mode: standard",
-                        "timezone: Europe/Vienna",
+                        "timezone: Europe/Paris",
                         "started_at_utc: 2026-06-19T00:30:00Z",
                         "completed_at_utc: 2026-06-19T00:45:00Z",
                         "status: pass",
@@ -1055,11 +1057,11 @@ class SourceChainTests(unittest.TestCase):
                         "run_slot: 0930",
                         "monitor_scope: framework-sources",
                         "monitor_scope_sha256: 5b619bc978d06cba5277f7846faa48625e0ec70ba43216c35213bb6cd7f62a38",
-                        "model_route: quality_first",
+                        "model_route: fixture_route",
                         "model_label: fixture-model",
                         "reasoning_effort: high",
                         "execution_mode: standard",
-                        "timezone: Europe/Vienna",
+                        "timezone: Europe/Paris",
                         "started_at_utc: 2026-06-19T02:30:00Z",
                         "completed_at_utc: 2026-06-19T02:45:00Z",
                         "status: pass",
@@ -1093,11 +1095,11 @@ class SourceChainTests(unittest.TestCase):
                         "run_slot: 0930",
                         "monitor_scope: framework-sources",
                         "monitor_scope_sha256: 5b619bc978d06cba5277f7846faa48625e0ec70ba43216c35213bb6cd7f62a38",
-                        "model_route: quality_first",
+                        "model_route: fixture_route",
                         "model_label: fixture-model",
                         "reasoning_effort: high",
                         "execution_mode: standard",
-                        "timezone: Europe/Vienna",
+                        "timezone: Europe/Paris",
                         "status: pass",
                         "external_reviewer_status: not_needed",
                         "external_reviewer_packet_scope: none",
@@ -1123,11 +1125,11 @@ class SourceChainTests(unittest.TestCase):
                         "run_slot: 0930",
                         "monitor_scope: framework-sources",
                         "monitor_scope_sha256: 5b619bc978d06cba5277f7846faa48625e0ec70ba43216c35213bb6cd7f62a38",
-                        "model_route: quality_first",
+                        "model_route: fixture_route",
                         "model_label: fixture-model",
                         "reasoning_effort: high",
                         "execution_mode: standard",
-                        "timezone: Europe/Vienna",
+                        "timezone: Europe/Paris",
                         "started_at_utc: 2026-06-19T02:30:00Z",
                         "completed_at_utc: 2026-06-19T02:45:00Z",
                         "status: pass",
@@ -1210,8 +1212,8 @@ class SourceChainTests(unittest.TestCase):
                     "monitor_scope_sha256: 5b619bc978d06cba5277f7846faa48625e0ec70ba43216c35213bb6cd7f62a38",
                     f"monitor_scope_sha256: {other_scope_hash}",
                 )
-                .replace("model_route: quality_first", "model_route: alternate_route")
-                .replace("timezone: Europe/Vienna", "timezone: UTC"),
+                .replace("model_route: fixture_route", "model_route: alternate_route")
+                .replace("timezone: Europe/Paris", "timezone: UTC"),
                 encoding="utf-8",
             )
             changed_monitor_hash = source_chain_artifact_lint.file_sha256(monitor_ref)
@@ -1307,11 +1309,11 @@ class SourceChainTests(unittest.TestCase):
                 "run_slot: 0930",
                 "monitor_scope: framework-sources",
                 "monitor_scope_sha256: 5b619bc978d06cba5277f7846faa48625e0ec70ba43216c35213bb6cd7f62a38",
-                "model_route: quality_first",
+                "model_route: fixture_route",
                 "model_label: fixture-model",
                 "reasoning_effort: high",
                 "execution_mode: standard",
-                "timezone: Europe/Vienna",
+                "timezone: Europe/Paris",
                 "status: pass",
                 "external_reviewer_status: not_needed",
                 "external_reviewer_packet_scope: none",
@@ -1348,11 +1350,11 @@ class SourceChainTests(unittest.TestCase):
                         "run_slot: 0930",
                         "monitor_scope: framework-sources",
                         "monitor_scope_sha256: 5b619bc978d06cba5277f7846faa48625e0ec70ba43216c35213bb6cd7f62a38",
-                        "model_route: quality_first",
+                        "model_route: fixture_route",
                         "model_label: fixture-model",
                         "reasoning_effort: high",
                         "execution_mode: standard",
-                        "timezone: Europe/Vienna",
+                        "timezone: Europe/Paris",
                         "status: pass",
                         "external_reviewer_status: not_needed",
                         "external_reviewer_packet_scope: none",
@@ -1546,11 +1548,11 @@ class SourceChainTests(unittest.TestCase):
                 "run_slot: 0930",
                 "monitor_scope: framework-sources",
                 "monitor_scope_sha256: 5b619bc978d06cba5277f7846faa48625e0ec70ba43216c35213bb6cd7f62a38",
-                "model_route: quality_first",
+                "model_route: fixture_route",
                 "model_label: fixture-model",
                 "reasoning_effort: high",
                 "execution_mode: standard",
-                "timezone: Europe/Vienna",
+                "timezone: Europe/Paris",
                 "status: pass",
                 "external_reviewer_status: not_needed",
                 "external_reviewer_packet_scope: none",
@@ -1724,11 +1726,11 @@ class SourceChainTests(unittest.TestCase):
                         "run_slot: 0030",
                         "monitor_scope: framework-sources",
                         "monitor_scope_sha256: 5b619bc978d06cba5277f7846faa48625e0ec70ba43216c35213bb6cd7f62a38",
-                        "model_route: quality_first",
+                        "model_route: fixture_route",
                         "model_label: fixture-model",
                         "reasoning_effort: high",
                         "execution_mode: standard",
-                        "timezone: Europe/Vienna",
+                        "timezone: Europe/Paris",
                         "started_at_utc: 2026-06-18T22:30:00Z",
                         "completed_at_utc: 2026-06-18T22:45:00Z",
                         "status: pass",
@@ -2021,11 +2023,11 @@ class SourceChainTests(unittest.TestCase):
                         "run_slot: 0930",
                         "monitor_scope: framework-sources",
                         "monitor_scope_sha256: 5b619bc978d06cba5277f7846faa48625e0ec70ba43216c35213bb6cd7f62a38",
-                        "model_route: quality_first",
+                        "model_route: fixture_route",
                         "model_label: fixture-model",
                         "reasoning_effort: high",
                         "execution_mode: standard",
-                        "timezone: Europe/Vienna",
+                        "timezone: Europe/Paris",
                         "started_at_utc: 2026-06-19T07:30:00Z",
                         "completed_at_utc: 2026-06-19T07:45:00Z",
                         "status: blocked",
@@ -2061,11 +2063,11 @@ class SourceChainTests(unittest.TestCase):
                         "run_slot: 0930",
                         "monitor_scope: framework-sources",
                         "monitor_scope_sha256: 5b619bc978d06cba5277f7846faa48625e0ec70ba43216c35213bb6cd7f62a38",
-                        "model_route: quality_first",
+                        "model_route: fixture_route",
                         "model_label: fixture-model",
                         "reasoning_effort: high",
                         "execution_mode: standard",
-                        "timezone: Europe/Vienna",
+                        "timezone: Europe/Paris",
                         "started_at_utc: 2026-06-19T08:30:00Z",
                         "completed_at_utc: 2026-06-19T08:45:00Z",
                         "status: pass",
@@ -2390,6 +2392,526 @@ class SourceChainTests(unittest.TestCase):
         self.assertTrue(
             any("sha256 does not match disclosed bytes" in error for error in live_digest_errors),
             live_digest_errors,
+        )
+
+    def test_review_packet_contract_bounds_json_shape_and_bundle_inventory(
+        self,
+    ) -> None:
+        with mock.patch.object(
+            review_packet_contract,
+            "MAX_JSON_NESTING_DEPTH",
+            2,
+        ):
+            self.assertEqual(
+                {"value": []},
+                review_packet_contract.parse_manifest_bytes(b'{"value":[]}'),
+            )
+            with self.assertRaisesRegex(
+                json.JSONDecodeError,
+                "nesting exceeds",
+            ):
+                review_packet_contract.parse_manifest_bytes(
+                    b'{"value":[[]]}'
+                )
+
+        with mock.patch.object(
+            review_packet_contract,
+            "MAX_JSON_NODES",
+            4,
+        ):
+            self.assertEqual(
+                {"value": [0]},
+                review_packet_contract.parse_manifest_bytes(b'{"value":[0]}'),
+            )
+            with self.assertRaisesRegex(
+                json.JSONDecodeError,
+                "node count exceeds",
+            ):
+                review_packet_contract.parse_manifest_bytes(
+                    b'{"value":[0,1]}'
+                )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest = Path(temp_dir) / "review_packet.json"
+            manifest.write_bytes(
+                b"[" * (review_packet_contract.MAX_JSON_NESTING_DEPTH + 1)
+                + b"0"
+                + b"]" * (review_packet_contract.MAX_JSON_NESTING_DEPTH + 1)
+            )
+            loaded, raw, load_errors = review_packet_contract.load_manifest_file(
+                manifest
+            )
+            self.assertIsNone(loaded)
+            self.assertIsNotNone(raw)
+            self.assertTrue(
+                any("nesting exceeds" in error for error in load_errors),
+                load_errors,
+            )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest, _packet_sha = write_valid_review_packet_bundle(
+                root / "review_artifacts" / "external_review_packets" / "bounded",
+                scope="bounded-scope",
+                approval_source="active-thread approval",
+                redaction="leak scan passed",
+            )
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            self.assertEqual(
+                [],
+                review_packet_contract.portable_manifest_errors(data, manifest),
+            )
+            baseline_entries = len(list(manifest.parent.rglob("*")))
+            unexpected = manifest.parent / "unlisted.txt"
+            unexpected.write_text("unexpected\n", encoding="utf-8")
+            with mock.patch.object(
+                review_packet_contract,
+                "MAX_BUNDLE_ENTRIES",
+                baseline_entries,
+            ):
+                entry_errors = review_packet_contract._bundle_errors(data, manifest)
+            self.assertTrue(
+                any("inventory exceeds" in error for error in entry_errors),
+                entry_errors,
+            )
+
+            for index in range(12):
+                (manifest.parent / f"unlisted-{index:02d}.txt").write_text(
+                    "unexpected\n",
+                    encoding="utf-8",
+                )
+            with (
+                mock.patch.object(
+                    review_packet_contract,
+                    "MAX_BUNDLE_ENTRIES",
+                    baseline_entries + 32,
+                ),
+                mock.patch.object(
+                    review_packet_contract,
+                    "MAX_BUNDLE_DIAGNOSTICS",
+                    4,
+                ),
+            ):
+                diagnostic_errors = review_packet_contract._bundle_errors(
+                    data,
+                    manifest,
+                )
+            inventory_errors = [
+                error
+                for error in diagnostic_errors
+                if "lifecycle bundle" in error
+            ]
+            self.assertLessEqual(len(inventory_errors), 4, inventory_errors)
+            self.assertTrue(
+                any("diagnostic limit" in error for error in inventory_errors),
+                inventory_errors,
+            )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest = root / "review_packet.json"
+            manifest.write_text("{}\n", encoding="utf-8")
+            nested = root / "nested" / "deeper"
+            nested.mkdir(parents=True)
+            (nested / "unlisted.txt").write_text("unexpected\n", encoding="utf-8")
+            with mock.patch.object(
+                review_packet_contract,
+                "MAX_BUNDLE_DEPTH",
+                1,
+            ):
+                depth_errors = review_packet_contract._bundle_errors(
+                    {"packet": {"items": []}, "evidence_artifacts": []},
+                    manifest,
+                )
+            self.assertTrue(
+                any("depth limit" in error for error in depth_errors),
+                depth_errors,
+            )
+
+    def test_review_packet_contract_bundle_descriptor_stable_control(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest, _packet_sha = write_valid_review_packet_bundle(
+                Path(temp_dir) / "bundle",
+                scope="descriptor-stable-control",
+                approval_source="active-thread approval",
+                redaction="synthetic stable control",
+                retain_ephemeral_item=True,
+            )
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            data["closeout"]["cleanup_status"] = "pending"
+            original_scandir = os.scandir
+            scan_arguments: list[os.PathLike[str] | str | int] = []
+
+            def tracked_scandir(
+                path: os.PathLike[str] | str | int,
+            ) -> Any:
+                scan_arguments.append(path)
+                return original_scandir(path)
+
+            supported_fd = {*os.supports_fd, tracked_scandir}
+            with (
+                mock.patch.object(
+                    review_packet_contract.os,
+                    "scandir",
+                    new=tracked_scandir,
+                ),
+                mock.patch.object(
+                    review_packet_contract.os,
+                    "supports_fd",
+                    supported_fd,
+                ),
+            ):
+                errors = review_packet_contract._bundle_errors(data, manifest)
+
+        self.assertEqual([], errors)
+        self.assertTrue(scan_arguments)
+        self.assertTrue(all(isinstance(path, int) for path in scan_arguments))
+
+    def test_review_packet_contract_bundle_directory_swap_fails_closed(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest, _packet_sha = write_valid_review_packet_bundle(
+                root / "bundle",
+                scope="descriptor-directory-swap",
+                approval_source="active-thread approval",
+                redaction="synthetic race control",
+                retain_ephemeral_item=True,
+            )
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            data["closeout"]["cleanup_status"] = "pending"
+            packet = manifest.parent / "packet"
+            original_packet = manifest.parent / "packet.original"
+            outside = root / "outside"
+            outside.mkdir()
+            (outside / "context.md").write_text(
+                "replacement bytes\n",
+                encoding="utf-8",
+            )
+            sentinel = "outside-secret-filename.txt"
+            (outside / sentinel).write_text("synthetic\n", encoding="utf-8")
+            original_names = (
+                review_packet_contract._fresh_bundle_directory_names
+            )
+            swapped = False
+
+            def swap_after_root_enumeration(
+                directory_descriptor: int,
+                *,
+                maximum: int,
+            ) -> tuple[tuple[str, ...], bool]:
+                nonlocal swapped
+                result = original_names(
+                    directory_descriptor,
+                    maximum=maximum,
+                )
+                if not swapped:
+                    swapped = True
+                    packet.rename(original_packet)
+                    packet.symlink_to("../outside", target_is_directory=True)
+                return result
+
+            with mock.patch.object(
+                review_packet_contract,
+                "_fresh_bundle_directory_names",
+                side_effect=swap_after_root_enumeration,
+            ):
+                errors = review_packet_contract._bundle_errors(data, manifest)
+
+        self.assertTrue(swapped)
+        self.assertTrue(
+            any(
+                "contains a symlink: packet" in error
+                or "inspection failed closed" in error
+                for error in errors
+            ),
+            errors,
+        )
+        self.assertFalse(any(sentinel in error for error in errors), errors)
+
+    def test_review_packet_contract_binds_declared_file_to_inventory(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest, _packet_sha = write_valid_review_packet_bundle(
+                Path(temp_dir) / "bundle",
+                scope="descriptor-file-replacement",
+                approval_source="active-thread approval",
+                redaction="synthetic replacement control",
+                retain_ephemeral_item=True,
+            )
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            data["closeout"]["cleanup_status"] = "pending"
+            disclosed = manifest.parent / "packet" / "context.md"
+            replacement = disclosed.with_name("replacement.tmp")
+            original_inventory = review_packet_contract._bundle_inventory_errors
+            replaced = False
+
+            def replace_before_inventory(*args: Any, **kwargs: Any) -> Any:
+                nonlocal replaced
+                replacement.write_bytes(b"different post-read bytes\n")
+                os.replace(replacement, disclosed)
+                replaced = True
+                return original_inventory(*args, **kwargs)
+
+            with mock.patch.object(
+                review_packet_contract,
+                "_bundle_inventory_errors",
+                side_effect=replace_before_inventory,
+            ):
+                errors = review_packet_contract._bundle_errors(data, manifest)
+
+        self.assertTrue(replaced)
+        self.assertTrue(
+            any(
+                "changed between byte validation and inventory" in error
+                for error in errors
+            ),
+            errors,
+        )
+
+    def test_review_packet_contract_detects_inventory_name_set_mutation(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest, _packet_sha = write_valid_review_packet_bundle(
+                Path(temp_dir) / "bundle",
+                scope="descriptor-name-set-mutation",
+                approval_source="active-thread approval",
+                redaction="synthetic name-set control",
+                retain_ephemeral_item=True,
+            )
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            data["closeout"]["cleanup_status"] = "pending"
+            packet = manifest.parent / "packet"
+            packet_identity = (
+                packet.stat().st_dev,
+                packet.stat().st_ino,
+            )
+            original_names = (
+                review_packet_contract._fresh_bundle_directory_names
+            )
+            mutated = False
+
+            def mutate_after_packet_enumeration(
+                directory_descriptor: int,
+                *,
+                maximum: int,
+            ) -> tuple[tuple[str, ...], bool]:
+                nonlocal mutated
+                result = original_names(
+                    directory_descriptor,
+                    maximum=maximum,
+                )
+                metadata = os.fstat(directory_descriptor)
+                if (
+                    not mutated
+                    and (metadata.st_dev, metadata.st_ino) == packet_identity
+                ):
+                    (packet / "late-entry.txt").write_text(
+                        "synthetic\n",
+                        encoding="utf-8",
+                    )
+                    mutated = True
+                return result
+
+            with mock.patch.object(
+                review_packet_contract,
+                "_fresh_bundle_directory_names",
+                side_effect=mutate_after_packet_enumeration,
+            ):
+                errors = review_packet_contract._bundle_errors(data, manifest)
+
+        self.assertTrue(mutated)
+        self.assertTrue(
+            any(
+                "directory entries changed while inventoried: packet" in error
+                for error in errors
+            ),
+            errors,
+        )
+
+    def test_review_packet_contract_fails_closed_without_descriptor_capability(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest, _packet_sha = write_valid_review_packet_bundle(
+                Path(temp_dir) / "bundle",
+                scope="descriptor-capability",
+                approval_source="active-thread approval",
+                redaction="synthetic capability control",
+            )
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            with mock.patch.object(
+                review_packet_contract.safe_paths,
+                "OPEN_SUPPORTS_DIR_FD",
+                False,
+            ):
+                errors = review_packet_contract._bundle_errors(data, manifest)
+
+        self.assertEqual(1, len(errors), errors)
+        self.assertIn("cannot be inspected safely", errors[0])
+        self.assertIn("os.open dir_fd support", errors[0])
+
+    def test_review_packet_contract_escapes_unsafe_inventory_names(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest, _packet_sha = write_valid_review_packet_bundle(
+                Path(temp_dir) / "bundle",
+                scope="descriptor-unsafe-name",
+                approval_source="active-thread approval",
+                redaction="synthetic diagnostic control",
+            )
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            unsafe_name = "unsafe\x1b[2J\nname.txt"
+            (manifest.parent / unsafe_name).write_text(
+                "synthetic\n",
+                encoding="utf-8",
+            )
+
+            errors = review_packet_contract._bundle_errors(data, manifest)
+
+        self.assertTrue(
+            any("unsafe entry name" in error for error in errors),
+            errors,
+        )
+        self.assertTrue(all("\x1b" not in error for error in errors), errors)
+        self.assertTrue(
+            all(review_packet_contract.CONTROL_RE.search(error) is None for error in errors),
+            errors,
+        )
+        rendered = " ".join(errors)
+        self.assertIn("\\u001b", rendered)
+        self.assertIn("\\n", rendered)
+
+    def test_review_packet_contract_closes_descriptors_after_read_failure(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest, _packet_sha = write_valid_review_packet_bundle(
+                Path(temp_dir) / "bundle",
+                scope="descriptor-cleanup",
+                approval_source="active-thread approval",
+                redaction="synthetic cleanup control",
+                retain_ephemeral_item=True,
+            )
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            data["closeout"]["cleanup_status"] = "pending"
+            original_open = os.open
+            original_close = os.close
+            active: set[int] = set()
+
+            def tracked_open(*args: Any, **kwargs: Any) -> int:
+                descriptor = original_open(*args, **kwargs)
+                self.assertNotIn(descriptor, active)
+                active.add(descriptor)
+                return descriptor
+
+            def tracked_close(descriptor: int) -> None:
+                try:
+                    original_close(descriptor)
+                finally:
+                    active.discard(descriptor)
+
+            with (
+                mock.patch.object(os, "open", side_effect=tracked_open),
+                mock.patch.object(os, "close", side_effect=tracked_close),
+                mock.patch.object(
+                    os,
+                    "read",
+                    side_effect=OSError(errno.EIO, "synthetic read failure"),
+                ),
+            ):
+                errors = review_packet_contract._bundle_errors(data, manifest)
+
+            self.assertEqual(set(), active)
+
+        self.assertTrue(
+            any("cannot read" in error for error in errors),
+            errors,
+        )
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "requires POSIX FIFO support")
+    def test_review_packet_contract_rejects_undeclared_directories_and_fifos(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest, _packet_sha = write_valid_review_packet_bundle(
+                root / "review_artifacts" / "external_review_packets" / "special",
+                scope="bounded-scope",
+                approval_source="active-thread approval",
+                redaction="leak scan passed",
+            )
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            (manifest.parent / "undeclared-empty").mkdir()
+            os.mkfifo(manifest.parent / "undeclared.fifo")
+
+            errors = review_packet_contract.portable_manifest_errors(data, manifest)
+
+        self.assertTrue(
+            any(
+                "undeclared directory: undeclared-empty" in error
+                for error in errors
+            ),
+            errors,
+        )
+        self.assertTrue(
+            any("unsupported FIFO entry: undeclared.fifo" in error for error in errors),
+            errors,
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest, _packet_sha = write_valid_review_packet_bundle(
+                root / "review_artifacts" / "external_review_packets" / "declared",
+                scope="bounded-scope",
+                approval_source="active-thread approval",
+                redaction="leak scan passed",
+                retain_ephemeral_item=True,
+            )
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            data["closeout"]["cleanup_status"] = "pending"
+            disclosed = manifest.parent / "packet" / "context.md"
+            disclosed.unlink()
+            os.mkfifo(disclosed)
+
+            declared_errors = review_packet_contract.portable_manifest_errors(
+                data,
+                manifest,
+            )
+
+        self.assertTrue(
+            any("disclosed file is not a regular file" in error for error in declared_errors),
+            declared_errors,
+        )
+        self.assertTrue(
+            any("unsupported FIFO entry: packet/context.md" in error for error in declared_errors),
+            declared_errors,
+        )
+
+    @unittest.skipUnless(hasattr(socket, "AF_UNIX"), "requires Unix sockets")
+    def test_review_packet_contract_rejects_undeclared_unix_socket(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest, _packet_sha = write_valid_review_packet_bundle(
+                root / "review_artifacts" / "external_review_packets" / "socket",
+                scope="bounded-scope",
+                approval_source="active-thread approval",
+                redaction="leak scan passed",
+            )
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            socket_path = manifest.parent / "undeclared.sock"
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
+                listener.bind(str(socket_path))
+                errors = review_packet_contract.portable_manifest_errors(
+                    data,
+                    manifest,
+                )
+
+        self.assertTrue(
+            any("unsupported socket entry: undeclared.sock" in error for error in errors),
+            errors,
         )
 
     def test_review_packet_contract_rejects_structural_lifecycle_and_retained_byte_forgery(self) -> None:
@@ -3427,12 +3949,12 @@ class SourceChainTests(unittest.TestCase):
             "\n".join(
                 [
                     "verification:",
-                    "  - command: uv run python -B scripts/framework_compliance.py --tree-role authoring-source",
-                    "    covers: framework-compliance",
+                    "  - command: uv run python -B -- scripts/conformance_check.py --profile framework-product --root .",
+                    "    covers: framework-product conformance",
                     "    tree_or_artifact: commit:abcdef1",
                     "    dirty_tree: clean",
                     "    touched_files: scripts/source_chain_artifact_lint.py",
-                    "    expected_assertion: framework compliance gate covers source-chain lint behavior",
+                    "    expected_assertion: product conformance gate covers source-chain lint behavior",
                     "    output_ref: sha256:" + "a" * 64,
                     "    environment: approved-container",
                     "    exit_code: 0",
@@ -3445,12 +3967,12 @@ class SourceChainTests(unittest.TestCase):
             "\n".join(
                 [
                     "verification:",
-                    "  - command: uv run python -B scripts/framework_compliance.py --tree-role authoring-source",
-                    "    covers: framework-compliance",
+                    "  - command: uv run python -B -- scripts/conformance_check.py --profile framework-product --root .",
+                    "    covers: framework-product conformance",
                     "    tree_or_artifact: commit:abcdef1",
                     "    dirty_tree: clean",
                     "    touched_files: scripts/source_chain_artifact_lint.py",
-                    "    expected_assertion: framework compliance gate covers source-chain lint behavior",
+                    "    expected_assertion: product conformance gate covers source-chain lint behavior",
                     "    output_ref: sha256:" + "a" * 64,
                     "    environment: approved-container",
                     "    exit_code: 1",
@@ -3464,7 +3986,7 @@ class SourceChainTests(unittest.TestCase):
             "\n".join(
                 [
                     "verification:",
-                    "  - command: uv run python -B scripts/framework_compliance.py --tree-role authoring-source",
+                    "  - command: uv run python -B -- scripts/conformance_check.py --profile framework-product --root .",
                     "    covers: blocked preflight diagnostic",
                     "    tree_or_artifact: artifact:preflight",
                     "    dirty_tree: tracked-diff-matches-changed_files",
@@ -3490,12 +4012,12 @@ class SourceChainTests(unittest.TestCase):
             return "\n".join(
                 [
                     "verification:",
-                    "  - command: uv run python -B scripts/framework_compliance.py --tree-role authoring-source",
-                    "    covers: framework-compliance",
+                    "  - command: uv run python -B -- scripts/conformance_check.py --profile framework-product --root .",
+                    "    covers: framework-product conformance",
                     "    tree_or_artifact: commit:abcdef1",
                     "    dirty_tree: clean",
                     "    touched_files: scripts/source_chain_artifact_lint.py",
-                    "    expected_assertion: framework compliance gate covers source-chain lint behavior",
+                    "    expected_assertion: product conformance gate covers source-chain lint behavior",
                     "    output_ref: sha256:" + "a" * 64,
                     "    environment: approved-container",
                     f"    exit_code: {exit_code}",
@@ -3581,11 +4103,11 @@ class SourceChainTests(unittest.TestCase):
                         "run_slot: 0930",
                         "monitor_scope: framework-sources",
                         "monitor_scope_sha256: 5b619bc978d06cba5277f7846faa48625e0ec70ba43216c35213bb6cd7f62a38",
-                        "model_route: quality_first",
+                        "model_route: fixture_route",
                         "model_label: fixture-model",
                         "reasoning_effort: high",
                         "execution_mode: standard",
-                        "timezone: Europe/Vienna",
+                        "timezone: Europe/Paris",
                         "started_at_utc: 2026-06-19T00:30:00Z",
                         "completed_at_utc: 2026-06-19T00:52:00Z",
                         "status: partial",
@@ -3807,9 +4329,9 @@ class SourceChainTests(unittest.TestCase):
                     "--monitor-scope",
                     "framework-sources",
                     "--expected-model-route",
-                    "quality_first",
+                    "fixture_route",
                     "--expected-timezone",
-                    "Europe/Vienna",
+                    "Europe/Paris",
                 ]
             )
 
@@ -3839,11 +4361,11 @@ class SourceChainTests(unittest.TestCase):
                 expected_logical_date="2026-06-19",
                 expected_run_slot="0930",
                 expected_monitor_scope_sha256=_FIXTURE_SCOPE_SHA256,
-                expected_model_route="quality_first",
+                expected_model_route="fixture_route",
                 expected_model_label="fixture-model",
                 expected_reasoning_effort="high",
                 expected_execution_mode="standard",
-                expected_timezone="Europe/Vienna",
+                expected_timezone="Europe/Paris",
                 verify_current_input_hashes=True,
             )
             self.assertTrue(handoff_ready, handoff_state)
@@ -3860,11 +4382,11 @@ class SourceChainTests(unittest.TestCase):
                 expected_logical_date="2026-06-19",
                 expected_run_slot="0930",
                 expected_monitor_scope_sha256=_FIXTURE_SCOPE_SHA256,
-                expected_model_route="quality_first",
+                expected_model_route="fixture_route",
                 expected_model_label="fixture-model",
                 expected_reasoning_effort="high",
                 expected_execution_mode="standard",
-                expected_timezone="Europe/Vienna",
+                expected_timezone="Europe/Paris",
             )
             summary = artifact_summary(
                 artifacts_root,
@@ -3872,8 +4394,8 @@ class SourceChainTests(unittest.TestCase):
                 "2026-06-19",
                 "0930",
                 _FIXTURE_SCOPE_SHA256,
-                "quality_first",
-                expected_timezone="Europe/Vienna",
+                "fixture_route",
+                expected_timezone="Europe/Paris",
                 expected_model_label="fixture-model",
                 expected_reasoning_effort="high",
                 expected_execution_mode="standard",
@@ -3882,8 +4404,8 @@ class SourceChainTests(unittest.TestCase):
                 monitor,
                 "monitor",
                 expected_scope_sha256=_FIXTURE_SCOPE_SHA256,
-                expected_model_route="quality_first",
-                expected_timezone="Europe/Vienna",
+                expected_model_route="fixture_route",
+                expected_timezone="Europe/Paris",
                 expected_model_label="fixture-model",
                 expected_reasoning_effort="high",
                 expected_execution_mode="standard",
@@ -3896,11 +4418,11 @@ class SourceChainTests(unittest.TestCase):
                 expected_logical_date="2026-06-19",
                 expected_run_slot="0930",
                 expected_monitor_scope_sha256=_FIXTURE_SCOPE_SHA256,
-                expected_model_route="quality_first",
+                expected_model_route="fixture_route",
                 expected_model_label="fixture-model",
                 expected_reasoning_effort="high",
                 expected_execution_mode="standard",
-                expected_timezone="Europe/Vienna",
+                expected_timezone="Europe/Paris",
                 verify_current_input_hashes=True,
             )
 
@@ -3923,9 +4445,9 @@ class SourceChainTests(unittest.TestCase):
                     "--monitor-scope",
                     "framework-sources",
                     "--expected-model-route",
-                    "quality_first",
+                    "fixture_route",
                     "--expected-timezone",
-                    "Europe/Vienna",
+                    "Europe/Paris",
                     "--verify-current-input-hashes",
                 ]
             )
@@ -3998,11 +4520,11 @@ class SourceChainTests(unittest.TestCase):
                     "run_slot: 0930",
                     "monitor_scope: framework-sources",
                     f"monitor_scope_sha256: {scope_hash}",
-                    "model_route: quality_first",
+                    "model_route: fixture_route",
                     "model_label: fixture-model",
                     "reasoning_effort: high",
                     "execution_mode: standard",
-                    "timezone: Europe/Vienna",
+                    "timezone: Europe/Paris",
                     "started_at_utc: 2026-06-19T07:30:00Z",
                     "completed_at_utc: 2026-06-19T07:45:00Z",
                     "status: pass",
@@ -4050,7 +4572,7 @@ class SourceChainTests(unittest.TestCase):
                     "2026-06-19",
                     "0930",
                     scope_hash,
-                    "quality_first",
+                    "fixture_route",
                 )
 
             self.assertEqual("pass", summary["status"])
@@ -4066,7 +4588,7 @@ class SourceChainTests(unittest.TestCase):
                     monitor,
                     "monitor",
                     expected_scope_sha256=scope_hash,
-                    expected_model_route="quality_first",
+                    expected_model_route="fixture_route",
                 )
 
         self.assertIsNotNone(decision)
@@ -4143,8 +4665,8 @@ class SourceChainTests(unittest.TestCase):
                         "stage_run_id: apply-2026-06-19-0930",
                         "logical_date: 2026-06-19",
                         "run_slot: 0930",
-                        "model_route: quality_first",
-                        "timezone: Europe/Vienna",
+                        "model_route: fixture_route",
+                        "timezone: Europe/Paris",
                         "status: pass",
                         "input_review_state: resolved",
                         "input_review_artifact: review_artifacts/source_review/2026-06-19_0930.md",
@@ -4152,7 +4674,7 @@ class SourceChainTests(unittest.TestCase):
                         "input_review_attempt_id: review-2026-06-19T043000Z-abc123",
                         f"input_review_sha256: {review_hash}",
                         "changed_files:",
-                        "  - private/references/prompt_engineering_sources.md",
+                        "  - local_overlays/references/prompt_engineering_sources.md",
                         "",
                     ]
                 ),
@@ -4245,7 +4767,7 @@ class SourceChainTests(unittest.TestCase):
                     "2026-06-19",
                     "0930",
                     scope,
-                    "quality_first",
+                    "fixture_route",
                     artifacts_root,
                 )
 
@@ -4266,9 +4788,9 @@ class SourceChainTests(unittest.TestCase):
                 "2026-06-19",
                 "0930",
                 scope,
-                "quality_first",
+                "fixture_route",
                 artifacts_root,
-                "Europe/Vienna",
+                "Europe/Paris",
             )
 
         monitor_status = cast(list[dict[str, object]], status["stages"])[0]
@@ -4281,7 +4803,7 @@ class SourceChainTests(unittest.TestCase):
     def test_source_chain_status_summarizes_linted_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            source_file = root / "private" / "references" / "prompt_engineering_sources.md"
+            source_file = root / "local_overlays" / "references" / "prompt_engineering_sources.md"
             policy_file = root / "runtime" / "operative_charter.md"
             artifacts_root = root / "review_artifacts"
             monitor = artifacts_root / "source_monitor" / "2026-06-19_0930.md"
@@ -4304,11 +4826,11 @@ class SourceChainTests(unittest.TestCase):
                         "run_slot: 0930",
                         "monitor_scope: framework-sources",
                         "monitor_scope_sha256: 5b619bc978d06cba5277f7846faa48625e0ec70ba43216c35213bb6cd7f62a38",
-                        "model_route: quality_first",
+                        "model_route: fixture_route",
                         "model_label: fixture-model",
                         "reasoning_effort: high",
                         "execution_mode: standard",
-                        "timezone: Europe/Vienna",
+                        "timezone: Europe/Paris",
                         "started_at_utc: 2026-06-19T09:00:00Z",
                         "completed_at_utc: 2026-06-19T09:01:00Z",
                         "status: pass",
@@ -4320,7 +4842,7 @@ class SourceChainTests(unittest.TestCase):
                         "unresolved_inaccessible_source_count: 0",
                         "source_root_coverage_count: 0",
                         "source_registry_files:",
-                        "  - path: private/references/prompt_engineering_sources.md",
+                        "  - path: local_overlays/references/prompt_engineering_sources.md",
                         f"    sha256: {source_hash}",
                         "policy_files:",
                         "  - path: runtime/operative_charter.md",
@@ -4336,7 +4858,7 @@ class SourceChainTests(unittest.TestCase):
                 "2026-06-19",
                 "0930",
                 "framework-sources",
-                "quality_first",
+                "fixture_route",
                 artifacts_root,
             )
 
@@ -4367,11 +4889,11 @@ class SourceChainTests(unittest.TestCase):
                         "run_slot: 0930",
                         "monitor_scope: framework-sources",
                         "monitor_scope_sha256: 5b619bc978d06cba5277f7846faa48625e0ec70ba43216c35213bb6cd7f62a38",
-                        "model_route: quality_first",
+                        "model_route: fixture_route",
                         "model_label: fixture-model",
                         "reasoning_effort: high",
                         "execution_mode: standard",
-                        "timezone: Europe/Vienna",
+                        "timezone: Europe/Paris",
                         "started_at_utc: 2026-06-19T00:30:00Z",
                         "completed_at_utc: 2026-06-19T00:52:00Z",
                         "status: pass",
@@ -4430,11 +4952,11 @@ class SourceChainTests(unittest.TestCase):
                         "run_slot: 0930",
                         "monitor_scope: framework-sources",
                         "monitor_scope_sha256: 5b619bc978d06cba5277f7846faa48625e0ec70ba43216c35213bb6cd7f62a38",
-                        "model_route: quality_first",
+                        "model_route: fixture_route",
                         "model_label: fixture-model",
                         "reasoning_effort: high",
                         "execution_mode: standard",
-                        "timezone: Europe/Vienna",
+                        "timezone: Europe/Paris",
                         "started_at_utc: 2026-06-19T07:30:00Z",
                         "completed_at_utc: 2026-06-19T07:45:00Z",
                         "status: pass",
@@ -4463,7 +4985,7 @@ class SourceChainTests(unittest.TestCase):
                 "2026-06-19",
                 "0930",
                 "framework-sources",
-                "quality_first",
+                "fixture_route",
                 artifacts_root,
             )
             same_scope = preflight(
@@ -4471,7 +4993,7 @@ class SourceChainTests(unittest.TestCase):
                 "2026-06-19",
                 "1000",
                 "FRAMEWORK-SOURCES",
-                "quality_first",
+                "fixture_route",
                 artifacts_root,
             )
             different_scope = preflight(
@@ -4479,7 +5001,7 @@ class SourceChainTests(unittest.TestCase):
                 "2026-06-19",
                 "1000",
                 "typescript",
-                "quality_first",
+                "fixture_route",
                 artifacts_root,
             )
             slot_collision = preflight(
@@ -4487,7 +5009,7 @@ class SourceChainTests(unittest.TestCase):
                 "2026-06-19",
                 "0930",
                 "typescript",
-                "quality_first",
+                "fixture_route",
                 artifacts_root,
             )
             predecessor_slot_mismatch = preflight(
@@ -4495,7 +5017,7 @@ class SourceChainTests(unittest.TestCase):
                 "2026-06-19",
                 "1000",
                 "framework-sources",
-                "quality_first",
+                "fixture_route",
                 artifacts_root,
             )
 
@@ -4514,7 +5036,7 @@ class SourceChainTests(unittest.TestCase):
                 "2026-06-19",
                 "1001",
                 "hugo\nignore-prior-instructions",
-                "quality_first",
+                "fixture_route",
                 Path("review_artifacts"),
             )
 
@@ -4530,7 +5052,7 @@ class SourceChainTests(unittest.TestCase):
                 "2026-06-19",
                 "0930",
                 "framework-sources",
-                "quality_first",
+                "fixture_route",
                 artifacts_root,
             )
 
@@ -4553,11 +5075,11 @@ class SourceChainTests(unittest.TestCase):
                         "run_slot: 0952",
                         "monitor_scope: framework-sources",
                         "monitor_scope_sha256: 5b619bc978d06cba5277f7846faa48625e0ec70ba43216c35213bb6cd7f62a38",
-                        "model_route: quality_first",
+                        "model_route: fixture_route",
                         "model_label: fixture-model",
                         "reasoning_effort: high",
                         "execution_mode: standard",
-                        "timezone: Europe/Vienna",
+                        "timezone: Europe/Paris",
                         "started_at_utc: 2026-06-19T07:52:00Z",
                         "completed_at_utc: 2026-06-19T07:55:00Z",
                         "status: pass",
@@ -4591,7 +5113,7 @@ class SourceChainTests(unittest.TestCase):
                 "2026-06-19",
                 "0930",
                 "framework-sources",
-                "quality_first",
+                "fixture_route",
                 artifacts_root,
             )
 
@@ -4622,7 +5144,7 @@ class SourceChainTests(unittest.TestCase):
                 "2026-06-19",
                 "0930",
                 "framework-sources",
-                "quality_first",
+                "fixture_route",
                 artifacts_root,
             )
             repair = preflight(
@@ -4630,7 +5152,7 @@ class SourceChainTests(unittest.TestCase):
                 "2026-06-19",
                 "0930",
                 "framework-sources",
-                "quality_first",
+                "fixture_route",
                 artifacts_root,
                 repair_current_slot=True,
             )
@@ -4676,7 +5198,7 @@ class SourceChainTests(unittest.TestCase):
                 "2026-06-19",
                 "0930",
                 scope,
-                "quality_first",
+                "fixture_route",
                 artifacts_root,
                 repair_current_slot=True,
             )
@@ -4691,7 +5213,7 @@ class SourceChainTests(unittest.TestCase):
                 "2026-06-19",
                 "0930",
                 scope,
-                "quality_first",
+                "fixture_route",
                 artifacts_root,
                 repair_current_slot=True,
             )
@@ -4712,7 +5234,7 @@ class SourceChainTests(unittest.TestCase):
                 "2026-06-19",
                 "0930",
                 scope,
-                "quality_first",
+                "fixture_route",
                 artifacts_root,
                 repair_current_slot=True,
             )
@@ -4762,7 +5284,7 @@ class SourceChainTests(unittest.TestCase):
                 "2026-06-19",
                 "0930",
                 "framework-sources",
-                "quality_first",
+                "fixture_route",
                 artifacts_root,
                 repair_current_slot=True,
             )
@@ -4802,7 +5324,7 @@ class SourceChainTests(unittest.TestCase):
                 "2026-06-19",
                 "0930",
                 "framework-sources",
-                "quality_first",
+                "fixture_route",
                 artifacts_root,
                 repair_current_slot=True,
             )
@@ -4819,7 +5341,7 @@ class SourceChainTests(unittest.TestCase):
         self.assertEqual("skip_current_slot_complete", existing["action"])
 
     def test_source_chain_preflight_rejects_unsafe_output_and_invalid_scope_claim(self) -> None:
-        route = "quality_first"
+        route = "fixture_route"
         scope = "framework-sources"
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -4838,7 +5360,7 @@ class SourceChainTests(unittest.TestCase):
                 scope,
                 route,
                 artifacts_root,
-                "Europe/Vienna",
+                "Europe/Paris",
             )
 
         self.assertEqual("stop_unsafe_output_path", stage_symlink["action"])
@@ -4856,7 +5378,7 @@ class SourceChainTests(unittest.TestCase):
                 scope,
                 route,
                 artifacts_root,
-                "Europe/Vienna",
+                "Europe/Paris",
             )
 
         self.assertEqual("stop_unsafe_output_path", broken_final["action"])
@@ -4881,7 +5403,7 @@ class SourceChainTests(unittest.TestCase):
                     "0930",
                     source_chain_artifact_lint.monitor_scope_sha256(scope),
                     route,
-                    "Europe/Vienna",
+                    "Europe/Paris",
                 )
 
         self.assertEqual("fail", symlink_status["lint_status"])
@@ -4908,7 +5430,7 @@ class SourceChainTests(unittest.TestCase):
                 scope,
                 route,
                 root / "review_artifacts",
-                "Europe/Vienna",
+                "Europe/Paris",
             )
 
         self.assertEqual("stop_invalid_current_slot_artifact", invalid_claim["action"])
@@ -4948,11 +5470,11 @@ class SourceChainTests(unittest.TestCase):
                         "run_slot: 0930",
                         "monitor_scope: framework-sources",
                         "monitor_scope_sha256: 5b619bc978d06cba5277f7846faa48625e0ec70ba43216c35213bb6cd7f62a38",
-                        "model_route: quality_first",
+                        "model_route: fixture_route",
                         "model_label: fixture-model",
                         "reasoning_effort: high",
                         "execution_mode: standard",
-                        "timezone: Europe/Vienna",
+                        "timezone: Europe/Paris",
                         "started_at_utc: 2026-06-19T00:30:00Z",
                         "completed_at_utc: 2026-06-19T00:52:00Z",
                         "status: pass",
@@ -5003,11 +5525,11 @@ class SourceChainTests(unittest.TestCase):
                         "run_slot: 0930",
                         "monitor_scope: framework-sources",
                         "monitor_scope_sha256: 5b619bc978d06cba5277f7846faa48625e0ec70ba43216c35213bb6cd7f62a38",
-                        "model_route: quality_first",
+                        "model_route: fixture_route",
                         "model_label: fixture-model",
                         "reasoning_effort: high",
                         "execution_mode: standard",
-                    "timezone: Europe/Vienna",
+                    "timezone: Europe/Paris",
                     "started_at_utc: 2026-06-19T00:30:00Z",
                     "completed_at_utc: 2026-06-19T00:52:00Z",
                     "status: pass",
@@ -5156,11 +5678,11 @@ class SourceChainTests(unittest.TestCase):
                         "run_slot: 0930",
                         "monitor_scope: framework-sources",
                         "monitor_scope_sha256: 5b619bc978d06cba5277f7846faa48625e0ec70ba43216c35213bb6cd7f62a38",
-                        "model_route: quality_first",
+                        "model_route: fixture_route",
                         "model_label: fixture-model",
                         "reasoning_effort: high",
                         "execution_mode: standard",
-                        "timezone: Europe/Vienna",
+                        "timezone: Europe/Paris",
                         "started_at_utc: 2026-06-19T00:30:00Z",
                         "completed_at_utc: 2026-06-19T00:52:00Z",
                         "status: pass",
@@ -5213,11 +5735,11 @@ class SourceChainTests(unittest.TestCase):
                         "run_slot: 1000",
                         "monitor_scope: framework-sources",
                         "monitor_scope_sha256: 5b619bc978d06cba5277f7846faa48625e0ec70ba43216c35213bb6cd7f62a38",
-                        "model_route: quality_first",
+                        "model_route: fixture_route",
                         "model_label: fixture-model",
                         "reasoning_effort: high",
                         "execution_mode: standard",
-                        "timezone: Europe/Vienna",
+                        "timezone: Europe/Paris",
                         "started_at_utc: 2026-06-19T03:30:00Z",
                         "completed_at_utc: 2026-06-19T03:45:00Z",
                         "status: no-findings",
@@ -5250,11 +5772,11 @@ class SourceChainTests(unittest.TestCase):
                         "run_slot: 0930",
                         "monitor_scope: framework-sources",
                         "monitor_scope_sha256: 5b619bc978d06cba5277f7846faa48625e0ec70ba43216c35213bb6cd7f62a38",
-                        "model_route: quality_first",
+                        "model_route: fixture_route",
                         "model_label: fixture-model",
                         "reasoning_effort: high",
                         "execution_mode: standard",
-                        "timezone: Europe/Vienna",
+                        "timezone: Europe/Paris",
                         "started_at_utc: 2026-06-19T02:30:00Z",
                         "completed_at_utc: 2026-06-19T02:45:00Z",
                         "status: pass",
@@ -5594,11 +6116,11 @@ class SourceChainTests(unittest.TestCase):
                         "run_slot: 0930",
                         "monitor_scope: framework-sources",
                         "monitor_scope_sha256: 5b619bc978d06cba5277f7846faa48625e0ec70ba43216c35213bb6cd7f62a38",
-                        "model_route: quality_first",
+                        "model_route: fixture_route",
                         "model_label: fixture-model",
                         "reasoning_effort: high",
                         "execution_mode: standard",
-                        "timezone: Europe/Vienna",
+                        "timezone: Europe/Paris",
                         "started_at_utc: 2026-06-19T00:30:00Z",
                         "completed_at_utc: 2026-06-19T00:52:00Z",
                         "status: pass",
@@ -5633,11 +6155,11 @@ class SourceChainTests(unittest.TestCase):
                         "run_slot: 0930",
                         "monitor_scope: framework-sources",
                         "monitor_scope_sha256: 5b619bc978d06cba5277f7846faa48625e0ec70ba43216c35213bb6cd7f62a38",
-                        "model_route: quality_first",
+                        "model_route: fixture_route",
                         "model_label: fixture-model",
                         "reasoning_effort: high",
                         "execution_mode: standard",
-                        "timezone: Europe/Vienna",
+                        "timezone: Europe/Paris",
                         "started_at_utc: 2026-06-19T02:30:00Z",
                         "completed_at_utc: 2026-06-19T02:45:00Z",
                         "status: pass",
@@ -5705,7 +6227,7 @@ class SourceChainTests(unittest.TestCase):
             apply_text = "\n".join(
                 [
                     "changed_files:",
-                    "  - private/references/prompt_engineering_sources.md",
+                    "  - local_overlays/references/prompt_engineering_sources.md",
                     "",
                 ]
             )
@@ -5926,11 +6448,11 @@ class SourceChainTests(unittest.TestCase):
                         "run_slot: 0930",
                         "monitor_scope: framework-sources",
                         "monitor_scope_sha256: 5b619bc978d06cba5277f7846faa48625e0ec70ba43216c35213bb6cd7f62a38",
-                        "model_route: quality_first",
+                        "model_route: fixture_route",
                         "model_label: fixture-model",
                         "reasoning_effort: high",
                         "execution_mode: standard",
-                        "timezone: Europe/Vienna",
+                        "timezone: Europe/Paris",
                         "started_at_utc: 2026-06-19T00:30:00Z",
                         "completed_at_utc: 2026-06-19T00:52:00Z",
                         "status: pass",
@@ -6234,11 +6756,11 @@ class SourceChainTests(unittest.TestCase):
                         "run_slot: 0930",
                         "monitor_scope: framework-sources",
                         "monitor_scope_sha256: 5b619bc978d06cba5277f7846faa48625e0ec70ba43216c35213bb6cd7f62a38",
-                        "model_route: quality_first",
+                        "model_route: fixture_route",
                         "model_label: fixture-model",
                         "reasoning_effort: high",
                         "execution_mode: standard",
-                        "timezone: Europe/Vienna",
+                        "timezone: Europe/Paris",
                         "started_at_utc: 2026-06-19T00:30:00Z",
                         "completed_at_utc: 2026-06-19T00:52:00Z",
                         "status: pass",
@@ -6691,7 +7213,7 @@ class SourceChainTests(unittest.TestCase):
         nul_errors: list[str] = []
 
         source_chain_artifact_lint.parse_artifact_timezone({"timezone": "../UTC"}, errors)
-        source_chain_artifact_lint.parse_artifact_timezone({"timezone": "Europe/Vienna\x00"}, nul_errors)
+        source_chain_artifact_lint.parse_artifact_timezone({"timezone": "Europe/Paris\x00"}, nul_errors)
 
         self.assertIn("timezone must be a normalized IANA timezone name, not an absolute or traversal path", errors)
         self.assertIn("timezone must be a valid IANA timezone name", nul_errors)
@@ -6714,11 +7236,11 @@ class SourceChainTests(unittest.TestCase):
                         "run_slot: 0930",
                         "monitor_scope: framework-sources",
                         "monitor_scope_sha256: 5b619bc978d06cba5277f7846faa48625e0ec70ba43216c35213bb6cd7f62a38",
-                        "model_route: quality_first",
+                        "model_route: fixture_route",
                         "model_label: fixture-model",
                         "reasoning_effort: high",
                         "execution_mode: standard",
-                        "timezone: Europe/Vienna",
+                        "timezone: Europe/Paris",
                         "started_at_utc: 2026-06-18T00:30:00Z",
                         "completed_at_utc: 2026-06-18T00:52:00Z",
                         "status: pass",
@@ -6742,11 +7264,11 @@ class SourceChainTests(unittest.TestCase):
                         "run_slot: 0930",
                         "monitor_scope: framework-sources",
                         "monitor_scope_sha256: 5b619bc978d06cba5277f7846faa48625e0ec70ba43216c35213bb6cd7f62a38",
-                        "model_route: quality_first",
+                        "model_route: fixture_route",
                         "model_label: fixture-model",
                         "reasoning_effort: high",
                         "execution_mode: standard",
-                        "timezone: Europe/Vienna",
+                        "timezone: Europe/Paris",
                         "started_at_utc: 2026-06-19T02:30:00Z",
                         "completed_at_utc: 2026-06-19T02:45:00Z",
                         "status: no-findings",
@@ -6812,11 +7334,11 @@ class SourceChainTests(unittest.TestCase):
                         "run_slot: 0930",
                         "monitor_scope: framework-sources",
                         "monitor_scope_sha256: 5b619bc978d06cba5277f7846faa48625e0ec70ba43216c35213bb6cd7f62a38",
-                        "model_route: quality_first",
+                        "model_route: fixture_route",
                         "model_label: fixture-model",
                         "reasoning_effort: high",
                         "execution_mode: standard",
-                        "timezone: Europe/Vienna",
+                        "timezone: Europe/Paris",
                         "status: pass",
                         "  - unexpected",
                         "external_reviewer_status: not_needed",

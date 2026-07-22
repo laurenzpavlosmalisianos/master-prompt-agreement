@@ -12,6 +12,7 @@ import re
 from typing import Any, TypedDict
 
 import bounded_subprocess
+import git_query
 import markdown_structure
 import safe_paths
 import url_safety
@@ -233,8 +234,11 @@ def _bounded_git(
         raise RuntimeError("bounded Git inspection requires POSIX process-group pipes")
     try:
         result = bounded_subprocess.run_bounded_process(
-            ["git", *args],
+            git_query.closed_git_query_command(args),
             cwd=REPO_ROOT if cwd is None else cwd,
+            env=git_query.closed_git_query_environment(
+                REPO_ROOT if cwd is None else cwd
+            ),
             timeout_seconds=GIT_COMMAND_TIMEOUT_SECONDS,
             max_output_bytes=max_output_bytes,
             maximum_timeout_seconds=GIT_COMMAND_TIMEOUT_SECONDS,

@@ -8,6 +8,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shutil
 import stat
 import sys
 import tempfile
@@ -18,6 +19,7 @@ from unittest import mock
 from tests.validation_test_support import (
     REPO_ROOT,
     TEST_FRAMEWORK_RUNNER,
+    compile_adjacent_bytecode,
     run_bounded,
     valid_automation_job,
 )
@@ -147,6 +149,74 @@ def _tree_snapshot(root: Path) -> dict[str, tuple[str, int, bytes | str | None]]
 
 
 class ProjectRefreshLifecycleTests(unittest.TestCase):
+    def test_project_refresh_ignores_cache_and_rejects_package_shadows(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            scripts_root = root / "scripts"
+            shutil.copytree(
+                REPO_ROOT / "scripts",
+                scripts_root,
+                ignore=shutil.ignore_patterns("__pycache__"),
+            )
+            shutil.copytree(REPO_ROOT / "integrations", root / "integrations")
+            dependency = scripts_root / "bootstrap_transaction.py"
+            reviewed_source = dependency.read_bytes()
+            cache_marker = root / "cache-ran"
+            dependency.write_text(
+                "from pathlib import Path\n"
+                f"Path({str(cache_marker)!r}).write_text('ran', encoding='utf-8')\n",
+                encoding="utf-8",
+            )
+            compile_adjacent_bytecode(dependency, unchecked_hash=True)
+            dependency.write_bytes(reviewed_source)
+
+            cache_result = run_bounded(
+                [
+                    sys.executable,
+                    "-E",
+                    "-S",
+                    "-B",
+                    str(scripts_root / "project_refresh.py"),
+                    "--help",
+                ],
+                cwd=root,
+                check=False,
+            )
+            self.assertEqual(
+                0,
+                cache_result.returncode,
+                cache_result.stdout + cache_result.stderr,
+            )
+            self.assertFalse(cache_marker.exists())
+
+            package_marker = root / "package-ran"
+            package = scripts_root / "bootstrap_transaction"
+            package.mkdir()
+            (package / "__init__.py").write_text(
+                "from pathlib import Path\n"
+                f"Path({str(package_marker)!r}).write_text('ran', encoding='utf-8')\n",
+                encoding="utf-8",
+            )
+            shadow_result = run_bounded(
+                [
+                    sys.executable,
+                    "-E",
+                    "-S",
+                    "-B",
+                    str(scripts_root / "project_refresh.py"),
+                    "--help",
+                ],
+                cwd=root,
+                check=False,
+            )
+            self.assertFalse(package_marker.exists())
+
+        self.assertNotEqual(0, shadow_result.returncode)
+        self.assertIn(
+            "project refresh rejected local import shadow: bootstrap_transaction",
+            shadow_result.stderr,
+        )
+
     def test_real_cli_process_reports_json_success_and_argparse_failure(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project_root = Path(temp_dir)
@@ -155,6 +225,9 @@ class ProjectRefreshLifecycleTests(unittest.TestCase):
             inspect_result = run_bounded(
                 [
                     sys.executable,
+                    "-E",
+                    "-S",
+                    "-B",
                     str(script),
                     "inspect",
                     "--project-root",
@@ -167,6 +240,9 @@ class ProjectRefreshLifecycleTests(unittest.TestCase):
             plan_result = run_bounded(
                 [
                     sys.executable,
+                    "-E",
+                    "-S",
+                    "-B",
                     str(script),
                     "plan",
                     "--project-root",
@@ -178,6 +254,9 @@ class ProjectRefreshLifecycleTests(unittest.TestCase):
             invalid_result = run_bounded(
                 [
                     sys.executable,
+                    "-E",
+                    "-S",
+                    "-B",
                     str(script),
                     "inspect",
                     "--project-root",
@@ -190,6 +269,9 @@ class ProjectRefreshLifecycleTests(unittest.TestCase):
             abbreviated_result = run_bounded(
                 [
                     sys.executable,
+                    "-E",
+                    "-S",
+                    "-B",
                     str(script),
                     "inspect",
                     "--project-root",
@@ -1931,15 +2013,6 @@ class ProjectRefreshLifecycleTests(unittest.TestCase):
                 candidate_input=relocated,
                 post_apply_backout={"kind": "none"},
             )
-            changed_kind = dict(retained)
-            changed_kind["project_kind"] = "framework-authoring"
-            changed_kind["runtime"] = None
-            kind_plan = project_refresh.build_plan(
-                project_root,
-                ".",
-                candidate_input=changed_kind,
-                post_apply_backout={"kind": "none"},
-            )
             runtime_candidate = dict(retained)
             runtime_candidate["runtime"] = "claude-code"
             (project_root / "CLAUDE.md").write_text(
@@ -1957,11 +2030,6 @@ class ProjectRefreshLifecycleTests(unittest.TestCase):
         self.assertTrue(
             any("contract-root relocation is not supported" in error for error in root_plan.errors),
             root_plan.errors,
-        )
-        self.assertIsNone(kind_plan.payload)
-        self.assertTrue(
-            any("project_kind must match" in error for error in kind_plan.errors),
-            kind_plan.errors,
         )
         self.assertIsNone(collision_plan.payload)
         self.assertTrue(
@@ -2644,38 +2712,6 @@ class ProjectRefreshLifecycleTests(unittest.TestCase):
                     else "did not pass"
                 )
                 self.assertIn(expected, details)
-
-    def test_post_install_authoring_profiles_use_the_conformance_owner(self) -> None:
-        authoring_root_ref = "private" + "/authoring"
-        with tempfile.TemporaryDirectory() as temp_dir:
-            project_root = Path(temp_dir)
-            with (
-                self.assertRaisesRegex(
-                    ValueError,
-                    "candidate-owned authoring defect",
-                ),
-                mock.patch.object(
-                    project_refresh.conformance_check,
-                    "run_profiles",
-                    return_value={
-                        "status": "fail",
-                        "errors": ["candidate-owned authoring defect"],
-                        "warnings": ["candidate-owned authoring warning"],
-                    },
-                ) as run_profiles,
-            ):
-                project_refresh._run_profiles(
-                    project_root,
-                    authoring_root_ref,
-                    ["core-project", "project-runtime-codex"],
-                    project_kind="framework-authoring",
-                )
-
-        run_profiles.assert_called_once()
-        self.assertEqual(
-            ["core-project", "project-runtime-codex"],
-            run_profiles.call_args.args[0],
-        )
 
     def test_post_install_conformance_requires_exact_pass_status(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

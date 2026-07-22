@@ -58,7 +58,7 @@ container, require `<framework-ref>` to resolve inside that runner rather than
 assuming the host checkout path. For a current generated contract with every
 required surface, run the explicit layout command:
 
-`<runner> <framework-ref>/scripts/conformance_check.py --profile core-project --root <project-root> --project-kind <downstream|framework-authoring> --contract-root <contract-root> --strict-warnings`
+`<runner> -- "<framework-ref>/scripts/conformance_check.py" --profile core-project --root <project-root> --project-kind downstream --contract-root <contract-root> --strict-warnings`
 
 Bootstrap `--approve-write-plan-sha256` and refresh-plan `--approve-warning`
 authorize only their exact lifecycle writes; neither waives this independent strict gate. Any
@@ -85,10 +85,10 @@ If the project records an editor, IDE, language server, or local companion CLI a
 
 If `AUTOMATION_ORDERS.json` exists:
 - let `<manifest>` be the selected `AUTOMATION_ORDERS.json`, including a nested contract-root manifest when applicable
-- from `<project-root>`, resolve `<framework-ref>`, `<manifest>`, and `<project-root>`, then run `<runner> <framework-ref>/scripts/automation_orders_lint.py <manifest> --project-root <project-root>`
+- from `<project-root>`, resolve `<framework-ref>`, `<manifest>`, and `<project-root>`, then run `<runner> -- "<framework-ref>/scripts/automation_orders_lint.py" <manifest> --project-root <project-root>`
 - read the manifest's top-level `preferred_backend`; if it is `unspecified`, report that no backend-specific render is selected, and never infer one from prose
-- if `preferred_backend` is `cron`, run `<runner> <framework-ref>/scripts/automation_orders_lint.py <manifest> --project-root <project-root> --target cron` before rendering
-- if `preferred_backend` is `cron`, cron rendering was requested, and target lint passes, render the schedule to an approved temporary location with `<runner> <framework-ref>/scripts/render_cron.py <manifest> --project-root <project-root> --output <temporary-cron-file>`; use an out-of-root temporary path only when the project or runtime boundary authorizes it. Report whether the manifest and rendered schedule agree. Writing or overwriting a project scheduler artifact is remediation and requires separate authorization.
+- if `preferred_backend` is `cron`, run `<runner> -- "<framework-ref>/scripts/automation_orders_lint.py" <manifest> --project-root <project-root> --target cron` before rendering
+- if `preferred_backend` is `cron`, cron rendering was requested, and target lint passes, render the schedule to an approved temporary location with `<runner> -- "<framework-ref>/scripts/render_cron.py" <manifest> --project-root <project-root> --output <temporary-cron-file>`; use an out-of-root temporary path only when the project or runtime boundary authorizes it. Report whether the manifest and rendered schedule agree. Writing or overwriting a project scheduler artifact is remediation and requires separate authorization.
 - if `preferred_backend` names another backend, use only its supported target checker/renderer; report unsupported backend integration instead of silently falling back to cron
 
 6. State Freshness
@@ -107,7 +107,7 @@ Review DECISIONS.md when it exists or is required by durable decisions, directiv
 Compare `STATEMENT_OF_WORK.md`'s MSA reference version to the actual `master_service_agreement.md` version. Flag mismatch.
 
 8. Link Integrity
-If the framework `scripts/link_check.py` utility is available, run `<runner> <framework-ref>/scripts/link_check.py --root <project-root>` against project Markdown documentation. Use offline local-link checking by default. Never select a same-named project-local script as the framework validator.
+If the framework `scripts/link_check.py` utility is available, run `<runner> -- "<framework-ref>/scripts/link_check.py" --root <project-root>` against project Markdown documentation. Use offline local-link checking by default. Never select a same-named project-local script as the framework validator.
 
 For external references and source packs, do not treat generic URL probing as sufficient source validation. Load `practice_guides/source_freshness_review.md`, confirm the SOW or runtime project contract acquisition boundary, and use the approved source-validation method such as `curl`, browser automation, an approved local fetch tool, an approved MCP server, or user-supplied material. Record the method, status, date, and access limits. Check external URLs only when the project task explicitly requires network validation or source freshness.
 

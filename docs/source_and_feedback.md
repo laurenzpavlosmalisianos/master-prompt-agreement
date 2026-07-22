@@ -14,7 +14,7 @@ changing framework guidance:
    that is not needed
 4. compare the abstraction with existing Task Orders and Practice Guides
 5. use `task_orders/framework_semantic_audit.md` to confirm the owning surface,
-   public boundary, lifecycle fit, and the recorded gap relative to the selected
+   product boundary, lifecycle fit, and the recorded gap relative to the selected
    native, project-owned, or existing framework path
 6. route an accepted candidate through
    `task_orders/framework_improvement.md` to define proportionate acceptance
@@ -47,10 +47,10 @@ source registries, templates, guides, code, or standing instructions.
 Monitor classifications are routing recommendations, not acceptance or
 rejection decisions. The review stage validates evidence and records the
 decision. An optional apply stage requires separate `act` authority and may own
-only downstream or project-local effects already inside the project contract,
-or an explicitly configured private source-entry class enforced by an exact
-path allowlist. Shared or reusable framework candidates stop as no-effect
-handoffs to `task_orders/framework_semantic_audit.md` and, when accepted, to
+only downstream or project-local effects already inside the project contract
+and enforced by an exact path allowlist. Shared or reusable framework
+candidates stop as no-effect handoffs to
+`task_orders/framework_semantic_audit.md` and, when accepted, to
 `task_orders/framework_improvement.md`; the source chain does not implement
 them directly. Permission to read a source, use an acquisition path, or run a
 monitor does not authorize project edits.
@@ -87,16 +87,13 @@ stops, while `needs-evidence` returns to evidence collection and re-audit.
 
 Classify each reviewed observation before editing anything:
 
-- project-specific evidence stays in the originating project
-- reusable owner preference, quality constraint, or operating method may update
-  an excluded owner profile, private standard, or operator workflow
-- broadly reusable evidence may become a sanitized public-framework candidate
+- project-specific evidence and preferences stay in the originating project
+- broadly reusable evidence may become a sanitized framework-product candidate
 - unsupported, harmful, redundant, or source-specific material is rejected
 
-An owner-private surface and a public blueprint are different destinations.
-Repeated personal preference is not automatically general doctrine, while a
-broadly useful abstraction should not remain trapped in one private workflow
-merely because that is where it was first observed.
+Repeated preference is not automatically general doctrine. A broadly useful
+abstraction still requires independent review, an explicit product owner, and
+decision-relevant evidence before retention.
 
 Source prestige does not determine evidence depth. After semantic review,
 `task_orders/framework_improvement.md` owns evaluation and disposition. An

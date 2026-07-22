@@ -4363,7 +4363,8 @@ def _collect_command_parity(
                 context.contract_common_commands.get(contract_label),
                 errors,
             )
-    if context.project_kind == "downstream" and common_command_keys_valid:
+    policy = contract_model.project_layout_policy(context.project_kind)
+    if policy.emit_external_input_warnings and common_command_keys_valid:
         for label, value in context.contract_common_commands.items():
             warnings.extend(command_warnings(f"Common Commands {label}", value))
 
@@ -4759,7 +4760,8 @@ def _collect_entrypoint_diagnostics(
     errors: list[str],
     warnings: list[str],
 ) -> None:
-    if context.project_kind != "downstream":
+    policy = contract_model.project_layout_policy(context.project_kind)
+    if not policy.manages_runtime_entrypoint:
         return
     expected_framework_reference: str | None = None
     if prerequisites.framework_verification_commands:
@@ -4825,8 +4827,8 @@ def _print_result(errors: list[str], warnings: list[str]) -> None:
     )
 
 
-def main() -> int:
-    args = _argument_parser().parse_args()
+def main(argv: list[str] | None = None) -> int:
+    args = _argument_parser().parse_args(argv)
     _raw_project_root, project_root, project_root_errors = (
         project_bootstrap.resolve_user_path(
             args.project_root,
@@ -4924,7 +4926,9 @@ def main() -> int:
         errors.extend(format_errors)
         errors.extend(internal_tracking_leaks("STATEMENT_OF_WORK.md", sow_text))
         errors.extend(internal_tracking_leaks("AGENT_PROJECT.md", contract_text))
-        if args.project_kind == "downstream":
+        if contract_model.project_layout_policy(
+            args.project_kind
+        ).manages_runtime_entrypoint:
             _collect_entrypoint_file_diagnostics(
                 project_root,
                 contract_root_ref,

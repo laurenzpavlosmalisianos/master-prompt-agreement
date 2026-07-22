@@ -23,7 +23,6 @@ from tests.validation_test_support import (
 )
 
 import context_manifest  # noqa: E402
-import framework_compliance  # noqa: E402
 import integration_registry  # noqa: E402
 import lint_reviewer_lane_feedback  # noqa: E402
 import project_bootstrap  # noqa: E402
@@ -239,7 +238,7 @@ class ProjectStateInstanceContextTests(unittest.TestCase):
     ) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project_root = Path(temp_dir) / "project"
-            contract_root = project_root / "private" / "authoring"
+            contract_root = project_root / "contracts" / "state"
             reports = project_root / "reports"
             contract_root.mkdir(parents=True)
             reports.mkdir()
@@ -313,30 +312,27 @@ class ProjectStateInstanceContextTests(unittest.TestCase):
         self,
         project_root: Path,
         *,
-        project_kind: str = "downstream",
         answer_overrides: dict[str, object] | None = None,
     ) -> dict[str, object]:
-        contract_ref = (
-            ".mpa" if project_kind == "downstream" else "private" + "/authoring"
-        )
+        contract_ref = ".mpa"
         contract_root = project_root / contract_ref
         contract_root.mkdir(parents=True)
         answers: dict[str, object] = {
             "bootstrap_mode": "minimal",
             "agent": "Agent",
-            "project_name": "Demo" if project_kind == "downstream" else "Framework",
+            "project_name": "Demo",
             "date": "2026-07-14",
             "framework_verification_runner": TEST_FRAMEWORK_RUNNER,
             "include_findings": True,
         }
         answers.update(answer_overrides or {})
-        runtime = "generic" if project_kind == "downstream" else None
+        runtime = "generic"
         framework_ref = os.path.relpath(REPO_ROOT, project_root)
         outputs = project_bootstrap.render_output_files(
             answers,
             runtime,
             framework_ref,
-            project_kind=project_kind,
+            project_kind="downstream",
             contract_root_ref=contract_ref,
             effective_date="2026-07-14",
         )
@@ -346,7 +342,7 @@ class ProjectStateInstanceContextTests(unittest.TestCase):
             target.write_text(content, encoding="utf-8")
 
         input_text = project_input.render_project_input(
-            project_kind=project_kind,
+            project_kind="downstream",
             contract_root=contract_ref,
             runtime=runtime,
             framework_reference=framework_ref,
@@ -358,12 +354,12 @@ class ProjectStateInstanceContextTests(unittest.TestCase):
         managed, immutable, mutable = project_bootstrap.project_instance_file_sets(
             answers=answers,
             runtime=runtime,
-            project_kind=project_kind,
+            project_kind="downstream",
             contract_root_ref=contract_ref,
         )
         manifest_text = project_bootstrap.render_instance_manifest(
             input_bytes=input_text.encode("utf-8"),
-            project_kind=project_kind,
+            project_kind="downstream",
             contract_root_ref=contract_ref,
             runtime=runtime,
             framework_reference=framework_ref,
@@ -376,7 +372,7 @@ class ProjectStateInstanceContextTests(unittest.TestCase):
             rendered_outputs=outputs,
             active_profiles=project_bootstrap.active_project_profiles(
                 answers,
-                project_kind=project_kind,
+                project_kind="downstream",
             ),
             effective_date="2026-07-14",
         )
@@ -1236,39 +1232,6 @@ class ProjectStateInstanceContextTests(unittest.TestCase):
             report,
         )
 
-    def test_authoring_project_input_must_be_retained_inside_contract_root(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            project_root = Path(temp_dir).resolve()
-            contract_root = project_root / "private" / "authoring"
-            contract_root.mkdir(parents=True)
-            outside_input = project_root / project_input.INPUT_NAME
-            payload = {
-                "schema_version": project_input.SCHEMA_VERSION,
-                "project_kind": "framework-authoring",
-                "contract_root": "private" + "/authoring",
-                "runtime": None,
-                "framework_reference": "$FRAMEWORK_ROOT",
-                "framework_revision_policy": "live",
-                "answers": {
-                    "bootstrap_mode": "minimal",
-                    "agent": "Agent",
-                    "project_name": "Framework",
-                    "date": "2026-07-14",
-                    "framework_verification_runner": TEST_FRAMEWORK_RUNNER,
-                },
-            }
-            outside_input.write_bytes(project_input.canonical_project_input_bytes(payload))
-            errors = project_input.validate_project_input(
-                payload,
-                project_root=project_root,
-                input_path=outside_input,
-            )
-
-        self.assertIn(
-            "framework-authoring retained project input must be inside the selected contract root",
-            errors,
-        )
-
     def test_instance_rejects_an_alternate_bounded_input_source(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project_root = Path(temp_dir)
@@ -1348,44 +1311,6 @@ class ProjectStateInstanceContextTests(unittest.TestCase):
             report,
         )
         self.assertIsNone(report["retained_input"])
-
-    def test_authoring_instance_replays_without_a_runtime_entrypoint(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            project_root = Path(temp_dir)
-            fixture = self._write_valid_project_instance(
-                project_root,
-                project_kind="framework-authoring",
-            )
-            contract_ref = cast(str, fixture["contract_ref"])
-            with mock.patch.object(
-                project_bootstrap,
-                "project_layout_errors",
-                return_value=[],
-            ):
-                report = project_instance_lint.lint_instance(
-                    project_root,
-                    contract_ref,
-                    framework_root=REPO_ROOT,
-                    expected_project_kind="framework-authoring",
-                )
-
-        self.assertEqual([], report["errors"], report)
-        self.assertEqual([], report["warnings"], report)
-        self.assertEqual(
-            project_root / project_instance_lint.MANIFEST_NAME,
-            fixture["manifest_path"],
-        )
-        self.assertFalse(
-            (
-                cast(Path, fixture["contract_root"])
-                / project_instance_lint.MANIFEST_NAME
-            ).exists()
-        )
-        self.assertIsNone(cast(dict[str, object], fixture["manifest"])["runtime"])
-        self.assertEqual(
-            ["core-project"],
-            cast(dict[str, object], fixture["manifest"])["active_profiles"],
-        )
 
     def test_instance_schema_preflight_bounds_derivative_diagnostics(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1739,62 +1664,6 @@ class ProjectStateInstanceContextTests(unittest.TestCase):
 
         with self.assertRaises(SystemExit):
             context_manifest.validate_evidence_paths(args.path, args.external_evidence, parser)
-
-    def test_context_manifest_includes_checked_always_on_files(self) -> None:
-        ok, manifest, message = framework_compliance.run_json(
-            "context-manifest",
-            [sys.executable, "scripts/context_manifest.py"],
-            REPO_ROOT,
-        )
-
-        self.assertTrue(ok, message)
-        self.assertIsNotNone(manifest)
-        manifest_data = cast(dict[str, object], manifest)
-        self.assertEqual(
-            ["runtime/operative_charter.md"],
-            manifest_data["always_on_files"],
-        )
-        self.assertEqual(
-            ["runtime/load_order.md", "runtime/standards_of_care.md"],
-            manifest_data["routing_support_files"],
-        )
-        self.assertEqual(["AGENT_PROJECT.md"], manifest_data["project_contract_files"])
-
-    def test_context_manifest_routes_incidents_to_the_canonical_full_order(self) -> None:
-        parser = context_manifest.build_parser()
-        args = parser.parse_args(["--incident"])
-        direct = context_manifest.infer_direct_full_task_orders(args)
-        loading = context_manifest.resolve_direct_full_loading(direct)
-
-        self.assertEqual(["incident_response"], direct)
-        self.assertEqual("full_task_order", loading["mode"])
-        self.assertEqual(
-            {"name": "incident_response", "path": "task_orders/incident_response.md"},
-            loading["canonical_task_order"],
-        )
-        ok, manifest, message = framework_compliance.run_json(
-            "context-manifest-incident",
-            [sys.executable, "scripts/context_manifest.py", "--incident"],
-            REPO_ROOT,
-        )
-        self.assertTrue(ok, message)
-        manifest_data = cast(dict[str, object], manifest)
-        self.assertIsNone(manifest_data["task_module"])
-        self.assertEqual(loading["canonical_task_order"], manifest_data["task_order"])
-
-    def test_context_manifest_exposes_condition_selected_full_order(self) -> None:
-        ok, manifest, message = framework_compliance.run_json(
-            "context-manifest-review-full",
-            [sys.executable, "scripts/context_manifest.py", "--review", "--security"],
-            REPO_ROOT,
-        )
-
-        self.assertTrue(ok, message)
-        manifest_data = cast(dict[str, object], manifest)
-        self.assertEqual(
-            {"name": "review", "path": "task_orders/review.md"},
-            manifest_data["task_order"],
-        )
 
     def test_context_manifest_evaluates_full_task_order_conditions(self) -> None:
         parser = context_manifest.build_parser()

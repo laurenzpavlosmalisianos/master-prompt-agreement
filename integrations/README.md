@@ -50,14 +50,14 @@ Directories such as `integrations/templates/codex/skills/project-init/`, `integr
 
 The current `SKILL.md` wrappers use the shared Agent Skills package shape, but they remain registered under the Codex family because this repository declares and tests their discovery/rendering behavior only for that family. The package shape is portable; cross-runtime support is claimed only after the corresponding runtime family, discovery path, and verification are added. No workflow doctrine is Codex-owned.
 
-The integration families, entrypoints, and optional native wrapper paths are registered in `integrations/registry.json` so template updates do not require chasing hardcoded wrapper maps across multiple scripts. Validation budgets stay in `scripts/validate_framework.py`, not in the registry, so the registry remains declarative.
+The integration families, entrypoints, and optional native wrapper paths are registered in `integrations/registry.json` so template updates do not require chasing hardcoded wrapper maps across multiple scripts. Product validation remains executable policy rather than registry data, so the registry stays declarative.
 
-Framework scripts are stdlib-only. In the commands below, `<runner>` means the already-available framework runner reported by `scripts/check_prereqs.py`, such as `uv run python -B`, `python3 -B`, or `py -3 -B`. `<framework-checkout-as-visible-to-runner>` is the exact absolute framework checkout path inside that runner; a wrapper or container can resolve a different path from the host. Do not install `uv`, download Python, resolve dependencies, or create environments during integration rendering unless the user approves that state-changing setup step.
+Framework scripts are stdlib-only. In the commands below, `<runner>` means the already-available framework runner reported by `scripts/check_prereqs.py`, such as `uv run python -E -S -B`, `python3 -E -S -B`, or `py -3 -E -S -B`. The required flags ignore `PYTHON*` environment configuration, suppress automatic site customization, and prevent bytecode writes before protected lifecycle entrypoints load local modules. `<framework-checkout-as-visible-to-runner>` is the exact absolute framework checkout path inside that runner; a wrapper or container can resolve a different path from the host. Do not install `uv`, download Python, resolve dependencies, or create environments during integration rendering unless the user approves that state-changing setup step.
 
 Render them with:
 
 ```bash
-<runner> <framework-checkout-as-visible-to-runner>/scripts/render_integrations.py --integration all --output-dir <new-empty-output-dir> --framework-ref <stable-framework-reference>
+<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/render_integrations.py" --integration all --output-dir <new-empty-output-dir> --framework-ref <stable-framework-reference>
 ```
 
 Use a new or empty output directory for a clean render. The renderer validates
@@ -118,25 +118,38 @@ Generic filesystem-capable agents:
 - Bootstrap installs the generic entrypoint when the runtime reads a repository
   instruction file but has no dedicated integration family.
 - For agents that do not auto-load repository instruction files, use this manual load card: read `<framework-ref>/runtime/operative_charter.md`; check the project root for `.mpa-bootstrap-recovery.json`, `.mpa-bootstrap.lock`, and `.mpa-bootstrap-recovery.tmp`; only when all three are absent, read the downstream `AGENT_PROJECT.md` and any configured Scope of Authority, load the selected Task Order, inspect the target project, run `<framework-ref>/scripts/check_prereqs.py` with an already-available stdlib-capable Python command, and use its reported runner for framework scripts. When any control exists, do not read generated project authority or state; use an externally supplied runner for bounded status inspection and exact-ID recovery only when inspection identifies a permitted action, or stop and request direction.
-  From the project root, run `<runner> <framework-ref>/scripts/conformance_check.py --profile core-project --root <project-root> --project-kind <downstream|framework-authoring> --contract-root <contract-root> --strict-warnings` as the routine verification gate. Root `PROJECT_INSTANCE.json` identifies the project lifecycle instance; substitute its recorded project kind and contract root rather than treating the receipt as nested. `<contract-root>` is `.` for an ordinary downstream layout.
-  Use `<runner> <framework-ref>/scripts/project_contract_sync.py <project-root> --project-kind <downstream|framework-authoring> --contract-root <contract-root>` only for focused diagnosis.
+  From the project root, run `<runner> -- "<framework-ref>/scripts/conformance_check.py" --profile core-project --root <project-root> --project-kind downstream --contract-root <contract-root> --strict-warnings` as the routine verification gate. Root `PROJECT_INSTANCE.json` is the single lifecycle receipt; its `project_kind` must be `downstream`, and its `contract_root` identifies the contract root. Do not treat a nested contract as a second lifecycle instance. `<contract-root>` is `.` for an ordinary downstream layout.
+  Use `<runner> -- "<framework-ref>/scripts/project_contract_sync.py" <project-root> --project-kind downstream --contract-root <contract-root>` only for focused diagnosis.
 
 ## Validation
 
 Run:
 
 ```bash
-<runner> <framework-checkout-as-visible-to-runner>/scripts/validate_framework.py
+<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/conformance_check.py" --profile framework-product --root <framework-checkout-as-visible-to-runner> --exact-product-tree --strict-warnings
 ```
 
-This checks configured file-size ceilings and required integration files. Those
-ceilings are structural guardrails only; passing them does not measure tokens,
-prompt or context cost, prompt bloat, compactness, or output quality.
+This verifies the exact product inventory and closed distribution-tree
+boundary. It does not run the shipped product tests. Next run:
+
+```bash
+<runner> -m unittest tests.test_validation_scripts
+```
+
+Passing both deterministic gates does not by itself establish semantic quality
+or suitability for a particular downstream project configuration.
 
 Check reference freshness with:
 
 ```bash
-<runner> <framework-checkout-as-visible-to-runner>/scripts/check_reference_freshness.py
+<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/check_reference_freshness.py"
 ```
 
-This checks source-maintenance Markdown in the current authoring tree and a downstream root `SOURCE_PACKS.md` when one exists. Bracketed date fields in exact release-manifest-declared files under `project_state_templates/` are uninstantiated blueprint syntax, not source-state claims; the same placeholder in copied or rendered project state remains a warning and fails `--warnings-as-errors`. In a freshly exported public framework checkout with no project source pack yet, the command can pass with no source-pack files inspected; use `--reference-dir` or create project `SOURCE_PACKS.md` when a concrete source registry must be checked.
+This checks source records in the selected framework checkout and a downstream
+root `SOURCE_PACKS.md` when one exists. Bracketed date fields in
+`project_state_templates/` are uninstantiated blueprint syntax, not source-state
+claims; the same placeholder in copied or rendered project state remains a
+warning and fails `--warnings-as-errors`. In a fresh framework checkout with no
+project source pack yet, the command can pass with no source-pack files
+inspected; use `--reference-dir` or create project `SOURCE_PACKS.md` when a
+concrete source registry must be checked.

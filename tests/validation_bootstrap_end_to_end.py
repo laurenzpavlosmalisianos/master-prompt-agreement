@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-import shutil
 import sys
 import tempfile
 import unittest
@@ -24,7 +23,6 @@ import bootstrap_transaction  # noqa: E402
 import conformance_check  # noqa: E402
 import integration_registry  # noqa: E402
 import project_bootstrap  # noqa: E402
-import public_surface  # noqa: E402
 import safe_paths  # noqa: E402
 
 
@@ -81,6 +79,8 @@ def _run_bootstrap(
     result = run_bounded(
         [
             sys.executable,
+            "-E",
+            "-S",
             "-B",
             str(SCRIPTS_DIR / "project_bootstrap.py"),
             "--answers",
@@ -186,13 +186,6 @@ def _run_project_gate(
     if result.returncode != 0:
         raise AssertionError((script_name, report, result.stderr))
     return cast(dict[str, object], report)
-
-
-def _copy_public_framework(destination: Path) -> None:
-    for source in public_surface.iter_public_root_files(REPO_ROOT):
-        target = destination / source.relative_to(REPO_ROOT)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source, target)
 
 
 class BootstrapEndToEndTests(unittest.TestCase):
@@ -402,92 +395,6 @@ class BootstrapEndToEndTests(unittest.TestCase):
                     project_root,
                     contract_root_ref,
                     "downstream",
-                )
-                self.assertEqual([], gate_report["errors"], gate_report)
-
-    def test_framework_authoring_bootstrap_retains_and_conforms_nested_instance(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            framework_root = root / "framework"
-            _copy_public_framework(framework_root)
-            private_root = "private"
-            contract_root_ref = f"{private_root}/authoring-e2e"
-            maintainer_entrypoint = framework_root / "AGENTS.md"
-            maintainer_entrypoint.write_text(
-                maintainer_entrypoint.read_text(encoding="utf-8").replace(
-                    f"{private_root}/authoring",
-                    contract_root_ref,
-                ),
-                encoding="utf-8",
-            )
-            answers = _minimal_answers()
-            answers["date"] = "2026-07-14"
-            answers_path = root / "authoring-answers.json"
-            _write_answers(answers_path, answers)
-            command = [
-                sys.executable,
-                "-B",
-                str(framework_root / "scripts" / "project_bootstrap.py"),
-                "--answers",
-                str(answers_path),
-                "--project-root",
-                str(framework_root),
-                "--project-kind",
-                "framework-authoring",
-                "--contract-root",
-                contract_root_ref,
-                "--framework-ref",
-                ".",
-                "--framework-revision-policy",
-                "live",
-                "--create-contract-root",
-            ]
-            dry_result = run_bounded(
-                [*command, "--dry-run"],
-                cwd=framework_root,
-            )
-            dry_report = json.loads(dry_result.stdout)
-            self.assertEqual(
-                0,
-                dry_result.returncode,
-                (dry_report, dry_result.stderr),
-            )
-            result = run_bounded(
-                [
-                    *command,
-                    "--approve-write-plan-sha256",
-                    cast(str, dry_report["write_plan_sha256"]),
-                ],
-                cwd=framework_root,
-            )
-            report = json.loads(result.stdout)
-            self.assertEqual(0, result.returncode, (report, result.stderr))
-
-            contract_root = framework_root / contract_root_ref
-            retained_input = json.loads(
-                (contract_root / "PROJECT_INPUT.json").read_text(encoding="utf-8")
-            )
-            receipt = json.loads(
-                (framework_root / "PROJECT_INSTANCE.json").read_text(encoding="utf-8")
-            )
-            self.assertEqual("framework-authoring", retained_input["project_kind"])
-            self.assertIsNone(retained_input["runtime"])
-            self.assertFalse((contract_root / "PROJECT_INSTANCE.json").exists())
-            self.assertEqual(5, receipt["schema_version"])
-            self.assertEqual(contract_root_ref, receipt["contract_root"])
-            self.assertNotIn("AGENTS.md", receipt["managed_files"])
-
-            for gate in (
-                "project_instance_lint.py",
-                "project_contract_sync.py",
-                "conformance_check.py",
-            ):
-                gate_report = _run_project_gate(
-                    gate,
-                    framework_root,
-                    contract_root_ref,
-                    "framework-authoring",
-                    scripts_dir=framework_root / "scripts",
                 )
                 self.assertEqual([], gate_report["errors"], gate_report)
 

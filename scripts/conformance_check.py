@@ -8,14 +8,15 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import sys
-import tempfile
 from typing import Any, Callable
 
 import bounded_subprocess
 import integration_registry
 import markdown_structure
-import public_surface
+import product_manifest
+import project_bootstrap
 import project_contract_model as contract_model
 import project_instance_lint
 import safe_paths
@@ -48,137 +49,20 @@ COMMAND_MAX_TIMEOUT_SECONDS = bounded_subprocess.HARD_MAX_TIMEOUT_SECONDS
 COMMAND_TERMINATION_GRACE_SECONDS = 1.0
 MAX_COMMAND_OUTPUT_BYTES = 4 * 1024 * 1024
 MAX_COMMAND_OUTPUT_LIMIT_BYTES = 16 * 1024 * 1024
+PRODUCT_LOCAL_METADATA_ROOT_ENTRIES = frozenset({".git"})
+PYTHON_CHILD_STARTUP_FLAGS = ("-E", "-S", "-B")
 
 
-def sequential_timeout_budget(
-    child_allowances: tuple[tuple[str, float], ...],
-    *,
-    orchestration_margin_seconds: float = COMMAND_TIMEOUT_SECONDS,
-) -> float:
-    """Return one derived outer allowance for sequential bounded children."""
+def trusted_python_child(script: Path, *args: str) -> list[str]:
+    """Build one isolated command for a trusted framework Python child."""
 
-    labels = [label for label, _seconds in child_allowances]
-    if len(labels) != len(set(labels)):
-        raise ValueError("sequential timeout-budget labels must be unique")
-    if orchestration_margin_seconds <= 0:
-        raise ValueError("orchestration margin must be positive")
-    if any(seconds <= 0 for _label, seconds in child_allowances):
-        raise ValueError("child timeout allowances must be positive")
-    return (
-        sum(seconds for _label, seconds in child_allowances)
-        + orchestration_margin_seconds
-    )
-
-
-# One authoring release check binds and enumerates the Git worktree at both
-# ends so a concurrent index mutation cannot escape the filesystem inventory
-# stability check. A public export brackets its source snapshot with two
-# complete authoring release checks.
-AUTHORING_RELEASE_GIT_CHILD_TIMEOUTS = (
-    ("initial-git-worktree-identity", COMMAND_TIMEOUT_SECONDS),
-    ("initial-git-ls-files", COMMAND_TIMEOUT_SECONDS),
-    ("terminal-git-worktree-identity", COMMAND_TIMEOUT_SECONDS),
-    ("terminal-git-ls-files", COMMAND_TIMEOUT_SECONDS),
-)
-AUTHORING_RELEASE_TIMEOUT_SECONDS = sequential_timeout_budget(
-    AUTHORING_RELEASE_GIT_CHILD_TIMEOUTS
-)
-PUBLIC_EXPORT_AUTHORING_SNAPSHOT_TIMEOUTS = (
-    ("authoring-release-before-snapshot", AUTHORING_RELEASE_TIMEOUT_SECONDS),
-    ("authoring-release-after-snapshot", AUTHORING_RELEASE_TIMEOUT_SECONDS),
-)
-PUBLIC_EXPORT_TIMEOUT_SECONDS = sequential_timeout_budget(
-    PUBLIC_EXPORT_AUTHORING_SNAPSHOT_TIMEOUTS
-)
-
-# The project profile owns two sequential subprocess checks; structural checks
-# run in-process.  Keep one normal-command allowance as orchestration margin.
-CORE_PROJECT_AUTHORING_CHILD_TIMEOUTS = (
-    ("project-contract-sync", COMMAND_TIMEOUT_SECONDS),
-    ("project-state-files-lint", COMMAND_TIMEOUT_SECONDS),
-)
-CORE_PROJECT_AUTHORING_TIMEOUT_SECONDS = sequential_timeout_budget(
-    CORE_PROJECT_AUTHORING_CHILD_TIMEOUTS
-)
-
-
-# A sanitized export executes only the checks in its static public-release
-# profile. It never generates another export.
-EXPORTED_FRAMEWORK_CONFORMANCE_CHILD_TIMEOUTS = (
-    ("framework-validate", COMMAND_TIMEOUT_SECONDS),
-    ("framework-consistency", COMMAND_TIMEOUT_SECONDS),
-    ("framework-public-release", COMMAND_TIMEOUT_SECONDS),
-)
-EXPORTED_FRAMEWORK_CONFORMANCE_TIMEOUT_SECONDS = sequential_timeout_budget(
-    EXPORTED_FRAMEWORK_CONFORMANCE_CHILD_TIMEOUTS
-)
-
-# Keep the declared suite work allowance distinct from a bounded shared-runner
-# margin so healthy work is not misclassified as a hang under contention.
-EXPORTED_TREE_UNIT_TEST_WORK_TIMEOUT_SECONDS = COMMAND_TIMEOUT_SECONDS * 10
-EXPORTED_TREE_UNIT_TEST_SHARED_RUNTIME_MARGIN_SECONDS = COMMAND_TIMEOUT_SECONDS * 5
-EXPORTED_TREE_UNIT_TEST_TIMEOUT_SECONDS = sequential_timeout_budget(
-    (("unit-test-suite-work", EXPORTED_TREE_UNIT_TEST_WORK_TIMEOUT_SECONDS),),
-    orchestration_margin_seconds=(
-        EXPORTED_TREE_UNIT_TEST_SHARED_RUNTIME_MARGIN_SECONDS
-    ),
-)
-
-# These are exactly the subprocess-owning checks executed by
-# framework_compliance.py in a sanitized public tree. Keeping the registry here
-# avoids a circular import: framework_compliance imports this module and uses
-# the same allowances when it invokes each child.
-EXPORTED_TREE_COMPLIANCE_CHILD_TIMEOUTS = (
-    ("py-compile", COMMAND_TIMEOUT_SECONDS),
-    ("unit-tests", EXPORTED_TREE_UNIT_TEST_TIMEOUT_SECONDS),
-    ("python-type-check", COMMAND_TIMEOUT_SECONDS),
-    ("framework-quality-lint", COMMAND_TIMEOUT_SECONDS),
-    ("lint-reviewer-lane-feedback", COMMAND_TIMEOUT_SECONDS),
-    ("check-reference-freshness", COMMAND_TIMEOUT_SECONDS),
-    (
-        "conformance-framework-public-release",
-        EXPORTED_FRAMEWORK_CONFORMANCE_TIMEOUT_SECONDS,
-    ),
-    ("link-check", COMMAND_TIMEOUT_SECONDS),
-    ("check-prereqs", COMMAND_TIMEOUT_SECONDS),
-    ("query-clause-map", COMMAND_TIMEOUT_SECONDS),
-    ("recommend-stack-e2e", COMMAND_TIMEOUT_SECONDS),
-    ("context-manifest-review", COMMAND_TIMEOUT_SECONDS),
-    ("evidence-scope", COMMAND_TIMEOUT_SECONDS),
-    ("verification-plan-e2e", COMMAND_TIMEOUT_SECONDS),
-    ("prompt-load-report", COMMAND_TIMEOUT_SECONDS),
-)
-EXPORTED_TREE_SELF_COMPLIANCE_TIMEOUT_SECONDS = sequential_timeout_budget(
-    EXPORTED_TREE_COMPLIANCE_CHILD_TIMEOUTS
-)
-
-PUBLIC_EXPORT_VALIDATION_CHILD_TIMEOUTS = (
-    ("public-export", PUBLIC_EXPORT_TIMEOUT_SECONDS),
-    (
-        "exported-tree-conformance",
-        EXPORTED_FRAMEWORK_CONFORMANCE_TIMEOUT_SECONDS,
-    ),
-    (
-        "exported-tree-self-compliance",
-        EXPORTED_TREE_SELF_COMPLIANCE_TIMEOUT_SECONDS,
-    ),
-)
-PUBLIC_EXPORT_VALIDATION_TIMEOUT_SECONDS = sequential_timeout_budget(
-    PUBLIC_EXPORT_VALIDATION_CHILD_TIMEOUTS
-)
-
-AUTHORING_FRAMEWORK_CONFORMANCE_CHILD_TIMEOUTS = (
-    ("framework-validate", COMMAND_TIMEOUT_SECONDS),
-    ("framework-consistency", COMMAND_TIMEOUT_SECONDS),
-    ("framework-authoring-release", AUTHORING_RELEASE_TIMEOUT_SECONDS),
-    (
-        "framework-public-export-validation",
-        PUBLIC_EXPORT_VALIDATION_TIMEOUT_SECONDS,
-    ),
-)
-AUTHORING_FRAMEWORK_CONFORMANCE_TIMEOUT_SECONDS = sequential_timeout_budget(
-    AUTHORING_FRAMEWORK_CONFORMANCE_CHILD_TIMEOUTS
-)
+    return [
+        sys.executable,
+        *PYTHON_CHILD_STARTUP_FLAGS,
+        "--",
+        str(script),
+        *args,
+    ]
 
 
 @dataclass
@@ -1133,121 +1017,6 @@ def _read_entrypoint_texts(
     return entrypoints, errors
 
 
-def _maintainer_authority_load_errors(
-    text: str,
-    *,
-    contract_root_ref: str,
-) -> list[str]:
-    """Validate recovery-gated maintainer authority loading.
-
-    The root maintainer entrypoint is intentionally not a generated downstream
-    entrypoint, so it does not use the integration registry's marker grammar.
-    The shared prefix validator still owns Markdown visibility and the exact
-    recovery clause; this function adds the maintainer-owned block and nested
-    authoring-contract requirements.
-    """
-
-    contract_reference = (
-        "AGENT_PROJECT.md"
-        if contract_root_ref == "."
-        else f"{contract_root_ref}/AGENT_PROJECT.md"
-    )
-    charter_directive = (
-        "Read `runtime/operative_charter.md` before acting. "
-        "It is the always-on operative charter."
-    )
-    errors = integration_registry.recovery_guard_prefix_errors(
-        text,
-        output="framework maintainer AGENTS.md",
-        charter_directive=charter_directive,
-        # The root guard names the project-file classes generically.  The
-        # concrete nested contract path is validated separately below.
-        contract_root_ref=".",
-    )
-    active_lines = [
-        (line_number, line.strip())
-        for line_number, line in markdown_structure.operative_lines(text)
-        if line.strip()
-    ]
-    framework_open = [
-        index for index, (_line_number, line) in enumerate(active_lines)
-        if line == "<framework-rules>"
-    ]
-    framework_close = [
-        index for index, (_line_number, line) in enumerate(active_lines)
-        if line == "</framework-rules>"
-    ]
-    if (
-        len(framework_open) != 1
-        or len(framework_close) != 1
-        or framework_open[0] >= framework_close[0]
-    ):
-        return ordered_unique(
-            [
-                *errors,
-                "framework maintainer AGENTS.md must contain exactly one ordered "
-                "active <framework-rules> authority block",
-            ]
-        )
-    owned_lines = active_lines[framework_open[0] + 1 : framework_close[0]]
-    specifications = (
-        (
-            "runtime/operative_charter.md",
-            charter_directive,
-            "operative charter",
-        ),
-        (
-            contract_reference,
-            f"If `{contract_reference}` exists, load it after the operative "
-            "charter as the concrete authoring-project runtime layer and resolve "
-            f"its project-state references against `{contract_root_ref}/`.",
-            "authoring project contract",
-        ),
-    )
-    directive_indexes: dict[str, int] = {}
-    for reference, expected_directive, label in specifications:
-        directive_candidates = [
-            (line_number, line)
-            for line_number, line in owned_lines
-            if reference in line
-            and re.search(r"\b(?:read|load)\b", line, flags=re.IGNORECASE)
-        ]
-        valid_directives = [
-            (line_number, line)
-            for line_number, line in directive_candidates
-            if line == expected_directive
-        ]
-        if len(valid_directives) != 1 or len(directive_candidates) != 1:
-            errors.append(
-                "framework maintainer AGENTS.md must contain exactly one active, "
-                f"affirmative {label} load directive for {reference}"
-            )
-        else:
-            directive_indexes[label] = valid_directives[0][0]
-
-    guard_clause_lines = [
-        line_number
-        for line_number, line in active_lines
-        if line == integration_registry.RECOVERY_GUARD_CLAUSE
-    ]
-    if (
-        len(guard_clause_lines) == 1
-        and "operative charter" in directive_indexes
-        and "authoring project contract" in directive_indexes
-        and not (
-            directive_indexes["operative charter"]
-            < guard_clause_lines[0]
-            < directive_indexes["authoring project contract"]
-        )
-    ):
-        errors.append(
-            "framework maintainer AGENTS.md must load the operative charter, "
-            "apply the recovery guard, and only then load the nested authoring "
-            "project contract"
-        )
-    return ordered_unique(errors)
-
-
 def _framework_roots_from_entrypoints(
     entrypoints: list[tuple[str, str]],
     project_root: Path,
@@ -1402,156 +1171,119 @@ def check_required_directories(root: Path, directories: list[str]) -> list[str]:
     return required_directory_diagnostics(root, directories)[0]
 
 
-def check_framework_required_public_files(root: Path) -> list[str]:
+def _exact_product_tree_errors(root: Path) -> list[str]:
+    """Return the first bounded exact-tree contamination diagnostic.
+
+    Required-file validation owns completeness.  This pass therefore walks
+    only directories declared by the positive product manifest, streams each
+    directory, and stops at the first entry that is undeclared or unsafe.  A
+    conforming directory can expose no more names than the manifest-derived
+    set below; repeated names also fail closed so an abnormal iterator cannot
+    drive unbounded work.
+    """
+
+    try:
+        safe_paths.validate_directory_no_follow(
+            root,
+            description="exact product distribution root",
+        )
+    except (OSError, ValueError) as exc:
+        return [f"exact product distribution root is unsafe: {exc}"]
+
+    declared_children: dict[str, set[str]] = {}
+    for relative in (
+        product_manifest.PRODUCT_REQUIRED_FILE_SET
+        | product_manifest.PRODUCT_DIRECTORY_PATHS
+    ):
+        parent, _separator, name = relative.rpartition("/")
+        declared_children.setdefault(parent, set()).add(name)
+
+    pending: list[tuple[Path, str]] = [(root, "")]
+    while pending:
+        directory, relative_directory = pending.pop()
+        permitted_names = set(declared_children.get(relative_directory, set()))
+        if not relative_directory:
+            permitted_names.update(PRODUCT_LOCAL_METADATA_ROOT_ENTRIES)
+        observed_names: set[str] = set()
+        try:
+            with os.scandir(directory) as iterator:
+                for entry in iterator:
+                    label = relative_directory or "."
+                    if entry.name in observed_names:
+                        return [
+                            "product distribution directory enumeration repeated "
+                            f"an entry name in {label}"
+                        ]
+                    observed_names.add(entry.name)
+
+                    relative = (
+                        f"{relative_directory}/{entry.name}"
+                        if relative_directory
+                        else entry.name
+                    )
+                    try:
+                        metadata = entry.stat(follow_symlinks=False)
+                    except OSError as exc:
+                        return [
+                            f"could not inspect product tree entry {relative}: {exc}"
+                        ]
+                    mode = metadata.st_mode
+                    if stat.S_ISLNK(mode):
+                        return [f"product distribution contains symlink: {relative}"]
+                    if (
+                        not relative_directory
+                        and entry.name in PRODUCT_LOCAL_METADATA_ROOT_ENTRIES
+                    ):
+                        if not (stat.S_ISDIR(mode) or stat.S_ISREG(mode)):
+                            return [
+                                "product local metadata entry has unsupported type: "
+                                f"{relative}"
+                            ]
+                        continue
+                    if stat.S_ISDIR(mode):
+                        if (
+                            entry.name not in permitted_names
+                            or relative not in product_manifest.PRODUCT_DIRECTORY_PATHS
+                        ):
+                            return [f"undeclared product directory: {relative}"]
+                        pending.append((directory / entry.name, relative))
+                        continue
+                    if stat.S_ISREG(mode):
+                        if (
+                            entry.name not in permitted_names
+                            or relative not in product_manifest.PRODUCT_REQUIRED_FILE_SET
+                        ):
+                            return [f"undeclared product file: {relative}"]
+                        continue
+                    return [
+                        f"product distribution contains special entry: {relative}"
+                    ]
+        except OSError as exc:
+            label = relative_directory or "."
+            return [f"could not enumerate product directory {label}: {exc}"]
+    return []
+
+
+def check_framework_product_files(
+    root: Path,
+    *,
+    exact_product_tree: bool = False,
+) -> list[str]:
     errors: list[str] = []
-    for rel in public_surface.PUBLIC_REQUIRED_FILES:
+    for rel in product_manifest.PRODUCT_REQUIRED_FILES:
         path = root / rel
         errors.extend(
             safe_paths.bounded_input_errors(
                 path,
                 root,
-                description=f"public framework file {rel}",
+                description=f"product file {rel}",
             )
         )
         if not path.exists() and not path.is_symlink():
-            errors.append(f"missing public framework file: {rel}")
-    return errors
-
-
-def check_framework_validate(root: Path) -> list[str]:
-    ok, output = run_command(
-        "validate-framework",
-        [
-            sys.executable,
-            "-B",
-            str(FRAMEWORK_ROOT / "scripts" / "validate_framework.py"),
-            "--root",
-            str(root),
-        ],
-        FRAMEWORK_ROOT,
-    )
-    return [] if ok else [f"validate_framework.py failed: {output}"]
-
-
-def check_framework_consistency(root: Path) -> CheckOutcome:
-    return run_json_child(
-        "framework-consistency",
-        [
-            sys.executable,
-            "-B",
-            str(FRAMEWORK_ROOT / "scripts" / "framework_consistency.py"),
-            "--root",
-            str(root),
-        ],
-        FRAMEWORK_ROOT,
-    )
-
-
-def _check_framework_release(root: Path, *, tree_role: str, label: str) -> CheckOutcome:
-    args = [
-        sys.executable,
-        "-B",
-        str(FRAMEWORK_ROOT / "scripts" / "public_release_check.py"),
-        "--root",
-        str(root),
-        "--tree-role",
-        tree_role,
-    ]
-    timeout_seconds = (
-        AUTHORING_RELEASE_TIMEOUT_SECONDS
-        if tree_role == "authoring-source"
-        else COMMAND_TIMEOUT_SECONDS
-    )
-    return run_json_child(
-        label,
-        args,
-        FRAMEWORK_ROOT,
-        timeout_seconds=timeout_seconds,
-    )
-
-
-def check_framework_authoring_release(root: Path) -> CheckOutcome:
-    return _check_framework_release(
-        root,
-        tree_role="authoring-source",
-        label="authoring-release",
-    )
-
-
-def check_framework_public_release(root: Path) -> CheckOutcome:
-    return _check_framework_release(
-        root,
-        tree_role="public-export",
-        label="public-release",
-    )
-
-
-def check_framework_public_export_validation(root: Path) -> CheckOutcome:
-    with tempfile.TemporaryDirectory(prefix="mpa-conformance-export-") as temp_dir:
-        output = Path(temp_dir) / "public"
-        ok, export_output = run_command(
-            "public-export",
-            [
-                sys.executable,
-                "-B",
-                str(FRAMEWORK_ROOT / "scripts" / "public_export.py"),
-                "--root",
-                str(root),
-                "--output",
-                str(output),
-                "--force",
-            ],
-            FRAMEWORK_ROOT,
-            timeout_seconds=PUBLIC_EXPORT_TIMEOUT_SECONDS,
-        )
-        if not ok:
-            return CheckOutcome(
-                protocol_failure=f"public_export.py failed: {export_output}"
-            )
-        exported_conformance = run_json_child(
-            "exported-tree-conformance",
-            [
-                sys.executable,
-                "-B",
-                str(FRAMEWORK_ROOT / "scripts" / "conformance_check.py"),
-                "--profile",
-                "framework-public-release",
-                "--root",
-                str(output),
-                "--format",
-                "json",
-            ],
-            FRAMEWORK_ROOT,
-            timeout_seconds=EXPORTED_FRAMEWORK_CONFORMANCE_TIMEOUT_SECONDS,
-        )
-        self_ok, self_output = run_command(
-            "exported-tree-self-compliance",
-            [
-                sys.executable,
-                "-B",
-                "scripts/framework_compliance.py",
-                "--tree-role",
-                "public-export",
-            ],
-            output,
-            timeout_seconds=EXPORTED_TREE_SELF_COMPLIANCE_TIMEOUT_SECONDS,
-        )
-        protocol_failures = [
-            failure
-            for failure in (exported_conformance.protocol_failure,)
-            if failure is not None
-        ]
-        if not self_ok:
-            protocol_failures.append(
-                "exported-tree self-compliance failed"
-                + (f": {self_output}" if self_output else "")
-            )
-        return CheckOutcome(
-            errors=exported_conformance.errors,
-            warnings=exported_conformance.warnings,
-            protocol_failure=combined_protocol_failure(protocol_failures),
-            warnings_fail=exported_conformance.warnings_fail,
-        )
+            errors.append(f"missing product file: {rel}")
+    if exact_product_tree:
+        errors.extend(_exact_product_tree_errors(root))
+    return ordered_unique(errors)
 
 
 def check_project_core_files(
@@ -1591,41 +1323,15 @@ def check_project_entrypoint_resolves(
 ) -> list[str]:
     contract_root = project_root if contract_root is None else contract_root
     errors: list[str] = []
-    if project_kind == "framework-authoring":
-        maintainer_entrypoint = project_root / "AGENTS.md"
-        input_errors = safe_paths.bounded_input_errors(
-            maintainer_entrypoint,
+    policy = contract_model.project_layout_policy(project_kind)
+    if not policy.manages_runtime_entrypoint:
+        return project_bootstrap.project_layout_errors(
             project_root,
-            description="framework maintainer AGENTS.md input",
+            contract_root,
+            contract_root_ref,
+            FRAMEWORK_ROOT,
+            project_kind,
         )
-        errors.extend(input_errors)
-        if input_errors:
-            entrypoint_text = None
-        elif not maintainer_entrypoint.exists() and not maintainer_entrypoint.is_symlink():
-            errors.append("framework maintainer AGENTS.md is missing")
-            entrypoint_text = None
-        else:
-            entrypoint_text, read_error = _read_bounded_utf8(
-                maintainer_entrypoint,
-                "framework maintainer AGENTS.md input",
-            )
-            if read_error:
-                errors.append(read_error)
-        if entrypoint_text is not None:
-            errors.extend(
-                _maintainer_authority_load_errors(
-                    entrypoint_text,
-                    contract_root_ref=contract_root_ref,
-                )
-            )
-        charter_path = project_root / "runtime" / "operative_charter.md"
-        _charter_text, charter_error = _read_bounded_utf8(
-            charter_path,
-            "framework operative charter input",
-        )
-        if charter_error:
-            errors.append(charter_error)
-        return errors
     _entrypoints, roots, root_errors = _entrypoint_state(
         project_root,
         contract_root_ref=contract_root_ref,
@@ -1656,15 +1362,21 @@ def check_project_contract_sync(
     contract_root_ref: str = ".",
 ) -> CheckOutcome:
     del contract_root
+    policy = contract_model.project_layout_policy(project_kind)
     layout_args = ["--project-kind", project_kind]
     if contract_root_ref != ".":
         layout_args.extend(["--contract-root", contract_root_ref])
+    command_prefix = (
+        list(policy.contract_sync_command_prefix)
+        if policy.contract_sync_command_prefix
+        else trusted_python_child(
+            FRAMEWORK_ROOT / "scripts" / "project_contract_sync.py"
+        )
+    )
     return run_json_child(
         "project-contract-sync",
         [
-            sys.executable,
-            "-B",
-            str(FRAMEWORK_ROOT / "scripts" / "project_contract_sync.py"),
+            *command_prefix,
             str(project_root),
             *layout_args,
         ],
@@ -1680,15 +1392,13 @@ def check_project_state_files_lint(
     contract_root = project_root if contract_root is None else contract_root
     return run_json_child(
         "project-state-lint",
-        [
-            sys.executable,
-            "-B",
-            str(FRAMEWORK_ROOT / "scripts" / "project_state_lint.py"),
+        trusted_python_child(
+            FRAMEWORK_ROOT / "scripts" / "project_state_lint.py",
             "--root",
             str(contract_root),
             "--project-root",
             str(project_root),
-        ],
+        ),
         FRAMEWORK_ROOT,
     )
 
@@ -1704,17 +1414,15 @@ def check_source_freshness_metadata(
         return errors
     return run_json_child(
         "check-reference-freshness",
-        [
-            sys.executable,
-            "-B",
-            str(FRAMEWORK_ROOT / "scripts" / "check_reference_freshness.py"),
+        trusted_python_child(
+            FRAMEWORK_ROOT / "scripts" / "check_reference_freshness.py",
             "--root",
             str(contract_root),
             "--audit-monitor-roots",
             "--warnings-as-errors",
             "--format",
             "json",
-        ],
+        ),
         FRAMEWORK_ROOT,
         item_renderer=_source_report_item,
         warnings_fail=True,
@@ -1796,15 +1504,13 @@ def check_automation_manifest_lints(
         target_args = ["--target", "cron"]
     return run_json_child(
         "automation-orders-lint",
-        [
-            sys.executable,
-            "-B",
-            str(FRAMEWORK_ROOT / "scripts" / "automation_orders_lint.py"),
+        trusted_python_child(
+            FRAMEWORK_ROOT / "scripts" / "automation_orders_lint.py",
             str(manifest_path),
             "--project-root",
             str(project_root),
             *target_args,
-        ],
+        ),
         FRAMEWORK_ROOT,
     )
 
@@ -1830,27 +1536,20 @@ def check_reviewer_lane_feedback_lint(
         return errors
     return run_json_child(
         "reviewer-lane-feedback-lint",
-        [
-            sys.executable,
-            "-B",
-            str(FRAMEWORK_ROOT / "scripts" / "lint_reviewer_lane_feedback.py"),
+        trusted_python_child(
+            FRAMEWORK_ROOT / "scripts" / "lint_reviewer_lane_feedback.py",
             "--path",
             str(path),
             "--root",
             str(project_root),
-        ],
+        ),
         FRAMEWORK_ROOT,
     )
 
 
 CHECKS = {
     "automation_manifest_lints": check_automation_manifest_lints,
-    "framework_authoring_release": check_framework_authoring_release,
-    "framework_consistency": check_framework_consistency,
-    "framework_public_export_validation": check_framework_public_export_validation,
-    "framework_public_release": check_framework_public_release,
-    "framework_required_public_files": check_framework_required_public_files,
-    "framework_validate": check_framework_validate,
+    "framework_product_files": check_framework_product_files,
     "multi_agent_state_files": check_multi_agent_state_files,
     "project_contract_sync": check_project_contract_sync,
     "project_core_files": check_project_core_files,
@@ -1919,6 +1618,7 @@ def run_profiles(
     contract_root: Path | None = None,
     contract_root_ref: str = ".",
     project_kind: str = "downstream",
+    exact_product_tree: bool = False,
 ) -> dict[str, Any]:
     """Run the union of selected profiles once and retain per-profile claims."""
 
@@ -1951,6 +1651,21 @@ def run_profiles(
             "root": str(root),
             "checks": [],
             "errors": [profile_error],
+            "warnings": [],
+            "protocol_failures": [],
+            "status": "fail",
+            "error_class": "invocation",
+        }
+    if exact_product_tree and "framework_product_files" not in checks:
+        return {
+            "profiles": selected_ids,
+            "profile_results": [],
+            "root": str(root),
+            "checks": [],
+            "errors": [
+                "--exact-product-tree requires a profile containing "
+                "framework_product_files"
+            ],
             "warnings": [],
             "protocol_failures": [],
             "status": "fail",
@@ -2050,7 +1765,15 @@ def run_profiles(
                 )
             else:
                 outcome = normalized_outcome(
-                    check(root),
+                    check(
+                        root,
+                        **(
+                            {"exact_product_tree": True}
+                            if check_id == "framework_product_files"
+                            and exact_product_tree
+                            else {}
+                        ),
+                    ),
                     check_id=check_id,
                 )
             check_errors = outcome.report_errors()
@@ -2246,7 +1969,7 @@ def print_report(report: dict[str, Any], output_format: str) -> None:
             printed_protocol_failures.add(protocol_failure)
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Run Master Prompt Agreement conformance checks.",
         allow_abbrev=False,
@@ -2276,7 +1999,15 @@ def main() -> int:
         action="store_true",
         help="Make aggregate warnings fail without changing per-check diagnostics.",
     )
-    args = parser.parse_args()
+    parser.add_argument(
+        "--exact-product-tree",
+        action="store_true",
+        help=(
+            "For framework-product, reject undeclared files, directories, links, "
+            "and special entries; permit only the root .git administrative entry."
+        ),
+    )
+    args = parser.parse_args(argv)
 
     if args.list:
         registry, metadata_errors = load_profiles()
@@ -2329,6 +2060,7 @@ def main() -> int:
             contract_root=contract_root,
             contract_root_ref=args.contract_root,
             project_kind=args.project_kind,
+            exact_product_tree=args.exact_product_tree,
         )
     apply_strict_warning_policy(
         report,

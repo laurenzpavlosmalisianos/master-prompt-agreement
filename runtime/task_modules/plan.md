@@ -5,7 +5,7 @@ is chosen. A shared or reusable framework-product candidate, including a direct
 request, routes to `framework_semantic_audit` and then, only if accepted,
 `framework_improvement`; generic plan authority does not bypass that route.
 
-Before acting, reload `AGENT_PROJECT.md`; consult `STATEMENT_OF_WORK.md`, `TODO.md`, `DECISIONS.md`, or `PRECEDENTS.md` when authority, approval, current state, durable decisions, or recorded triggers can affect the task.
+Consult `STATEMENT_OF_WORK.md`, `TODO.md`, `DECISIONS.md`, or `PRECEDENTS.md` when authority, approval, current state, durable decisions, or recorded triggers can affect the task.
 
 <!-- mpa-common-precondition -->
 <!-- mpa-obligation: PLAN-no-unapproved-execution -->

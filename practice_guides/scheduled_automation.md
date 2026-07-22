@@ -91,7 +91,44 @@ For loops that tune or maintain reusable prompts, rubrics, skills, checklists, s
 - Treat repository writes and external writes as different authority levels.
 - Keep recurring jobs narrow. One bounded outcome per job.
 - Keep scheduler-created support files confined to the declared relative `scheduler_artifacts.root` below the resolved job `cwd`. Absolute, traversing, Windows-style, symlink-routed, or undeclared log and lock paths are invalid.
-- Cron rendering must use the framework runtime helper. The rendered invocation carries a versioned pre-launch drift seal over the complete selected job; project and framework root paths and directory identities; manifest-relative location; resolved `cwd` identity; the fixed local runtime-source closure; the Python launch flags that disable bytecode writes and redirect cache lookup away from repository caches; and the exact bytes of every declared instruction and execution source. Source references resolve only against their explicit root, so project shadow files never replace framework sources. Moving, copying, replacing, or recreating the project, framework checkout, or `cwd`; changing a bound source; or applying a refresh that changes any sealed component requires rerendering and reinstallation. Unrelated sibling-job changes do not invalidate the per-job seal. This unkeyed seal detects stale or changed declared inputs before scheduler artifacts are created; it is not cryptographic authenticity, an immutable execution snapshot, or proof that arbitrary shell text declared every transitive input. The interpreter, standard library, shell, environment, external executables, packages, dynamic inputs, and same-user control of both helper and scheduler record remain outside the seal. The runtime verifies its cache-isolated launch profile and local module origins, reads the manifest and bound sources through retained no-follow descriptors, performs semantic validation without reacquiring the project path, confines private log and lock access to bound descriptors, frames output under the declared cumulative byte cap and timeout, and terminates the dedicated non-detached process group on a limit or after an unexpected background child. Commands must not detach, invoke a new session, or deliberately escape that group; independently surviving children require a backend with an explicit supervisor and containment contract. Path-based `mkdir`, redirection, `flock`, or prechecks remain swap-raceable substitutes.
+- Cron rendering must use the framework runtime helper. The rendered invocation
+  carries two correlated, versioned, unkeyed drift seals produced from one
+  descriptor-read source set. The dedicated runtime-bundle seal covers the
+  complete fixed local runtime-source closure. After parsing the command, the
+  helper verifies its isolated/no-site/cache-disabled launch profile; opens the
+  physical scripts root once; enforces exact name edges, no-follow regular-file
+  type, single-link and byte bounds, and pre/post file and root stability; and
+  compares that seal before executing the import boundary or any other adjacent
+  local source. It then executes the boundary and imports every fixed local
+  module from the exact verified in-memory bytes, with no path-based fallback.
+  `--help` exits after stdlib-only parsing and does not inspect or execute local
+  source. The complete job-authority seal additionally covers the selected job;
+  project and framework root paths and directory identities; manifest-relative
+  location; resolved `cwd` identity; the runtime-bundle digest; the Python
+  launch flags; and the exact bytes of every declared instruction and execution
+  source. Source references resolve only against their explicit root, so project
+  shadow files never replace framework sources. Moving, copying, replacing, or
+  recreating the project, framework checkout, or `cwd`; changing a bound source;
+  or applying a refresh that changes any sealed component requires rerendering
+  and reinstallation. Unrelated sibling-job changes do not invalidate the
+  per-job seal. These seals detect stale or changed declared inputs before
+  scheduler artifacts are created; they are not cryptographic authenticity,
+  code signing, or proof that arbitrary shell text declared every transitive
+  input. `run_scheduled_job.py` is already executing when it verifies its own
+  bundle entry and therefore remains part of the trusted launcher, not an
+  independently authenticated verifier. The rendered scheduler record and both
+  digests, interpreter, standard library and native extensions, scheduler,
+  shell, environment, OS/filesystem, external executables, packages, dynamic
+  inputs, and same-principal write authority remain roots or outside the seal.
+  The runtime reads the manifest and other bound sources through retained
+  no-follow descriptors, performs semantic validation without reacquiring the
+  project path, confines private log and lock access to bound descriptors,
+  frames output under the declared cumulative byte cap and timeout, and
+  terminates the dedicated non-detached process group on a limit or after an
+  unexpected background child. Commands must not detach, invoke a new session,
+  or deliberately escape that group; independently surviving children require
+  a backend with an explicit supervisor and containment contract. Path-based
+  `mkdir`, redirection, `flock`, or prechecks remain swap-raceable substitutes.
 - A loop must have a stop condition, expiry, or disable-until-review path.
 - A loop must show objective progress between iterations. If the same failure, same patch shape, or same review rejection repeats without shrinking the error class, stop or escalate instead of spending another iteration.
 - Do not let the worker be the sole judge of its own success for high-risk, expensive, multi-agent, or unattended loops. Use deterministic checks, a separate verifier role, or named human acceptance evidence.

@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path, PureWindowsPath
 import re
 import secrets
+import shlex
 import stat
 import sys
 from typing import Any
@@ -243,6 +244,33 @@ def framework_reference_path(value: str, relative: str) -> str:
     canonical = canonical_framework_reference(value)
     suffix = relative.lstrip("/")
     return f"/{suffix}" if canonical == "/" else f"{canonical}/{suffix}"
+
+
+def shell_framework_path_token(value: str, relative: str) -> str:
+    """Render one framework-relative path as exactly one inert shell token.
+
+    Framework references may deliberately defer their root to ``$NAME``,
+    ``${NAME}``, or ``~``.  Shell quoting must therefore preserve expansion
+    while preventing the expanded value from becoming options or multiple
+    arguments.  Required-value expansion also makes an unset or empty root
+    fail closed instead of resolving against the current directory.
+    """
+
+    joined = framework_reference_path(value, relative)
+    expansion_required = False
+    if joined == "~" or joined.startswith("~/"):
+        joined = "${HOME:?HOME is required}" + joined[1:]
+        expansion_required = True
+
+    def require_environment_value(match: re.Match[str]) -> str:
+        nonlocal expansion_required
+        expansion_required = True
+        token = match.group(0)
+        name = token[2:-1] if token.startswith("${") else token[1:]
+        return f"${{{name}:?{name} is required}}"
+
+    joined = SIMPLE_ENV_REFERENCE_RE.sub(require_environment_value, joined)
+    return f'"{joined}"' if expansion_required else shlex.quote(joined)
 
 
 def render_framework_reference_tokens(text: str, value: str) -> str:

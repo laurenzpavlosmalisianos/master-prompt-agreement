@@ -2,7 +2,487 @@
 
 from __future__ import annotations
 
-import argparse
+import _imp as _bootstrap_imp
+import sys as _bootstrap_sys
+
+
+CRON_JOB_AUTHORITY_DIGEST_VERSION = 7
+CRON_RUNTIME_BUNDLE_DIGEST_VERSION = 1
+CRON_RUNTIME_SOURCE_PATHS = (
+    "scripts/automation_orders_lint.py",
+    "scripts/generated_sow_text.py",
+    "scripts/project_state_identity.py",
+    "scripts/python_import_boundary.py",
+    "scripts/resource_cleanup.py",
+    "scripts/run_scheduled_job.py",
+    "scripts/safe_paths.py",
+)
+MAX_BOUND_CONTROL_SOURCE_TOTAL_BYTES = 64 * 1024 * 1024
+MAX_RUNTIME_SOURCE_FILE_BYTES = 4 * 1024 * 1024
+
+_BOOTSTRAP_PARSED_ARGS: object | None = None
+_BOOTSTRAP_SCRIPTS_ROOT: str | None = None
+_BOOTSTRAP_SOURCE_FINDER: object | None = None
+_BOOTSTRAP_VERIFIED_RUNTIME_SOURCES: dict[str, bytes] | None = None
+
+
+def _parse_lowercase_sha256(value: str) -> str:
+    if len(value) != 64 or any(character not in "0123456789abcdef" for character in value):
+        raise ValueError(
+            "must be exactly 64 lowercase hexadecimal characters"
+        )
+    return value
+
+
+def _build_argument_parser() -> Any:
+    import argparse as bootstrap_argparse
+    from pathlib import Path as BootstrapPath
+
+    parser = bootstrap_argparse.ArgumentParser(
+        description=(
+            "Run one validated cron job with descriptor-confined scheduler artifacts."
+        ),
+        allow_abbrev=False,
+    )
+    parser.add_argument(
+        "--project-root",
+        type=BootstrapPath,
+        required=True,
+        help="Project root that owns the automation order and bounded job inputs.",
+    )
+    parser.add_argument(
+        "--manifest",
+        type=BootstrapPath,
+        required=True,
+        help="Validated cron automation-order manifest within the project root.",
+    )
+    parser.add_argument(
+        "--job-id",
+        required=True,
+        help="Exact enabled cron job id to execute from the manifest.",
+    )
+    parser.add_argument(
+        "--expected-runtime-bundle-sha256",
+        action="append",
+        required=True,
+        type=_parse_lowercase_sha256,
+        help=(
+            "Single lowercase SHA-256 drift seal for the complete fixed local "
+            "runtime-source bundle. The runner verifies it before executing or "
+            "importing any adjacent source."
+        ),
+    )
+    parser.add_argument(
+        "--expected-job-sha256",
+        action="append",
+        required=True,
+        type=_parse_lowercase_sha256,
+        help=(
+            "Single lowercase SHA-256 unkeyed drift seal emitted when the cron "
+            "entry was rendered; changed job inputs are refused, but the digest "
+            "is not authenticity or authority evidence."
+        ),
+    )
+    return parser
+
+
+def _parse_command_arguments(argv: list[str] | None = None) -> Any:
+    parser = _build_argument_parser()
+    args = parser.parse_args(argv)
+    for attribute, option in (
+        ("expected_runtime_bundle_sha256", "--expected-runtime-bundle-sha256"),
+        ("expected_job_sha256", "--expected-job-sha256"),
+    ):
+        values = getattr(args, attribute)
+        if len(values) != 1:
+            parser.error(f"{option} must be supplied exactly once")
+        setattr(args, attribute, values[0])
+    return args
+
+
+def _prepare_bootstrap_standard_library(*, inspection_only: bool) -> None:
+    if not _bootstrap_imp.is_frozen("os"):
+        raise RuntimeError("scheduled runner requires CPython's frozen os module")
+    if not inspection_only and (
+        not _bootstrap_sys.flags.no_site
+        or not _bootstrap_sys.dont_write_bytecode
+        or not _bootstrap_sys.flags.ignore_environment
+    ):
+        raise RuntimeError("scheduled runner help and runtime require -E -S -B")
+    if inspection_only:
+        _bootstrap_sys.dont_write_bytecode = True
+
+    import os as bootstrap_os
+
+    stdlib_root = bootstrap_os.path.realpath(
+        str(getattr(_bootstrap_sys, "_stdlib_dir", ""))
+    )
+    if not stdlib_root or not bootstrap_os.path.isabs(stdlib_root):
+        raise RuntimeError("scheduled runner cannot resolve the standard library")
+    safe_path: list[str] = []
+    for raw_path in _bootstrap_sys.path:
+        if not raw_path:
+            continue
+        resolved = bootstrap_os.path.realpath(raw_path)
+        relative = bootstrap_os.path.relpath(resolved, stdlib_root)
+        parts = relative.split(bootstrap_os.sep)
+        if (
+            relative != bootstrap_os.pardir
+            and not relative.startswith(bootstrap_os.pardir + bootstrap_os.sep)
+            and "site-packages" not in parts
+            and "dist-packages" not in parts
+        ):
+            safe_path.append(raw_path)
+    if not safe_path:
+        raise RuntimeError("scheduled runner found no trusted standard-library path")
+    _bootstrap_sys.path[:] = list(dict.fromkeys(safe_path))
+
+
+def _verify_bootstrap_launch_profile() -> None:
+    if (
+        not _bootstrap_sys.flags.isolated
+        or not _bootstrap_sys.flags.safe_path
+        or _bootstrap_sys.pycache_prefix != "/dev/null"
+    ):
+        raise RuntimeError(
+            "scheduled runtime requires -I -S -B -X pycache_prefix=/dev/null"
+        )
+
+
+def _runtime_bundle_sha256_from_bytes(sources: dict[str, bytes]) -> str:
+    import hashlib as bootstrap_hashlib
+
+    if set(sources) != set(CRON_RUNTIME_SOURCE_PATHS):
+        raise ValueError("runtime bundle does not match the fixed source closure")
+    components = {
+        relative_path: (
+            len(source),
+            bootstrap_hashlib.sha256(source).digest(),
+        )
+        for relative_path, source in sources.items()
+    }
+    return _runtime_bundle_sha256_from_components(components)
+
+
+def _runtime_bundle_sha256_from_components(
+    components: dict[str, tuple[int, bytes]],
+) -> str:
+    import hashlib as bootstrap_hashlib
+
+    if set(components) != set(CRON_RUNTIME_SOURCE_PATHS):
+        raise ValueError("runtime bundle does not match the fixed source closure")
+    digest = bootstrap_hashlib.sha256()
+    digest.update(b"master-prompt-agreement cron runtime bundle\x00")
+    digest.update(CRON_RUNTIME_BUNDLE_DIGEST_VERSION.to_bytes(4, "big"))
+    for relative_path in CRON_RUNTIME_SOURCE_PATHS:
+        path_bytes = relative_path.encode("utf-8")
+        byte_count, source_digest = components[relative_path]
+        if byte_count < 0 or len(source_digest) != 32:
+            raise ValueError("runtime bundle has an invalid source record")
+        digest.update(len(path_bytes).to_bytes(4, "big"))
+        digest.update(path_bytes)
+        digest.update(byte_count.to_bytes(8, "big"))
+        digest.update(source_digest)
+    return digest.hexdigest()
+
+
+def _bootstrap_stat_identity(metadata: object) -> tuple[int, ...]:
+    return tuple(
+        int(getattr(metadata, field))
+        for field in (
+            "st_dev",
+            "st_ino",
+            "st_mode",
+            "st_nlink",
+            "st_uid",
+            "st_gid",
+            "st_size",
+            "st_mtime_ns",
+            "st_ctime_ns",
+        )
+    )
+
+
+def _bootstrap_read_runtime_bundle(entrypoint: str) -> tuple[str, dict[str, bytes]]:
+    import os as bootstrap_os
+    import stat as bootstrap_stat
+    import unicodedata as bootstrap_unicodedata
+
+    close_on_exec = getattr(bootstrap_os, "O_CLOEXEC", 0)
+    directory = getattr(bootstrap_os, "O_DIRECTORY", 0)
+    no_follow = getattr(bootstrap_os, "O_NOFOLLOW", 0)
+    nonblock = getattr(bootstrap_os, "O_NONBLOCK", 0)
+    if (
+        not close_on_exec
+        or not directory
+        or not no_follow
+        or not nonblock
+        or bootstrap_os.open not in bootstrap_os.supports_dir_fd
+    ):
+        raise RuntimeError(
+            "scheduled runner requires descriptor-relative POSIX no-follow access"
+        )
+
+    physical_entrypoint = bootstrap_os.path.realpath(entrypoint)
+    scripts_root = bootstrap_os.path.dirname(physical_entrypoint)
+    if physical_entrypoint != bootstrap_os.path.join(
+        scripts_root,
+        "run_scheduled_job.py",
+    ):
+        raise RuntimeError("scheduled runner entrypoint has an unexpected file name")
+
+    path_root_before = bootstrap_os.stat(scripts_root, follow_symlinks=False)
+    root_descriptor = bootstrap_os.open(
+        scripts_root,
+        bootstrap_os.O_RDONLY | directory | no_follow | close_on_exec,
+    )
+    try:
+        root_before = bootstrap_os.fstat(root_descriptor)
+        if not bootstrap_stat.S_ISDIR(root_before.st_mode):
+            raise RuntimeError("scheduled runner scripts root is not a directory")
+        if (
+            path_root_before.st_dev != root_before.st_dev
+            or path_root_before.st_ino != root_before.st_ino
+        ):
+            raise RuntimeError("scheduled runner scripts root changed while opening")
+
+        with bootstrap_os.scandir(root_descriptor) as entries:
+            names = [entry.name for entry in entries]
+        expected_names: dict[str, str] = {}
+        for relative_path in CRON_RUNTIME_SOURCE_PATHS:
+            prefix, separator, name = relative_path.partition("/")
+            if prefix != "scripts" or separator != "/" or not name or "/" in name:
+                raise RuntimeError("scheduled runner has an invalid fixed runtime edge")
+            aliases = [
+                candidate
+                for candidate in names
+                if bootstrap_unicodedata.normalize("NFC", candidate).casefold()
+                == bootstrap_unicodedata.normalize("NFC", name).casefold()
+            ]
+            if name not in names:
+                if aliases:
+                    raise RuntimeError(
+                        f"scheduled runtime source must use exact spelling {name!r}; "
+                        f"found {sorted(aliases)!r}"
+                    )
+                raise RuntimeError(f"scheduled runtime source is missing: {name}")
+            if len(aliases) != 1:
+                raise RuntimeError(
+                    f"scheduled runtime source has ambiguous name edges for {name!r}: "
+                    f"{sorted(aliases)!r}"
+                )
+            expected_names[relative_path] = name
+
+        sources: dict[str, bytes] = {}
+        total_bytes = 0
+        for relative_path in CRON_RUNTIME_SOURCE_PATHS:
+            name = expected_names[relative_path]
+            descriptor = bootstrap_os.open(
+                name,
+                bootstrap_os.O_RDONLY | no_follow | nonblock | close_on_exec,
+                dir_fd=root_descriptor,
+            )
+            try:
+                before = bootstrap_os.fstat(descriptor)
+                if not bootstrap_stat.S_ISREG(before.st_mode):
+                    raise RuntimeError(
+                        f"scheduled runtime source is not a regular file: {name}"
+                    )
+                if before.st_nlink != 1:
+                    raise RuntimeError(
+                        f"scheduled runtime source must have one hard link: {name}"
+                    )
+                if before.st_size <= 0 or before.st_size > MAX_RUNTIME_SOURCE_FILE_BYTES:
+                    raise RuntimeError(
+                        f"scheduled runtime source has an invalid byte size: {name}"
+                    )
+                chunks: list[bytes] = []
+                remaining = MAX_RUNTIME_SOURCE_FILE_BYTES + 1
+                while remaining:
+                    chunk = bootstrap_os.read(
+                        descriptor,
+                        min(1024 * 1024, remaining),
+                    )
+                    if not chunk:
+                        break
+                    chunks.append(chunk)
+                    remaining -= len(chunk)
+                source = b"".join(chunks)
+                after = bootstrap_os.fstat(descriptor)
+                if _bootstrap_stat_identity(before) != _bootstrap_stat_identity(after):
+                    raise RuntimeError(
+                        f"scheduled runtime source changed while being read: {name}"
+                    )
+                if len(source) != after.st_size or len(source) > MAX_RUNTIME_SOURCE_FILE_BYTES:
+                    raise RuntimeError(
+                        f"scheduled runtime source changed while being read: {name}"
+                    )
+                total_bytes += len(source)
+                if total_bytes > MAX_BOUND_CONTROL_SOURCE_TOTAL_BYTES:
+                    raise RuntimeError(
+                        "scheduled runtime sources exceed the aggregate byte limit"
+                    )
+                sources[relative_path] = source
+            finally:
+                bootstrap_os.close(descriptor)
+
+        root_after = bootstrap_os.fstat(root_descriptor)
+        path_root_after = bootstrap_os.stat(scripts_root, follow_symlinks=False)
+        with bootstrap_os.scandir(root_descriptor) as entries:
+            names_after = [entry.name for entry in entries]
+        if sorted(names_after) != sorted(names):
+            raise RuntimeError(
+                "scheduled runner scripts-root name edges changed during verification"
+            )
+        if _bootstrap_stat_identity(root_before) != _bootstrap_stat_identity(root_after):
+            raise RuntimeError("scheduled runner scripts root changed during verification")
+        if (
+            path_root_after.st_dev != root_after.st_dev
+            or path_root_after.st_ino != root_after.st_ino
+            or _bootstrap_stat_identity(path_root_before)
+            != _bootstrap_stat_identity(path_root_after)
+        ):
+            raise RuntimeError("scheduled runner scripts root path changed during verification")
+        return scripts_root, sources
+    finally:
+        bootstrap_os.close(root_descriptor)
+
+
+def _bootstrap_execute_import_boundary(
+    scripts_root: str,
+    sources: dict[str, bytes],
+) -> None:
+    import os as bootstrap_os
+
+    relative_path = "scripts/python_import_boundary.py"
+    source_path = bootstrap_os.path.join(scripts_root, "python_import_boundary.py")
+    module = type(_bootstrap_sys)("python_import_boundary")
+    module.__file__ = source_path
+    module.__package__ = ""
+    _bootstrap_sys.modules["python_import_boundary"] = module
+    try:
+        exec(compile(sources[relative_path], source_path, "exec"), module.__dict__)
+    except BaseException:
+        if _bootstrap_sys.modules.get("python_import_boundary") is module:
+            _bootstrap_sys.modules.pop("python_import_boundary", None)
+        raise
+
+    import python_import_boundary as verified_import_boundary
+
+    verified_import_boundary.establish_import_boundary(
+        scripts_root=scripts_root,
+        label="scheduled runner",
+    )
+    _bootstrap_sys.path[:] = [
+        path
+        for path in _bootstrap_sys.path
+        if bootstrap_os.path.realpath(path) != scripts_root
+    ]
+
+
+def _bootstrap_install_verified_source_finder(
+    scripts_root: str,
+    sources: dict[str, bytes],
+) -> Any:
+    import importlib.abc as bootstrap_importlib_abc
+    import importlib.util as bootstrap_importlib_util
+    import os as bootstrap_os
+
+    module_sources = {
+        bootstrap_os.path.basename(relative_path)[:-3]: (
+            bootstrap_os.path.join(scripts_root, bootstrap_os.path.basename(relative_path)),
+            source,
+        )
+        for relative_path, source in sources.items()
+        if relative_path
+        not in {
+            "scripts/python_import_boundary.py",
+            "scripts/run_scheduled_job.py",
+        }
+    }
+
+    class VerifiedSourceFinder(
+        bootstrap_importlib_abc.MetaPathFinder,
+        bootstrap_importlib_abc.Loader,
+    ):
+        def __init__(self) -> None:
+            self.loaded: set[str] = set()
+
+        def find_spec(
+            self,
+            fullname: str,
+            path: Any = None,
+            target: Any = None,
+        ) -> Any:
+            del path, target
+            if fullname not in module_sources:
+                return None
+            source_path, _source = module_sources[fullname]
+            return bootstrap_importlib_util.spec_from_loader(
+                fullname,
+                self,
+                origin=source_path,
+            )
+
+        def create_module(self, spec: Any) -> None:
+            del spec
+            return None
+
+        def exec_module(self, module: Any) -> None:
+            source_path, source = module_sources[module.__name__]
+            module.__file__ = source_path
+            exec(compile(source, source_path, "exec"), module.__dict__)
+            self.loaded.add(module.__name__)
+
+    finder = VerifiedSourceFinder()
+    _bootstrap_sys.meta_path.insert(0, finder)
+    return finder
+
+
+if __name__ == "__main__":
+    try:
+        exact_help = (
+            len(_bootstrap_sys.argv) == 2
+            and _bootstrap_sys.argv[1] in {"-h", "--help"}
+        )
+        _prepare_bootstrap_standard_library(inspection_only=exact_help)
+        _BOOTSTRAP_PARSED_ARGS = _parse_command_arguments()
+        _verify_bootstrap_launch_profile()
+        _BOOTSTRAP_SCRIPTS_ROOT, _BOOTSTRAP_VERIFIED_RUNTIME_SOURCES = (
+            _bootstrap_read_runtime_bundle(__file__)
+        )
+        import hmac as bootstrap_hmac
+
+        actual_runtime_bundle_sha256 = _runtime_bundle_sha256_from_bytes(
+            _BOOTSTRAP_VERIFIED_RUNTIME_SOURCES
+        )
+        expected_runtime_bundle_sha256 = getattr(
+            _BOOTSTRAP_PARSED_ARGS,
+            "expected_runtime_bundle_sha256",
+        )
+        if not bootstrap_hmac.compare_digest(
+            actual_runtime_bundle_sha256,
+            expected_runtime_bundle_sha256,
+        ):
+            raise ValueError(
+                "scheduled runtime bundle changed since cron rendering; "
+                "rerender and reinstall the cron entry"
+            )
+        _bootstrap_execute_import_boundary(
+            _BOOTSTRAP_SCRIPTS_ROOT,
+            _BOOTSTRAP_VERIFIED_RUNTIME_SOURCES,
+        )
+        _BOOTSTRAP_SOURCE_FINDER = _bootstrap_install_verified_source_finder(
+            _BOOTSTRAP_SCRIPTS_ROOT,
+            _BOOTSTRAP_VERIFIED_RUNTIME_SOURCES,
+        )
+    except Exception as bootstrap_failure:
+        print(
+            f"ERROR: scheduled job refused: {bootstrap_failure}",
+            file=_bootstrap_sys.stderr,
+        )
+        raise SystemExit(1) from None
+
 from collections.abc import Callable
 from datetime import datetime, timezone
 import hashlib
@@ -22,30 +502,55 @@ import time
 from typing import Any
 import unicodedata
 
-import automation_orders_lint
-import generated_sow_text
-import project_state_identity
-import resource_cleanup
-import safe_paths
+try:
+    import automation_orders_lint
+    import generated_sow_text
+    import project_state_identity
+    import resource_cleanup
+    import safe_paths
+except Exception as local_import_failure:
+    if __name__ == "__main__":
+        print(
+            f"ERROR: scheduled job refused: {local_import_failure}",
+            file=_bootstrap_sys.stderr,
+        )
+        raise SystemExit(1) from None
+    raise
+finally:
+    if _BOOTSTRAP_SOURCE_FINDER is not None:
+        _bootstrap_sys.meta_path[:] = [
+            finder
+            for finder in _bootstrap_sys.meta_path
+            if finder is not _BOOTSTRAP_SOURCE_FINDER
+        ]
+
+if __name__ == "__main__":
+    expected_verified_modules = {
+        "automation_orders_lint",
+        "generated_sow_text",
+        "project_state_identity",
+        "resource_cleanup",
+        "safe_paths",
+    }
+    loaded_verified_modules = getattr(_BOOTSTRAP_SOURCE_FINDER, "loaded", set())
+    if loaded_verified_modules != expected_verified_modules:
+        print(
+            "ERROR: scheduled job refused: fixed runtime modules did not all load "
+            "from the verified source snapshot",
+            file=_bootstrap_sys.stderr,
+        )
+        raise SystemExit(1)
 
 
 FRAMEWORK_ROOT = Path(__file__).resolve().parent.parent
-CRON_JOB_AUTHORITY_DIGEST_VERSION = 5
 CRON_PYCACHE_PREFIX = os.devnull
 CRON_HELPER_PYTHON_FLAGS = (
+    "-I",
+    "-S",
     "-B",
     "-X",
     f"pycache_prefix={CRON_PYCACHE_PREFIX}",
 )
-CRON_RUNTIME_SOURCE_PATHS = (
-    "scripts/automation_orders_lint.py",
-    "scripts/generated_sow_text.py",
-    "scripts/project_state_identity.py",
-    "scripts/resource_cleanup.py",
-    "scripts/run_scheduled_job.py",
-    "scripts/safe_paths.py",
-)
-MAX_BOUND_CONTROL_SOURCE_TOTAL_BYTES = 64 * 1024 * 1024
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 PROCESS_TERMINATION_GRACE_SECONDS = 1.0
 LOG_CONTROL_RESERVE_BYTES = 1024
@@ -59,6 +564,21 @@ def job_authority_sha256(
     manifest_path: Path,
 ) -> str:
     """Seal one cron job's declared local control inputs for drift detection."""
+
+    job_sha256, _runtime_bundle_sha256 = cron_render_digests(
+        job,
+        project_root,
+        manifest_path,
+    )
+    return job_sha256
+
+
+def cron_render_digests(
+    job: dict[str, object],
+    project_root: Path,
+    manifest_path: Path,
+) -> tuple[str, str]:
+    """Return correlated job and runtime-bundle seals from one source read."""
 
     normalized_root = automation_orders_lint.normalize_project_root(project_root)
     manifest_relative = automation_orders_lint.manifest_relative_to_project(
@@ -102,7 +622,7 @@ def job_authority_sha256(
             ),
             "job-cwd descriptor",
         )
-        return _job_authority_sha256_from_descriptors(
+        return _job_authority_digests_from_descriptors(
             job,
             normalized_root,
             manifest_relative,
@@ -129,11 +649,31 @@ def _job_authority_sha256_from_descriptors(
     cwd_descriptor: int,
     framework_descriptor: int,
 ) -> str:
+    job_sha256, _runtime_bundle_sha256 = _job_authority_digests_from_descriptors(
+        job,
+        project_root,
+        manifest_relative,
+        project_descriptor,
+        cwd_descriptor,
+        framework_descriptor,
+    )
+    return job_sha256
+
+
+def _job_authority_digests_from_descriptors(
+    job: dict[str, object],
+    project_root: Path,
+    manifest_relative: Path,
+    project_descriptor: int,
+    cwd_descriptor: int,
+    framework_descriptor: int,
+) -> tuple[str, str]:
     bound_sources = _bound_source_records(
         job,
         project_descriptor=project_descriptor,
         framework_descriptor=framework_descriptor,
     )
+    runtime_bundle_sha256 = _runtime_bundle_sha256_from_records(bound_sources)
     payload = {
         "automation_orders_schema_version": automation_orders_lint.SCHEMA_VERSION,
         "backend": "cron",
@@ -147,6 +687,7 @@ def _job_authority_sha256_from_descriptors(
         "project_root": str(project_root),
         "project_root_identity": _directory_identity(project_descriptor),
         "python_runtime_flags": list(CRON_HELPER_PYTHON_FLAGS),
+        "runtime_bundle_sha256": runtime_bundle_sha256,
     }
     canonical = json.dumps(
         payload,
@@ -155,7 +696,7 @@ def _job_authority_sha256_from_descriptors(
         separators=(",", ":"),
         sort_keys=True,
     ).encode("utf-8")
-    return hashlib.sha256(canonical).hexdigest()
+    return hashlib.sha256(canonical).hexdigest(), runtime_bundle_sha256
 
 
 def _verify_local_runtime_module_origins() -> None:
@@ -169,8 +710,19 @@ def _verify_local_runtime_module_origins() -> None:
             project_state_identity,
             "scripts/project_state_identity.py",
         ),
+        "resource_cleanup": (resource_cleanup, "scripts/resource_cleanup.py"),
         "safe_paths": (safe_paths, "scripts/safe_paths.py"),
     }
+    if _BOOTSTRAP_VERIFIED_RUNTIME_SOURCES is not None:
+        boundary_module = sys.modules.get("python_import_boundary")
+        if boundary_module is None:
+            raise RuntimeError(
+                "scheduled runtime import boundary has no loaded module"
+            )
+        expected_modules["python_import_boundary"] = (
+            boundary_module,
+            "scripts/python_import_boundary.py",
+        )
     expected_runner = (FRAMEWORK_ROOT / "scripts/run_scheduled_job.py").resolve(
         strict=True
     )
@@ -188,9 +740,16 @@ def _verify_local_runtime_module_origins() -> None:
 
 
 def _verify_python_cache_isolation() -> None:
-    if sys.pycache_prefix != CRON_PYCACHE_PREFIX or not sys.dont_write_bytecode:
+    if (
+        not sys.flags.isolated
+        or not sys.flags.no_site
+        or not sys.flags.ignore_environment
+        or not sys.flags.safe_path
+        or sys.pycache_prefix != CRON_PYCACHE_PREFIX
+        or not sys.dont_write_bytecode
+    ):
         raise RuntimeError(
-            "scheduled runtime requires its sealed Python bytecode-cache isolation flags"
+            "scheduled runtime requires its sealed isolated/no-site bytecode-cache flags"
         )
 
 
@@ -244,15 +803,25 @@ def _bound_source_records(
     total_bytes = 0
     declared_bytes = 0
     for role, source_root, path in sorted(sources):
-        descriptor = (
-            framework_descriptor if source_root == "framework" else project_descriptor
-        )
-        raw = read_project_regular_file_bytes(
-            descriptor,
-            Path(path),
-            description=f"{role} {source_root}-rooted source",
-            max_bytes=automation_orders_lint.MAX_BOUND_SOURCE_FILE_BYTES,
-        )
+        if role == "runtime" and _BOOTSTRAP_VERIFIED_RUNTIME_SOURCES is not None:
+            try:
+                raw = _BOOTSTRAP_VERIFIED_RUNTIME_SOURCES[path]
+            except KeyError as exc:
+                raise RuntimeError(
+                    f"verified runtime snapshot is missing {path}"
+                ) from exc
+        else:
+            descriptor = (
+                framework_descriptor
+                if source_root == "framework"
+                else project_descriptor
+            )
+            raw = read_project_regular_file_bytes(
+                descriptor,
+                Path(path),
+                description=f"{role} {source_root}-rooted source",
+                max_bytes=automation_orders_lint.MAX_BOUND_SOURCE_FILE_BYTES,
+            )
         total_bytes += len(raw)
         if role != "runtime":
             declared_bytes += len(raw)
@@ -277,6 +846,45 @@ def _bound_source_records(
             }
         )
     return records
+
+
+def _runtime_bundle_sha256_from_records(
+    records: list[dict[str, object]],
+) -> str:
+    components: dict[str, tuple[int, bytes]] = {}
+    for record in records:
+        if record.get("role") != "runtime":
+            continue
+        path = record.get("path")
+        root = record.get("root")
+        byte_count = record.get("byte_count")
+        source_sha256 = record.get("sha256")
+        if (
+            not isinstance(path, str)
+            or root != "framework"
+            or not isinstance(byte_count, int)
+            or isinstance(byte_count, bool)
+            or byte_count < 0
+            or not isinstance(source_sha256, str)
+            or SHA256_RE.fullmatch(source_sha256) is None
+            or path in components
+        ):
+            raise ValueError("bound runtime source records are invalid")
+        components[path] = (byte_count, bytes.fromhex(source_sha256))
+    return _runtime_bundle_sha256_from_components(components)
+
+
+def runtime_bundle_sha256(framework_root: Path | None = None) -> str:
+    """Seal the fixed runtime bundle beneath one selected framework root."""
+
+    selected_root = FRAMEWORK_ROOT if framework_root is None else framework_root
+    physical_root = selected_root.expanduser().resolve(strict=True)
+    scripts_root, sources = _bootstrap_read_runtime_bundle(
+        str(physical_root / "scripts" / "run_scheduled_job.py")
+    )
+    if Path(scripts_root).parent != physical_root:
+        raise ValueError("runtime bundle resolved outside the selected framework root")
+    return _runtime_bundle_sha256_from_bytes(sources)
 
 
 def _directory_flags() -> int:
@@ -1249,38 +1857,9 @@ def run_job(
         owned.cleanup(primary=sys.exception())
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Run one validated cron job with descriptor-confined scheduler artifacts.",
-        allow_abbrev=False,
-    )
-    parser.add_argument(
-        "--project-root",
-        type=Path,
-        required=True,
-        help="Project root that owns the automation order and bounded job inputs.",
-    )
-    parser.add_argument(
-        "--manifest",
-        type=Path,
-        required=True,
-        help="Validated cron automation-order manifest within the project root.",
-    )
-    parser.add_argument(
-        "--job-id",
-        required=True,
-        help="Exact enabled cron job id to execute from the manifest.",
-    )
-    parser.add_argument(
-        "--expected-job-sha256",
-        required=True,
-        help=(
-            "Lowercase SHA-256 unkeyed drift seal emitted when the cron entry was "
-            "rendered; changed job inputs are refused, but the digest is not "
-            "authenticity or authority evidence."
-        ),
-    )
-    args = parser.parse_args()
+def main(args: Any = None) -> int:
+    if args is None:
+        args = _parse_command_arguments()
     try:
         _verify_python_cache_isolation()
         return run_job(
@@ -1295,4 +1874,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(_BOOTSTRAP_PARSED_ARGS))

@@ -3,7 +3,7 @@
   "description": "Critical-obligation coverage for compact runtime task modules. Markers identify the mapping; operative prose anchors prove that mapped obligations remain present. This is a narrow drift gate, not a full semantic parity mechanism.",
   "coverage_statuses": ["satisfies", "delegates_to_full_order", "not_applicable"],
   "common_precondition": {
-    "summary": "Every compact runtime task module reloads the project contract before acting and consults canonical/state files when authority or current state can affect the task.",
+    "summary": "Every compact runtime task module runs after the project contract is loaded and consults canonical or state files when authority or current state can affect the task.",
     "module_marker": "mpa-common-precondition"
   },
   "modules": {
@@ -238,7 +238,7 @@
         "IDEATE-escalate-source-or-safety": {
           "status": "delegates_to_full_order",
           "module_marker": "mpa-obligation: IDEATE-escalate-source-or-safety",
-          "operative_anchor": "Load the full task order when external sources, living standards, or unresolved evidence tradeoffs matter.",
+          "operative_anchor": "Switch to the full Task Order when external sources, living standards, or unresolved evidence tradeoffs matter.",
           "catalog_condition_id": "IDEATE-escalate-source-or-safety",
           "full_order_marker": "mpa-full-order-obligation: IDEATE-escalate-source-or-safety",
           "full_order_anchor": "Prefer primary sources over secondary. Flag evidence gaps explicitly."

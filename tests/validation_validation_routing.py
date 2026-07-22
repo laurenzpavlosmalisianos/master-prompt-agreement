@@ -6,10 +6,8 @@ import unittest
 
 from tests.validation_test_support import SCRIPTS_DIR as _SCRIPTS_DIR
 
-import public_surface  # noqa: E402
 import recommend_stack  # noqa: E402
 import routing_policy  # noqa: E402
-import validate_framework  # noqa: E402
 import verification_plan  # noqa: E402
 import verification_registry  # noqa: E402
 
@@ -489,27 +487,6 @@ class ValidationRoutingTests(unittest.TestCase):
         self.assertCountEqual(report, flattened)
         for phase, items in grouped.items():
             self.assertTrue(all(item["phase"] == phase for item in items))
-
-    def test_schedule_and_public_validation_consume_the_registry(self) -> None:
-        all_baseline_ids = {
-            check_id
-            for evidence_rule in self.schedule["minimum_evidence_by_risk"].values()
-            for check_id in evidence_rule["required_checks"]
-        }
-        self.assertTrue(
-            all_baseline_ids <= set(verification_registry.CHECKS_BY_ID)
-        )
-        self.assertEqual(
-            [],
-            [
-                error
-                for error in validate_framework.practice_guide_integration_errors(
-                    self.schedule,
-                    list(public_surface.PUBLIC_REQUIRED_FILES),
-                )
-                if "verification" in error or "required check" in error
-            ],
-        )
 
     def test_unknown_check_id_is_rejected_with_identity_in_diagnostic(self) -> None:
         with self.assertRaisesRegex(

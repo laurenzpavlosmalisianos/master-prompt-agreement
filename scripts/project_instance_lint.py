@@ -298,7 +298,10 @@ def _validate_recorded_identity(
         errors.append("project instance manifest msa_version must be a non-empty string")
 
     project_kind = manifest.get("project_kind")
-    if project_kind not in contract_model.PROJECT_KINDS:
+    try:
+        policy = contract_model.project_layout_policy(project_kind)
+    except ValueError:
+        policy = None
         errors.append(
             "project instance manifest project_kind must be one of: "
             + ", ".join(sorted(contract_model.PROJECT_KINDS))
@@ -312,12 +315,14 @@ def _validate_recorded_identity(
             f"expected {context.expected_project_kind}, found {project_kind}"
         )
     runtime = manifest.get("runtime")
-    if project_kind == "framework-authoring" and runtime is not None:
-        errors.append("framework-authoring project instance runtime must be null")
-    if project_kind == "downstream" and (
+    if policy is not None and policy.runtime_forbidden and runtime is not None:
+        errors.append(f"{policy.kind} project instance runtime must be null")
+    if policy is not None and policy.runtime_required and (
         not isinstance(runtime, str) or not runtime.strip()
     ):
-        errors.append("downstream project instance runtime must be a non-empty string")
+        errors.append(
+            f"{policy.kind} project instance runtime must be a non-empty string"
+        )
 
     contract_effective_date = manifest.get("contract_effective_date")
     if not isinstance(contract_effective_date, str):
@@ -770,13 +775,14 @@ def _validate_recorded_file_sets(
         project_bootstrap.project_relative_output(context.contract_root_ref, name)
         for name in project_bootstrap.immutable_optional_state_names(answers)
     }
-    if project_kind == "framework-authoring":
+    policy = contract_model.project_layout_policy(project_kind)
+    if not policy.manages_runtime_entrypoint:
         expected_immutable = sorted(
             [*required_contract_outputs, *immutable_optional_outputs]
         )
         if wrapper_outputs:
             errors.append(
-                "framework-authoring project instance runtime_wrapper_outputs must be empty"
+                f"{policy.kind} project instance runtime_wrapper_outputs must be empty"
             )
     else:
         if set(wrapper_outputs) != set(runtime_wrappers):
@@ -956,7 +962,8 @@ def _validate_selected_file_sets(
         or any(not isinstance(item, str) for item in runtime_wrappers)
     ):
         return
-    if project_kind == "downstream" and runtime not in project_bootstrap.ENTRYPOINT_TEMPLATES:
+    policy = contract_model.project_layout_policy(project_kind)
+    if policy.manages_runtime_entrypoint and runtime not in project_bootstrap.ENTRYPOINT_TEMPLATES:
         return
     try:
         expected_managed, expected_immutable, expected_mutable = (
@@ -1471,8 +1478,13 @@ def validate_selected_checkout(
 
     runtime = retained_input.get("runtime")
     runtime_wrappers = retained_input.get("runtime_wrappers")
+    try:
+        policy = contract_model.project_layout_policy(project_kind)
+    except ValueError:
+        policy = None
     if (
-        project_kind == "downstream"
+        policy is not None
+        and policy.runtime_wrappers_allowed
         and isinstance(runtime, str)
         and isinstance(runtime_wrappers, list)
         and all(isinstance(item, str) for item in runtime_wrappers)
@@ -1494,11 +1506,10 @@ def validate_selected_checkout(
                 "project instance manifest runtime_wrapper_outputs does not match "
                 "the selected framework"
             )
-    runtime_available = (
-        project_kind == "framework-authoring"
+    runtime_available = policy is not None and (
+        not policy.manages_runtime_entrypoint
         or (
-            project_kind == "downstream"
-            and isinstance(runtime, str)
+            isinstance(runtime, str)
             and runtime in project_bootstrap.ENTRYPOINT_TEMPLATES
         )
     )
@@ -1550,7 +1561,7 @@ def lint_instance(
     return {"errors": errors, "warnings": warnings}
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Lint PROJECT_INSTANCE.json against its retained project input and "
@@ -1574,7 +1585,7 @@ def main() -> int:
         default=str(FRAMEWORK_ROOT),
         help="Framework checkout selected for current-state verification.",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     result = lint_instance(
         Path(args.project_root),
         args.contract_root,

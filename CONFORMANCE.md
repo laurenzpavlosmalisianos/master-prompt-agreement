@@ -5,7 +5,7 @@ Conformance is profile-based. A project or framework checkout conforms only to t
 Run:
 
 ```bash
-<runner> <framework-checkout-as-visible-to-runner>/scripts/conformance_check.py --profile <profile-id> --root <path>
+<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/conformance_check.py" --profile <profile-id> --root <path>
 ```
 
 `<runner>` is the exact retained runner qualified by the successful prerequisite
@@ -58,45 +58,30 @@ duplicate conformance evidence.
 
 The machine-readable profile registry is `conformance/profiles.json`. Its schema is `conformance/profile.schema.json`. If this file and the registry disagree, the registry controls profile membership and required checks.
 
-### `framework-authoring-release`
+### `framework-product`
 
-Use only for the framework authoring source checkout. The profile checks the
-public product projection in that source tree as `authoring-source`, where
-non-public files may be tracked but remain excluded from publication, and then
-generates and validates a separate public export. Tree role is part of the
-selected profile; it is never inferred from Git metadata.
+Use for a Master Prompt Agreement product distribution. The profile verifies
+the exact positive inventory from `scripts/product_manifest.py`, required
+product surfaces, and the bounded manifest check declared in
+`conformance/profiles.json`. Select `--exact-product-tree` for a distribution
+checkout: that mode also rejects undeclared files, directories, symlinks, and
+special entries. Its only non-product exception is a physical root `.git` file
+or directory. Cache directories, bytecode, OS metadata such as `.DS_Store` and
+`Thumbs.db`, and every other undeclared entry fail this mode. The command does
+not infer the mode from mutable Git metadata. Run the exact-tree qualification
+before tests or other tools can create local residue. Omit the flag only when
+checking required product files inside a larger intentional source tree.
 
-An authoring checkout may also maintain a separate concrete project contract
-and state instance. Its project conformance is additional evidence; it does not
-change, weaken, or satisfy the public-release profile by itself.
-
-Required evidence is defined by `conformance/profiles.json`. In ordinary terms,
-this profile validates the public framework file set, internal framework
-consistency, the authoring-source publication boundary, and a generated public
-export that passes its own checks. Publication also requires semantic review of
-initialization and refresh as one lifecycle,
-including retained input, root receipt and nested-contract addressing,
-exact-plan approval, warning semantics, recovery, and acceptance ownership; the
-aggregate's structural pass does not supply that judgment.
-
-### `framework-public-release`
-
-Use only for a generated public export tree, whether or not that tree later has
-Git metadata. It checks the tree as `public-export`: the generated export
-marker, exact public inventory, absence of excluded authoring paths, framework
-structure, and internal consistency must all pass. It does not generate another
-export and cannot be changed into an authoring-source check by a command-line
-mode switch.
+A passing exact-tree result proves the declared product inventory and the closed
+tree boundary above. It does not run the shipped product test suite and does not
+establish source truth, semantic quality, effectiveness, or suitability for a
+particular downstream project.
 
 ### `core-project`
 
-Use for a project with a generated runtime contract. The default layout is a
-downstream project whose project and contract roots are the same. A framework
-maintainer may instead validate the nested excluded authoring instance:
-
-```bash
-<runner> <framework-checkout-as-visible-to-runner>/scripts/conformance_check.py --profile core-project --root . --project-kind framework-authoring --contract-root <excluded-authoring-contract-root>
-```
+Use for a downstream project with a generated runtime contract. The default
+layout has the project and contract roots at the same path; a receipt may record
+a supported nested contract root.
 
 Required evidence is defined by `conformance/profiles.json`. In ordinary terms,
 this profile validates the generated SOW, compact runtime contract, active state
@@ -109,8 +94,7 @@ authority, and its
 `contract_effective_date` must match retained input; refresh timestamps do not
 belong in the receipt. Conformance does not establish that retained input is safe
 to publish: it must contain no secrets and requires downstream privacy review
-before tracking, sharing, or publication.
-The authoring layout also validates the neutral root maintainer loader.
+before tracking, sharing, or distribution.
 
 The instance check treats downstream-effective drift as an error. A different
 complete-distribution digest with the same effective file map is a provenance
@@ -119,7 +103,7 @@ a warning-free claim and fails an aggregate run that requests strict warnings.
 The lifecycle inspector reports that case as `distribution-only-drift`; its
 `--check` gate succeeds only for exact status `current`.
 
-This profile and the public lifecycle tooling support only the current
+This profile and the framework lifecycle tooling support only the current
 retained-input and receipt schemas. An absent pair is eligible for bootstrap only when no
 framework-generated surface exists and no selected managed output path collides.
 A partial, malformed, inconsistent, older,
@@ -179,5 +163,6 @@ Adds `REVIEWER_LANE_FEEDBACK.md` and its lint check. Do not claim this profile m
 
 - Claim conformance to a profile only when its aggregate check passes. Report a non-passing run as an attempted or failed profile check, with the failed check and limitation; reporting the failure does not establish conformance.
 - Do not treat a higher profile as automatically better. Select the smallest profile matching the project’s real workflow.
-- Do not move private source lists or local maintenance files into the public framework merely to satisfy a profile.
+- Do not move project-specific source lists or local working records into the
+  framework product merely to satisfy a profile.
 - Conformance checks verify structure and declared evidence. They do not prove output quality, source truth, security, or legal compliance.

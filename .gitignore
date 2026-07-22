@@ -1,10 +1,18 @@
-# Generated public-export ignore rules
-# Keep project-local state, credentials, caches, and authoring material out of commits.
-/.mpa-public-export.json
-/internal_*.md
-/INTERNAL_*.md
-/*_STATE*.md
-/*_Commit.md
+# Operating systems
+.DS_Store
+Thumbs.db
+
+# Editors and local environment helpers
+*.swp
+*~
+/.vscode/
+/.idea/
+/.zed/
+.direnv/
+.envrc
+
+# Framework-generated root authority, state, receipts, and transaction controls
+# Reusable templates live under project_state_templates/.
 /TODO.md
 /DECISIONS.md
 /FINDINGS.md
@@ -29,10 +37,19 @@
 /SOUL.md
 /CAPABILITIES.md
 /AUTHORITY.md
-.direnv/
-.envrc
+
+# Local agent and runtime state
+/.codex/
+/.claude/
+/.mcp.json
+/.cursor/
+/.continue/
+
+# Secrets and credentials
 .env
 .env.*
+!.env.example
+!.env.template
 *.pem
 *.key
 *.p12
@@ -40,6 +57,10 @@
 *.jks
 *.keystore
 *.kdbx
+id_rsa*
+id_dsa*
+id_ecdsa*
+id_ed25519*
 .netrc
 .npmrc
 .pypirc
@@ -49,17 +70,6 @@ token.json
 client_secret*.json
 service-account*.json
 google-credentials*.json
-id_rsa*
-id_dsa*
-id_ecdsa*
-id_ed25519*
-/.codex
-/.codex/
-/.claude
-/.claude/
-/.mcp.json
-/.cursor/
-/.continue/
 /.aws/
 /.azure/
 /.gcloud/
@@ -67,53 +77,39 @@ id_ed25519*
 /secrets/
 /.secrets/
 /vault/
-/private/**
-/review_artifacts/
-/external_review/
-/notes/
-/scratch/
-/transcripts/
-/session_logs/
-/captures/
-/source_dumps/
-/source_material/
-/local/
-/tmp/
-.DS_Store
-Thumbs.db
+
+# Python
 __pycache__/
+*.py[cod]
 *.pyc
 *.pyo
-*.log
-*.tmp
-*.pdf
-*.doc
-*.docx
-*.odt
-*.rtf
-*.pages
-*.xls
-*.xlsx
-*.numbers
-*.db
-*.db-*
-*.sqlite
-*.sqlite3
-.pyre/
-.pytype/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+.pyre/
+.pytype/
 .hypothesis/
 .tox/
 .nox/
-.venv/
 .coverage
 .coverage.*
 htmlcov/
+dist/
+build/
+.venv/
+/.venv/
+/venv/
+
+# JavaScript and package-manager caches
 node_modules/
 .npm/
 .pnpm-store/
 .yarn/
-dist/
-build/
+
+# Local working directories and temporary outputs
+/tmp/
+/scratch/
+/local/
+*.log
+*.tmp
+*.bak

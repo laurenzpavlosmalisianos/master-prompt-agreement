@@ -75,7 +75,7 @@ verification records and evidence genuinely support that result.]
 Validate the filled artifact with:
 
 ```text
-<runner> <framework-ref>/scripts/source_deep_research_lint.py --project-root <project-root> <artifact>
+<runner> -- "<framework-ref>/scripts/source_deep_research_lint.py" --project-root <project-root> <artifact>
 ```
 
 Passing proves schema shape and declared-evidence consistency only. It does not

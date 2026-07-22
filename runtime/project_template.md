@@ -47,8 +47,8 @@ Authority: Generated projection, not independent authority. `STATEMENT_OF_WORK.m
 - Framework reference: [framework reference]
 - Framework Verification Runner: [confirmed framework verification runner]
 - Run from the project root; the routine gate calls the framework-owned aggregate checker through the framework reference. Use its named child checks only for setup or diagnosis.
-- Core conformance: [confirmed framework verification runner] [framework reference]/scripts/conformance_check.py --profile core-project --root . --project-kind downstream
-- Runner fallback: do not silently replace the configured runner. If it is unavailable, stop and resolve the project runner requirement; when available, its prerequisite command is [confirmed framework verification runner] [framework reference]/scripts/check_prereqs.py.
+- Core conformance: [confirmed framework verification runner] -- "[framework reference]/scripts/conformance_check.py" --profile core-project --root . --project-kind downstream
+- Runner fallback: do not silently replace the configured runner. If it is unavailable, stop and resolve the project runner requirement; when available, its prerequisite command is [confirmed framework verification runner] -- "[framework reference]/scripts/check_prereqs.py".
 
 ## Active Deliverables
 

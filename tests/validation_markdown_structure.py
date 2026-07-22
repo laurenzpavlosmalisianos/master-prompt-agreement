@@ -5,16 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 import tempfile
 import unittest
-from unittest import mock
 
-from tests.validation_test_support import REPO_ROOT
+from tests.validation_test_support import SCRIPTS_DIR as _SCRIPTS_DIR
 
 import check_reference_freshness  # noqa: E402
 import conformance_check  # noqa: E402
-import framework_consistency  # noqa: E402
 import integration_registry  # noqa: E402
 import link_check  # noqa: E402
-import lint_reviewer_lane_feedback  # noqa: E402
 import markdown_structure  # noqa: E402
 import project_bootstrap  # noqa: E402
 import project_contract_sync  # noqa: E402
@@ -22,8 +19,6 @@ import project_state_lint  # noqa: E402
 import prompt_load_report  # noqa: E402
 import source_chain_artifact_lint  # noqa: E402
 import source_deep_research_lint  # noqa: E402
-import source_registry_access_audit  # noqa: E402
-import validate_framework  # noqa: E402
 
 
 STRUCTURAL_TEXT = """## Live
@@ -165,39 +160,6 @@ class MarkdownStructureTests(unittest.TestCase):
             "\n".join(project_state_lint.markdown_h2_sections(STRUCTURAL_TEXT)["Live"][0]),
         )
 
-    def test_plain_and_line_consumers_ignore_fenced_and_commented_fields(self) -> None:
-        plain = """Definitions
-Live: yes
-````text
-Fenced: no
-````
-<!--
-Commented: no
--->
-"""
-        parsed = project_contract_sync.plain_sections(plain, {"Definitions"})
-        self.assertIn("Live: yes", parsed["Definitions"])
-        self.assertNotIn("Fenced: no", parsed["Definitions"])
-        self.assertNotIn("Commented: no", parsed["Definitions"])
-
-        line_consumers = (
-            lint_reviewer_lane_feedback.non_fenced_lines,
-            source_registry_access_audit.non_fenced_lines,
-        )
-        for consumer in line_consumers:
-            with self.subTest(consumer=consumer.__module__):
-                rendered = "\n".join(line for _line_number, line in consumer(STRUCTURAL_TEXT))
-                self.assertNotIn("hidden-fence", rendered)
-                self.assertNotIn("hidden-comment", rendered)
-                self.assertIn("visible-comment-close", rendered)
-
-        validated = "\n".join(validate_framework.non_fenced_lines(STRUCTURAL_TEXT))
-        state = "\n".join(
-            project_state_lint.non_fenced_lines(Path("TODO.md"), STRUCTURAL_TEXT)
-        )
-        self.assertNotIn("hidden-fence", validated)
-        self.assertNotIn("hidden-comment", state)
-
     def test_source_chain_blocks_cannot_borrow_fenced_or_commented_fields(self) -> None:
         text = """## Accepted Findings
 finding_id: live
@@ -324,86 +286,6 @@ None.
             any("must be followed by a Markdown separator row" in error for _line, error in gap_errors),
             gap_errors,
         )
-
-    def test_consistency_structures_ignore_fenced_and_commented_decoys(self) -> None:
-        table = """````text
-| Source | Disposition | Operative Home | Notes |
-|---|---|---|---|
-| hidden | retained | `hidden.md` | no |
-````
-| Source | Disposition | Operative Home | Notes |
-|---|---|---|---|
-| live | retained | `live.md` | yes |
-"""
-        self.assertEqual(
-            ["live"],
-            [row["source"] for row in framework_consistency.parse_human_clause_table(table)],
-        )
-
-        detached = table + """````text
-fenced interruption
-````
-| detached | retained | `detached.md` | no |
-"""
-        self.assertEqual(
-            ["live"],
-            [
-                row["source"]
-                for row in framework_consistency.parse_human_clause_table(detached)
-            ],
-        )
-
-        phases = framework_consistency.load_order_phase_blocks(
-            "````\n1. `Hidden`\n````\n<!--\n2. `Commented`\n-->\n3. `Live`\n"
-        )
-        self.assertEqual(["Live"], list(phases))
-        self.assertFalse(
-            framework_consistency.conditional_state_line_is_bounded(
-                "````\nLoad TODO.md only when needed.\n````\n",
-                "TODO.md",
-            )
-        )
-        self.assertTrue(
-            framework_consistency.conditional_state_line_is_bounded(
-                "Load TODO.md only when needed.\n",
-                "TODO.md",
-            )
-        )
-
-    def test_msa_inventory_and_script_index_ignore_fenced_decoys(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            (root / "master_service_agreement.md").write_text(
-                "````\nArticle 9 — Hidden\n9.1. Hidden\n````\n"
-                "<!--\nArticle 8 — Commented\n8.1. Commented\n-->\n"
-                "Article 1 — Live\n1.1. Live\n",
-                encoding="utf-8",
-            )
-            scripts = root / "scripts"
-            scripts.mkdir()
-            (scripts / "live.py").write_text("pass\n", encoding="utf-8")
-            (scripts / "README.md").write_text(
-                "````\n[live.py](live.py)\n````\n",
-                encoding="utf-8",
-            )
-            with (
-                mock.patch.object(framework_consistency, "REPO_ROOT", root),
-                mock.patch.object(validate_framework, "REPO_ROOT", root),
-            ):
-                self.assertEqual(
-                    ["Article 1", "1.1"],
-                    framework_consistency.msa_clause_ids(),
-                )
-                self.assertEqual(
-                    ["public script missing from scripts/README.md: scripts/live.py"],
-                    validate_framework.script_index_errors(),
-                )
-                (scripts / "README.md").write_text(
-                    "[live.py](live.py)\n",
-                    encoding="utf-8",
-                )
-                self.assertEqual([], validate_framework.script_index_errors())
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,7 +2,7 @@
 
 Use for systematic project or subsystem audits.
 
-Before acting, reload `AGENT_PROJECT.md`; consult `STATEMENT_OF_WORK.md`, `TODO.md`, `DECISIONS.md`, or `PRECEDENTS.md` when authority, approval, current state, durable decisions, or recorded triggers can affect the task.
+Consult `STATEMENT_OF_WORK.md`, `TODO.md`, `DECISIONS.md`, or `PRECEDENTS.md` when authority, approval, current state, durable decisions, or recorded triggers can affect the task.
 
 <!-- mpa-common-precondition -->
 <!-- mpa-obligation: AUDIT-coverage-ledger -->

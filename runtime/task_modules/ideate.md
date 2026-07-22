@@ -2,14 +2,14 @@
 
 Use for open-ended design or solution exploration.
 
-Before acting, reload `AGENT_PROJECT.md`; consult `STATEMENT_OF_WORK.md`, `TODO.md`, `DECISIONS.md`, or `PRECEDENTS.md` when authority, approval, current state, durable decisions, or recorded triggers can affect the task.
+Consult `STATEMENT_OF_WORK.md`, `TODO.md`, `DECISIONS.md`, or `PRECEDENTS.md` when authority, approval, current state, durable decisions, or recorded triggers can affect the task.
 
 <!-- mpa-common-precondition -->
 <!-- mpa-obligation: IDEATE-competing-approaches -->
 <!-- mpa-obligation: IDEATE-evidence-and-unknowns -->
 <!-- mpa-obligation: IDEATE-escalate-source-or-safety -->
 
-Load the full task order when external sources, living standards, or unresolved evidence tradeoffs matter.
+Switch to the full Task Order when external sources, living standards, or unresolved evidence tradeoffs matter.
 
 1. State the problem, constraints, and evaluation criteria.
 2. Generate multiple competing approaches before ranking them.

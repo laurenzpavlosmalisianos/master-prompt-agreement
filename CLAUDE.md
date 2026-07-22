@@ -1,3 +1,3 @@
-# CLAUDE.md — master_prompt_agreement
+# CLAUDE.md — Master Prompt Agreement
 
 @AGENTS.md

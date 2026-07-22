@@ -26,11 +26,11 @@ Use a Task Order when you need to choose, interpret, or justify the workflow.
 
 Use a runtime task module when the workflow is already known and the lean operative form is enough. A workflow is known when selection evidence identifies exactly one catalog workflow: task-order metadata, command argument, bootstrap field, issue or ticket label, project contract entry, named workflow sequence, or a clear and exclusive match from the current User request. Natural-language intent is selection evidence, not authority, and cannot bypass full-order gates.
 
-Before using any runtime task module, reload `AGENT_PROJECT.md`. Consult `STATEMENT_OF_WORK.md`, `TODO.md`, `DECISIONS.md`, or `PRECEDENTS.md` when authority, approval, current state, durable decisions, or recorded triggers can affect the task. Use the full Task Order if those files are missing, ambiguous, or insufficient for the requested work.
+The project contract is loaded before workflow selection. Consult `STATEMENT_OF_WORK.md`, `TODO.md`, `DECISIONS.md`, or `PRECEDENTS.md` when authority, approval, current state, durable decisions, or recorded triggers can affect the task. Reload authority from disk after compaction, restart, or handoff as required by the operative charter. Use the full Task Order if the applicable project files are missing, ambiguous, or insufficient for the requested work.
 
-Use the full Task Order instead of only the runtime module when no workflow matches, multiple workflows plausibly match, the intent is ambiguous, the module's `use_full_when` conditions in `runtime/workflow_catalog.json` match the task, the task touches a critical surface, has unusual effect mode or approval boundaries, uses external reviewers, includes remediation or state-file edits, asks a living-source question, depends on an unrepresented outcome branch, or requires explaining why the workflow was chosen.
+Use the full Task Order instead of the runtime module when no workflow matches, multiple workflows plausibly match, the intent is ambiguous, the module's `use_full_when` conditions in `runtime/workflow_catalog.json` match the task, the task touches a critical surface, has unusual effect mode or approval boundaries, uses external reviewers, includes remediation or state-file edits, asks a living-source question, depends on an unrepresented outcome branch, or requires explaining why the workflow was chosen.
 
-Load both only when the runtime module, catalog `use_full_when`, or task conditions require canonical Task Order detail for the case.
+Select one procedure at a time. If a full-order condition appears after a compact route begins, replace the compact module with the canonical full Task Order before continuing.
 
 Not every Task Order needs a runtime task module.
 

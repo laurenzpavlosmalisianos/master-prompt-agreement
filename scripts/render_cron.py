@@ -64,10 +64,12 @@ def render_job(
     manifest = manifest_path.expanduser().absolute()
     helper = Path(__file__).resolve().with_name("run_scheduled_job.py")
     python = Path(sys.executable).resolve(strict=True)
-    expected_job_sha256 = run_scheduled_job.job_authority_sha256(
-        job,
-        normalized_root,
-        manifest,
+    expected_job_sha256, expected_runtime_bundle_sha256 = (
+        run_scheduled_job.cron_render_digests(
+            job,
+            normalized_root,
+            manifest,
+        )
     )
     runner = shlex.join(
         [
@@ -80,6 +82,8 @@ def render_job(
             str(manifest),
             "--job-id",
             str(job["id"]),
+            "--expected-runtime-bundle-sha256",
+            expected_runtime_bundle_sha256,
             "--expected-job-sha256",
             expected_job_sha256,
         ]
@@ -164,7 +168,7 @@ def main() -> int:
             rendered.append("")
         try:
             rendered.append(render_job(job, project_root, manifest_path))
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError, RuntimeError) as exc:
             print(f"ERROR: {exc}")
             return 1
     output = "\n".join(rendered) + "\n"

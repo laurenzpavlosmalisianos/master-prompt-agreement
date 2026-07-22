@@ -6,115 +6,68 @@
       "description": "AUTOMATION_ORDERS.json exists and passes automation_orders_lint.py.",
       "subject": "project"
     },
-    "framework_authoring_release": {
-      "description": "The Git-backed authoring source passes public_release_check.py in its fixed authoring-source role.",
-      "subject": "framework"
-    },
-    "framework_consistency": {
-      "description": "Framework machine-readable contracts are internally consistent.",
-      "subject": "framework"
-    },
-    "framework_public_export_validation": {
-      "description": "A sanitized public export is generated and passes validation by the invoking framework checkout.",
-      "subject": "framework"
-    },
-    "framework_public_release": {
-      "description": "The checked sanitized export passes public_release_check.py in its fixed public-export role.",
-      "subject": "framework"
-    },
-    "framework_required_public_files": {
-      "description": "All public framework files declared in public_surface.py exist.",
-      "subject": "framework"
-    },
-    "framework_validate": {
-      "description": "The checked tree passes validate_framework.py.",
+    "framework_product_files": {
+      "description": "Every file in the exact product manifest exists as a bounded regular file.",
       "subject": "framework"
     },
     "multi_agent_state_files": {
-      "description": "PRECEDENTS.md exists for retained recurring lessons from multi-agent review, arbitration, or repeated review patterns. FINDINGS.md remains optional framework/process observation state.",
-      "subject": "project"
-    },
-    "reviewer_lane_feedback_lint": {
-      "description": "REVIEWER_LANE_FEEDBACK.md exists and passes lint_reviewer_lane_feedback.py.",
+      "description": "PRECEDENTS.md exists for retained recurring multi-agent lessons.",
       "subject": "project"
     },
     "project_contract_sync": {
       "description": "STATEMENT_OF_WORK.md and AGENT_PROJECT.md pass project_contract_sync.py.",
       "subject": "project"
     },
-    "project_state_files_lint": {
-      "description": "Project state files pass project_state_lint.py, including sanitized framework feedback when present.",
-      "subject": "project"
-    },
     "project_core_files": {
-      "description": "The readable current-instance receipt is schema-compatible and retained input/current-instance provenance is coherent.",
+      "description": "The current-instance receipt, retained input, and generated-state provenance are coherent.",
       "subject": "project"
     },
     "project_entrypoint_resolves": {
-      "description": "Generated AGENTS.md or CLAUDE.md resolves the framework operative charter and project contract.",
+      "description": "Generated AGENTS.md or CLAUDE.md resolves the framework charter and project contract.",
+      "subject": "project"
+    },
+    "project_state_files_lint": {
+      "description": "Project state files pass project_state_lint.py.",
+      "subject": "project"
+    },
+    "reviewer_lane_feedback_lint": {
+      "description": "REVIEWER_LANE_FEEDBACK.md exists and passes lint_reviewer_lane_feedback.py.",
       "subject": "project"
     },
     "security_verification_file": {
-      "description": "SECURITY_VERIFICATION.md exists and records scope, profiles, authorization boundaries, and triage sections.",
+      "description": "SECURITY_VERIFICATION.md records scope, profiles, authorization boundaries, and triage sections.",
       "subject": "project"
     },
     "source_freshness_metadata": {
-      "description": "SOURCE_PACKS.md and SOURCE_UPDATE.md exist and pass source freshness metadata checks.",
+      "description": "SOURCE_PACKS.md and SOURCE_UPDATE.md pass source-freshness checks.",
       "subject": "project"
     }
   },
   "profiles": [
     {
-      "description": "Exporter-owned sanitized public framework tree.",
-      "id": "framework-public-release",
+      "description": "The complete installable Master Prompt Agreement product.",
+      "id": "framework-product",
       "required_checks": [
-        "framework_required_public_files",
-        "framework_validate",
-        "framework_consistency",
-        "framework_public_release"
+        "framework_product_files"
       ],
       "required_directories": [
-        "conformance"
+        "conformance",
+        "runtime",
+        "scripts",
+        "task_orders"
       ],
       "required_files": [
+        "AGENTS.md",
+        "README.md",
         "SPECIFICATION.md",
-        "CONFORMANCE.md",
-        "GOVERNANCE.md",
-        "SECURITY.md",
         "conformance/profiles.json",
         "conformance/profile.schema.json",
-        "docs/source_deep_research_artifacts.md",
-        "project_state_templates/SOURCE_DEEP_RESEARCH.md"
+        "scripts/product_manifest.py"
       ],
       "subject": "framework"
     },
     {
-      "description": "Git-backed framework authoring source plus a freshly generated and validated public export.",
-      "id": "framework-authoring-release",
-      "required_checks": [
-        "framework_required_public_files",
-        "framework_validate",
-        "framework_consistency",
-        "framework_authoring_release",
-        "framework_public_export_validation"
-      ],
-      "required_directories": [
-        "conformance"
-      ],
-      "required_files": [
-        "SPECIFICATION.md",
-        "CONFORMANCE.md",
-        "GOVERNANCE.md",
-        "SECURITY.md",
-        "conformance/profiles.json",
-        "conformance/profile.schema.json",
-        "docs/source_deep_research_artifacts.md",
-        "project_state_templates/SOURCE_DEEP_RESEARCH.md"
-      ],
-      "subject": "framework"
-    },
-    {
-      "description": "Generated project instance with SOW, compact runtime contract, runtime entrypoint or maintainer entrypoint, retained input, receipt, and state files.",
+      "description": "Generated project instance with its current-format authority, retained input, receipt, and state.",
       "id": "core-project",
       "required_checks": [
         "project_core_files",
@@ -148,7 +101,7 @@
       "subject": "project"
     },
     {
-      "description": "Generated project that maintains recurring security verification profiles.",
+      "description": "Generated project that maintains recurring security-verification profiles.",
       "extends": [
         "core-project"
       ],
@@ -176,7 +129,7 @@
       "subject": "project"
     },
     {
-      "description": "Generated project that retains recurring multi-agent review, arbitration, or precedent lessons.",
+      "description": "Generated project that retains recurring multi-agent lessons and precedents.",
       "extends": [
         "core-project"
       ],

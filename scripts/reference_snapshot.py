@@ -71,6 +71,7 @@ def fetch_url(url: str) -> str:
     if blocked:
         raise SystemExit(f"url fetch blocked: {blocked}")
     request = urllib.request.Request(url, headers={"User-Agent": "master-prompt-agreement"})
+    payload = b""
     try:
         with safe_urlopen(request, timeout=30) as response:
             payload = response.read(MAX_SNAPSHOT_BYTES + 1)
@@ -112,6 +113,7 @@ def fetch_github(repo: str, path: str, ref: str) -> str:
             "User-Agent": "master-prompt-agreement",
         },
     )
+    raw_payload = b""
     try:
         with safe_urlopen(request, timeout=30) as response:
             content_type = response.headers.get("content-type", "")

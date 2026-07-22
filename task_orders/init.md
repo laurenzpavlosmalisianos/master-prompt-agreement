@@ -9,14 +9,14 @@ but its framework instance must be genuinely new.
 Updating a complete current-format generated instance is a separate lifecycle
 and uses `task_orders/framework_refresh.md`. The default output set is:
 
-- `STATEMENT_OF_WORK.md`
-- `AGENT_PROJECT.md`
-- the runtime entrypoint file for the selected agent (`AGENTS.md`, `CLAUDE.md`, or equivalent)
-- `TODO.md`
-- `DECISIONS.md`
-- `PROJECT_INPUT.json`
+- selected-contract-root `STATEMENT_OF_WORK.md`
+- selected-contract-root `AGENT_PROJECT.md`
+- the project-root runtime entrypoint file for the selected agent (`AGENTS.md`, `CLAUDE.md`, or equivalent)
+- selected-contract-root `TODO.md`
+- selected-contract-root `DECISIONS.md`
+- selected-contract-root `PROJECT_INPUT.json`
 - project-root `PROJECT_INSTANCE.json`
-- optional retained mutable `FINDINGS.md`, `FRAMEWORK_FEEDBACK.md`, `REVIEWER_LANE_FEEDBACK.md`, `PRECEDENTS.md`, `SOURCE_PACKS.md`, `SOURCE_UPDATE.md`, `SECURITY_VERIFICATION.md`, and `AUTOMATION_ORDERS.json`, plus optional generated immutable `SOURCE_MONITOR_RESEARCHER.md`
+- optional selected-contract-root retained mutable `FINDINGS.md`, `FRAMEWORK_FEEDBACK.md`, `REVIEWER_LANE_FEEDBACK.md`, `PRECEDENTS.md`, `SOURCE_PACKS.md`, `SOURCE_UPDATE.md`, `SECURITY_VERIFICATION.md`, and `AUTOMATION_ORDERS.json`, plus optional generated immutable `SOURCE_MONITOR_RESEARCHER.md`
 
 Procedure
 
@@ -28,6 +28,12 @@ or mount namespace. The paths may differ when the approved runner is a container
 or other qualified wrapper. Use the latter for every post-selection
 framework-owned script; never assume bare `scripts/...` resolves from the
 runner's workdir.
+`<contract-root-ref>` means `.` for project-root contracts or the selected safe
+project-relative nested contract directory. `<contract-root-create-flag>` is
+empty when that directory already exists and is exactly
+`--create-contract-root` only when the reviewed transaction is authorized to
+create a missing nested contract root. Preserve both values unchanged between
+dry run and write.
 
 1. Determine the framework root, the target project root, and the target runtime.
 
@@ -66,15 +72,15 @@ runner's workdir.
 - Bootstrap requires a pre-existing target project root. If it is missing, stop
   initialization; create and approve the directory through a separate
   environment action, then restart this task order against that existing root.
-- If the target root is the framework authoring repository, or is accidentally nested inside it, do not run this initialization task order. If the User intends to revise the framework, exit initialization and follow the framework-maintenance instructions instead.
+- If the target root is the selected framework checkout, or is accidentally nested inside it, do not run this initialization task order. If the User intends to revise the framework product, exit initialization and route first to report-only `task_orders/framework_semantic_audit.md`; use `task_orders/framework_improvement.md` only for a semantically accepted candidate.
 - If the target runtime is unclear but the current runtime is obvious from the session, default to the current runtime and state that assumption. Ask only if the User may want a different runtime.
 - If the target directory is not already a Git repository, do not initialize one unless the User explicitly wants repository bootstrap as part of setup.
-- Before running other framework scripts on a new machine, invoke `<candidate-python> -B <framework-checkout-on-diagnostic-host>/scripts/check_prereqs.py`; this is the bootstrap exception to the post-selection path rule. Prefer to invoke it through the exact intended container and `uv run python -B` prefix when that already-approved boundary exists. The report qualifies only the exact interpreter that executed it; merely finding `uv`, `python3`, or `py` does not qualify those alternate spellings. Continue only after the report exits zero, has no errors, confirms every transaction primitive, and sets `runner_usable` to `true`. Retain the exact wrapper or `uv` prefix only when it was the boundary that actually invoked this successful diagnostic, then resolve the framework checkout inside that same runner. Core lifecycle transactions currently require a POSIX-capable environment and Python 3.14 or newer. An existing SOW's Framework Verification Runner remains controlling; stop rather than bypassing it. Do not install `uv`, download Python, resolve dependencies, or create environments during initialization unless the User approves that state-changing setup step.
+- Before running other framework scripts on a new machine, invoke `<candidate-python> -E -S -B -- "<framework-checkout-on-diagnostic-host>/scripts/check_prereqs.py"`; this is the bootstrap exception to the post-selection path rule. Prefer to invoke it through the exact intended container and `uv run python -E -S -B` prefix when that already-approved boundary exists. The report qualifies only the exact CPython interpreter and startup flags that executed it; merely finding `uv`, `python3`, or `py` does not qualify those alternate spellings. Continue only after the report exits zero, has no errors, confirms CPython import-boundary compatibility and every transaction primitive, and sets `runner_usable` to `true`. Retain the exact wrapper or `uv` prefix only when it was the boundary that actually invoked this successful diagnostic, then resolve the framework checkout inside that same runner. Core lifecycle transactions currently require a POSIX-capable environment and CPython 3.14 or newer. An existing SOW's Framework Verification Runner remains controlling; stop rather than bypassing it. Do not install `uv`, download Python, resolve dependencies, or create environments during initialization unless the User approves that state-changing setup step.
 - If the User asks about native runtime setup, explain the default path first: bootstrap renders the project entrypoint. For repeated Codex initialization, the optional `master-prompt-new-project` skill wrapper may be rendered from `integrations/templates/codex/skills/project-init/`; plugin packaging is for distribution, not required for normal setup. For Claude Code, render `CLAUDE.md`; use Claude-native skills, agents, hooks, or rules only when the project needs them.
 
 2. Use the compact setup sources: this Task Order, the minimal
 `examples/project_bootstrap_answers.example.json`, and
-`<runner> <framework-checkout-as-visible-to-runner>/scripts/project_bootstrap.py
+`<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/project_bootstrap.py"
 --help`.
 The machine-readable `examples/project_bootstrap_answers.schema.json` remains
 the closed answer-field contract, but it is compiler input rather than a
@@ -86,8 +92,8 @@ contract, entrypoint, state, and receipt in the dry-run plan instead. Load a
 template or broader schema section only for a specific ambiguity, rendering
 failure, framework change, or semantic audit.
 
-Use `<runner>
-<framework-checkout-as-visible-to-runner>/scripts/project_contract_sync.py
+Use `<runner> --
+"<framework-checkout-as-visible-to-runner>/scripts/project_contract_sync.py"
 --help` for focused diagnostic invocation details. Inspect framework script
 source only when debugging a script failure, changing the framework, or
 validating behavior not documented by `--help`. Consult
@@ -250,7 +256,7 @@ Round 3. Durable governance and optional extensions:
 
 6. Choose the framework reference that will be written into the runtime entrypoint. For private local projects, the absolute framework path may be acceptable after warning review. For shared or public project files, use `--framework-ref` with a stable reference that resolves from a fresh downstream checkout, such as a vendored, submodule, or relative framework reference. Use environment variables or shared mounts only for private or team repositories where that external prerequisite is documented. Explain and confirm `--framework-revision-policy live` or `pinned`; do not rely on the CLI default. A live reference can expose changed operative-charter bytes before generated files refresh, while a pinned reference remains operator-fixed until a separate revision-selection action. Neither policy fetches or selects a newer checkout.
 
-7. Run `<runner> <framework-checkout-as-visible-to-runner>/scripts/project_bootstrap.py --dry-run --answers <temporary-answers-json> --project-root <project-root> --runtime <runtime> --framework-revision-policy <live|pinned>` first and review the summary before writing files. Review the resolved target and contract root; exact answers and optional-profile digests; runtime and wrapper set; framework reference, revision policy, and captured identity; exact ordered `warnings` list and informational `warnings_sha256`; planned outputs and rendered-output digests; and `write_plan_sha256`. When an approved profile is used, pass the same `--setup-profile` value to the dry run and write command, and review the reported applied and overridden fields. If the dry run shows existing generated surfaces, ordinary output collisions, optional files, policy sections, host-specific absolute paths, private-state references, or generated entrypoint framework-reference warnings that were not explicitly requested, stop and ask the User to confirm or correct them. A complete current-format instance routes to `task_orders/framework_refresh.md`; every other existing framework format stops for reviewed manual project update. Initialization performs no format conversion.
+7. Run `<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/project_bootstrap.py" --dry-run --answers <temporary-answers-json> --project-root <project-root> --contract-root <contract-root-ref> <contract-root-create-flag> --runtime <runtime> --framework-revision-policy <live|pinned>` first and review the summary before writing files. Review the resolved target and contract root; exact answers and optional-profile digests; runtime and wrapper set; framework reference, revision policy, and captured identity; exact ordered `warnings` list and informational `warnings_sha256`; planned outputs and rendered-output digests; and `write_plan_sha256`. When an approved profile is used, pass the same `--setup-profile` value to the dry run and write command, and review the reported applied and overridden fields. If the dry run shows existing generated surfaces, ordinary output collisions, optional files, policy sections, host-specific absolute paths, private-state references, or generated entrypoint framework-reference warnings that were not explicitly requested, stop and ask the User to confirm or correct them. A complete current-format instance routes to `task_orders/framework_refresh.md`; every other existing framework format stops for reviewed manual project update. Initialization performs no format conversion.
 
 8. Through the same retained runner and exact runner-visible framework script
 path, rerun the command without `--dry-run` and with
@@ -259,6 +265,9 @@ transactionally verify `STATEMENT_OF_WORK.md`, `AGENT_PROJECT.md`, the runtime
 entrypoint, requested project-state files, retained `PROJECT_INPUT.json`, and
 the single project-root `PROJECT_INSTANCE.json`. Exact plan approval is
 required once for every write, including a plan with no warnings. The
+write command must retain the exact reviewed
+`--contract-root <contract-root-ref>` value and the same present-or-absent
+`<contract-root-create-flag>` used for the dry run. The
 domain-separated digest binds the resolved target and contract root, exact
 inputs/profile, runtime/wrappers, framework reference/revision/identity,
 ordered warnings, and each planned output name and rendered digest. Any change
@@ -276,8 +285,8 @@ manual project update.
    contains no secrets and minimizes unnecessary sensitive material while
    retaining required paths, commands, and project facts. Use
    approved indirection for sensitive values. Before the downstream repository
-   is tracked, shared, or published, review the retained input explicitly;
-   framework-publication ignore rules do not sanitize downstream repositories.
+   is tracked, shared, or published, review the retained input explicitly. The
+   framework does not establish or sanitize that repository's privacy boundary.
 
 9. Treat the approved non-dry command as the deterministic initialization gate,
 not merely a file writer. The approved non-dry bootstrap runs one strict union
@@ -293,7 +302,7 @@ requested evidence. When a standalone core run is needed later, use the
 framework-owned command and confirmed runner:
 
 ```bash
-<runner> <framework-checkout-as-visible-to-runner>/scripts/conformance_check.py --profile core-project --root <project-root> --project-kind downstream --contract-root . --strict-warnings
+<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/conformance_check.py" --profile core-project --root <project-root> --project-kind downstream --contract-root <contract-root-ref> --strict-warnings
 ```
 
 Use the receipt's exact `active_profiles` inventory when independently requested
@@ -322,20 +331,20 @@ not a bare project-local `scripts/...` path.
 
 Acceptance Criteria
 
-- `STATEMENT_OF_WORK.md` exists in the project root and reflects the agreed project terms.
-- `AGENT_PROJECT.md` exists in the project root and carries a compact runtime distillation of governing SOW terms plus the non-authoritative framework-reference binding from retained input.
+- `STATEMENT_OF_WORK.md` exists in the selected contract root and reflects the agreed project terms.
+- `AGENT_PROJECT.md` exists in the selected contract root and carries a compact runtime distillation of governing SOW terms plus the non-authoritative framework-reference binding from retained input.
 - `AGENTS.md` or the target agent's equivalent entrypoint file exists in the project root with the approved framework reference and a reference to `AGENT_PROJECT.md`.
-- `TODO.md` and `DECISIONS.md` exist in the project root and are rendered from `project_state_templates/`.
-- `PROJECT_INPUT.json` is the verified retained, fully materialized regeneration
+- `TODO.md` and `DECISIONS.md` exist in the selected contract root and are rendered from `project_state_templates/`.
+- The selected-contract-root `PROJECT_INPUT.json` is the verified retained, fully materialized regeneration
   source, contains no secrets, and is not treated as operative authority. Before
   tracking, sharing, or publication, it has received downstream privacy review.
 - Root `PROJECT_INSTANCE.json` is the single verified current-state receipt,
   its `contract_root` locates nested input and authority, and it contains no
   accumulated lifecycle history or refresh timestamp; its contract effective
   date matches retained input.
-- If created, `FINDINGS.md`, `FRAMEWORK_FEEDBACK.md`, `REVIEWER_LANE_FEEDBACK.md`, `PRECEDENTS.md`, `SOURCE_PACKS.md`, `SOURCE_UPDATE.md`, `SOURCE_MONITOR_RESEARCHER.md`, `SECURITY_VERIFICATION.md`, and `AUTOMATION_ORDERS.json` are rendered from `project_state_templates/` or setup-safe minimal variants that remove placeholder/example content. The receipt classifies the framework-owned source-monitor brief as immutable and the other optional state surfaces as mutable.
+- If created in the selected contract root, `FINDINGS.md`, `FRAMEWORK_FEEDBACK.md`, `REVIEWER_LANE_FEEDBACK.md`, `PRECEDENTS.md`, `SOURCE_PACKS.md`, `SOURCE_UPDATE.md`, `SOURCE_MONITOR_RESEARCHER.md`, `SECURITY_VERIFICATION.md`, and `AUTOMATION_ORDERS.json` are rendered from `project_state_templates/` or setup-safe minimal variants that remove placeholder/example content. The receipt classifies the framework-owned source-monitor brief as immutable and the other optional state surfaces as mutable.
 - The generated runtime entrypoint resolves `runtime/operative_charter.md` through the approved framework reference.
-- `AGENT_PROJECT.md` contains the project-root core conformance command through the approved framework reference and the SOW's confirmed Framework Verification Runner.
+- `AGENT_PROJECT.md` contains the project-root-targeting core conformance command with the selected contract root, approved framework reference, and SOW-confirmed Framework Verification Runner.
 - The bootstrap transaction completed one strict conformance union over every
   profile listed in `PROJECT_INSTANCE.json.active_profiles`; any warning or
   error failed the transaction and triggered rollback rather than a successful
@@ -351,7 +360,7 @@ Notes
 
 - If the User does not know a required project fact yet, prefer minimal exploratory bootstrap or stop for more information. Represent every accepted required-fact gap with its canonical structured deferral and matching field, owner, reason, boundary type, and exact closure boundary; a bare `TBD` is never a substitute for the canonical Recitals/project-purpose deferral.
 - Minimal exploratory bootstrap is valid when the project still needs structure but project purpose, commands, deliverables, or stack details are intentionally deferred.
-- Do not write `latest`, `current stable`, or an unpinned runtime/tool default from memory. Verify it through the approved acquisition method, use User-supplied source material, or record `TBD`.
+- Do not write `latest`, `current stable`, or an unpinned runtime/tool default from memory. Verify it through the approved acquisition method, use User-supplied source material, or record the applicable canonical structured deferral in minimal mode.
 - Pinned versions override newer defaults. Do not silently upgrade a pinned language, framework, model, dependency, or tool version during setup.
 - For older repositories, distinguish bootstrap from upgrade work. Bootstrap records the current pins. If source checking is approved, compare pins against current primary sources and ask what to do with the result; upgrade review is a separate task unless the User explicitly includes it.
 - Do not infer persistent-memory enablement from runtime capability alone. Keep memory disabled unless an enabled project policy identifies the store, policy-authorized write classes, review gate, retention, and rollback path.
@@ -365,7 +374,7 @@ Notes
 - Record security input-surface verification profiles only when the project has relevant untrusted-input surfaces and approved tooling. Do not make fuzzing, sanitizer builds, or static-analysis profiles default obligations for projects that do not need them.
 - Record a Version Control Profile only for active VCS or forge facts that affect agent work. Do not create a separate VCS config file unless the project has enough VCS complexity to justify one.
 - Record broad autonomy grants narrowly. Creative or visual discretion does not imply authority to choose architecture, stack, dependency model, deployment, acquisition, VCS workflow, memory behavior, or project policy.
-- Prefer deterministic rendering: collect the answers once and let `<runner> <framework-checkout-as-visible-to-runner>/scripts/project_bootstrap.py` install and verify the first instance transactionally. The command runs one strict union over the receipt-listed active profiles before success; use standalone `<runner> <framework-checkout-as-visible-to-runner>/scripts/conformance_check.py --profile <profile-id> --root <project-root> --project-kind downstream --contract-root . --strict-warnings` only for recovery verification, focused diagnosis, later drift, or independently requested evidence. Use only the runner selected by a no-error `scripts/check_prereqs.py` result with `runner_usable: true`.
+- Prefer deterministic rendering: collect the answers once and let `<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/project_bootstrap.py" --contract-root <contract-root-ref> <contract-root-create-flag>` install and verify the first instance transactionally. The command runs one strict union over the receipt-listed active profiles before success; use standalone `<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/conformance_check.py" --profile <profile-id> --root <project-root> --project-kind downstream --contract-root <contract-root-ref> --strict-warnings` only for recovery verification, focused diagnosis, later drift, or independently requested evidence. Use only the runner selected by a no-error `scripts/check_prereqs.py` result with `runner_usable: true`.
 - Keep the runtime entrypoint thin. Put active project-specific rules in `STATEMENT_OF_WORK.md`, project their compact operative facts into `AGENT_PROJECT.md`, and use `DECISIONS.md` to record the decision, rationale, and any pending SOW update.
 - Prefer repo-local or relative commands in `STATEMENT_OF_WORK.md` and `AGENT_PROJECT.md`. Host-specific absolute paths are a last resort and should be called out explicitly.
 - Do not initialize or modify VCS metadata as part of framework setup unless the User explicitly requests repository creation or Git changes.

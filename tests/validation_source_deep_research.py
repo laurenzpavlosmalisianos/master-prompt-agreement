@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import shlex
 import tempfile
 import unittest
 from unittest import mock
@@ -38,8 +39,11 @@ class SourceDeepResearchTests(unittest.TestCase):
             )
         self.assertEqual((8, b"stdout", b"stderr"), observed)
         run.assert_called_once_with(
-            ["git", "cat-file", "-s", "spec"],
+            source_deep_research_lint.git_query.closed_git_query_command(
+                ["cat-file", "-s", "spec"]
+            ),
             cwd=root,
+            env=source_deep_research_lint.git_query.closed_git_query_environment(root),
             timeout_seconds=source_deep_research_lint.GIT_COMMAND_TIMEOUT_SECONDS,
             max_output_bytes=64 * 1024,
             maximum_timeout_seconds=source_deep_research_lint.GIT_COMMAND_TIMEOUT_SECONDS,
@@ -222,6 +226,34 @@ class SourceDeepResearchTests(unittest.TestCase):
                     repo_root=root,
                 )
             )
+
+    def test_source_deep_research_does_not_execute_repository_fsmonitor(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            tracked = root / "tracked.md"
+            tracked.write_text("tracked\n", encoding="utf-8")
+            run_bounded(["git", "init", "-q"], cwd=root, check=True)
+            run_bounded(["git", "add", "tracked.md"], cwd=root, check=True)
+            marker = root / "fsmonitor-executed"
+            monitor = root / "fsmonitor.sh"
+            monitor.write_text(
+                "#!/bin/sh\nprintf executed > " + shlex.quote(str(marker)) + "\n",
+                encoding="utf-8",
+            )
+            monitor.chmod(0o700)
+            run_bounded(
+                ["git", "config", "core.fsmonitor", str(monitor)],
+                cwd=root,
+                check=True,
+            )
+
+            self.assertTrue(
+                source_deep_research_lint.safe_repo_locator(
+                    "repo:tracked.md",
+                    repo_root=root,
+                )
+            )
+            self.assertFalse(marker.exists())
 
     def test_public_template_matches_executable_schema(self) -> None:
         template = REPO_ROOT / "project_state_templates" / "SOURCE_DEEP_RESEARCH.md"
@@ -588,7 +620,7 @@ class SourceDeepResearchTests(unittest.TestCase):
                     "started_at must be not_recorded or an RFC 3339 instant with an explicit Z or ±HH:MM offset",
                 ),
                 (
-                    {"started_at": "2026-07-01T08:00:00 Europe/Vienna"},
+                    {"started_at": "2026-07-01T08:00:00 Europe/Paris"},
                     "started_at must be not_recorded or an RFC 3339 instant with an explicit Z or ±HH:MM offset",
                 ),
                 (

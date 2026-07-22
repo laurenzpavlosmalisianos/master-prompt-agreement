@@ -6,8 +6,10 @@ import ast
 from dataclasses import replace
 import io
 import json
+import os
 from pathlib import Path
 import re
+import shutil
 import sys
 import tempfile
 import unittest
@@ -18,6 +20,7 @@ from tests.validation_test_support import (
     REPO_ROOT,
     SCRIPTS_DIR,
     TEST_FRAMEWORK_RUNNER,
+    compile_adjacent_bytecode,
     run_bounded,
     valid_automation_job,
 )
@@ -1038,7 +1041,7 @@ class BootstrapRenderingTests(unittest.TestCase):
     def test_project_bootstrap_applies_cron_target_validation_for_preferred_backend(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir) / "project"
-            contract_root = project / "private" / "authoring"
+            contract_root = project / "contracts" / "project"
             (project / "task_orders").mkdir(parents=True)
             contract_root.mkdir(parents=True)
             (project / "task_orders" / "automation.md").write_text(
@@ -1070,7 +1073,7 @@ class BootstrapRenderingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             project = root / "project"
-            contract_root = project / "private" / "authoring"
+            contract_root = project / "contracts" / "project"
             (project / "task_orders").mkdir(parents=True)
             contract_root.mkdir(parents=True)
             (project / "work").mkdir()
@@ -1152,7 +1155,7 @@ class BootstrapRenderingTests(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as temp_dir:
             project_root = Path(temp_dir) / "project"
-            contract_root = project_root / "contracts" / "authoring"
+            contract_root = project_root / "contracts" / "project"
             contract_root.mkdir(parents=True)
             answers_path = contract_root / "answers.json"
             answers_path.write_text(json.dumps(answers), encoding="utf-8")
@@ -1160,10 +1163,10 @@ class BootstrapRenderingTests(unittest.TestCase):
                 project_bootstrap.BootstrapOptions(
                     answers=str(answers_path),
                     project_root=str(project_root),
-                    project_kind="framework-authoring",
-                    contract_root="contracts/authoring",
+                    project_kind="downstream",
+                    contract_root="contracts/project",
                     setup_profile=None,
-                    runtime=None,
+                    runtime="generic",
                     framework_ref="$FRAMEWORK",
                     dry_run=False,
                     create_contract_root=True,
@@ -1269,6 +1272,8 @@ class BootstrapRenderingTests(unittest.TestCase):
             )
             arguments = [
                 sys.executable,
+                "-E",
+                "-S",
                 "-B",
                 str(SCRIPTS_DIR / "project_bootstrap.py"),
                 "--answers",
@@ -1534,7 +1539,7 @@ class BootstrapRenderingTests(unittest.TestCase):
         self.assertEqual("Read /runtime/operative_charter.md", rendered)
         command_lines = project_contract_model.framework_verification_command_lines(
             "/",
-            runner="python3 -B",
+            runner="python3 -E -S -B",
         )
         self.assertTrue(any(" /scripts/conformance_check.py " in line for line in command_lines))
         self.assertFalse(any("//scripts/" in line for line in command_lines))
@@ -1571,110 +1576,6 @@ class BootstrapRenderingTests(unittest.TestCase):
             entrypoint,
         )
         self.assertNotIn(f"{contract_root}/contracts/", entrypoint)
-
-    def test_project_bootstrap_requires_explicit_separate_framework_authoring_layout(self) -> None:
-        authoring_ref = ("pri" + "vate") + "/authoring"
-        downstream_errors = project_bootstrap.project_layout_errors(
-            REPO_ROOT,
-            REPO_ROOT,
-            ".",
-            REPO_ROOT,
-            "downstream",
-        )
-        authoring_errors = project_bootstrap.project_layout_errors(
-            REPO_ROOT,
-            REPO_ROOT / ("pri" + "vate") / "authoring",
-            authoring_ref,
-            REPO_ROOT,
-            "framework-authoring",
-        )
-        public_contract_errors = project_bootstrap.project_layout_errors(
-            REPO_ROOT,
-            REPO_ROOT / "docs" / "authoring",
-            "docs/authoring",
-            REPO_ROOT,
-            "framework-authoring",
-        )
-
-        self.assertTrue(downstream_errors)
-        self.assertIn("framework authoring repository", downstream_errors[0])
-        self.assertEqual([], authoring_errors)
-        self.assertTrue(
-            any("non-public path" in error for error in public_contract_errors),
-            public_contract_errors,
-        )
-
-    def test_framework_authoring_layout_requires_root_loader_for_selected_contract(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            hidden_root = "pri" + "vate"
-            contract_ref = f"{hidden_root}/authoring"
-            (root / "runtime").mkdir()
-            (root / "scripts").mkdir()
-            (root / hidden_root / "authoring").mkdir(parents=True)
-            (root / "master_service_agreement.md").write_text("Version: 1\n", encoding="utf-8")
-            (root / "runtime" / "operative_charter.md").write_text("# Charter\n", encoding="utf-8")
-            (root / "scripts" / "project_bootstrap.py").write_text("# marker\n", encoding="utf-8")
-            (root / "AGENTS.md").write_text("Read runtime/operative_charter.md.\n", encoding="utf-8")
-
-            missing_loader = project_bootstrap.project_layout_errors(
-                root,
-                root / contract_ref,
-                contract_ref,
-                root,
-                "framework-authoring",
-            )
-            (root / "AGENTS.md").write_text(
-                f"Read runtime/operative_charter.md and {contract_ref}/AGENT_PROJECT.md.\n",
-                encoding="utf-8",
-            )
-            complete_loader = project_bootstrap.project_layout_errors(
-                root,
-                root / contract_ref,
-                contract_ref,
-                root,
-                "framework-authoring",
-            )
-
-        self.assertTrue(
-            any("does not load required authoring reference" in error for error in missing_loader),
-            missing_loader,
-        )
-        self.assertEqual([], complete_loader)
-
-    def test_framework_authoring_layout_reports_invalid_entrypoint_utf8(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            contract_ref = ("pri" + "vate") + "/authoring"
-            (root / "runtime").mkdir()
-            (root / "scripts").mkdir()
-            (root / contract_ref).mkdir(parents=True)
-            (root / "master_service_agreement.md").write_text(
-                "Version: 1\n",
-                encoding="utf-8",
-            )
-            (root / "runtime" / "operative_charter.md").write_text(
-                "# Charter\n",
-                encoding="utf-8",
-            )
-            (root / "scripts" / "project_bootstrap.py").write_text(
-                "# marker\n",
-                encoding="utf-8",
-            )
-            (root / "AGENTS.md").write_bytes(b"\xff")
-
-            errors = project_bootstrap.project_layout_errors(
-                root,
-                root / contract_ref,
-                contract_ref,
-                root,
-                "framework-authoring",
-            )
-
-        self.assertTrue(
-            any("framework maintainer AGENTS.md must be valid UTF-8" in error for error in errors),
-            errors,
-        )
 
     def test_project_bootstrap_setup_profile_fills_only_absent_whole_fields(self) -> None:
         answers = {
@@ -1807,7 +1708,7 @@ class BootstrapRenderingTests(unittest.TestCase):
             duplicate = root / "duplicate.json"
             duplicate.write_text(
                 '{"bootstrap_mode":"minimal","agent":"Agent","project_name":"Reviewed",'
-                '"project_name":"Override","framework_verification_runner":"uv run python -B"}',
+                '"project_name":"Override","framework_verification_runner":"uv run python -E -S -B"}',
                 encoding="utf-8",
             )
             oversized = root / "oversized.json"
@@ -2128,14 +2029,14 @@ class BootstrapRenderingTests(unittest.TestCase):
                 "--dry-run",
             ]
             standard = run_bounded(
-                [sys.executable, "-B", *arguments],
+                [sys.executable, "-E", "-S", "-B", *arguments],
                 cwd=REPO_ROOT,
                 check=False,
                 capture_output=True,
                 text=True,
             )
             optimized = run_bounded(
-                [sys.executable, "-B", "-O", *arguments],
+                [sys.executable, "-E", "-S", "-B", "-O", *arguments],
                 cwd=REPO_ROOT,
                 check=False,
                 capture_output=True,
@@ -2149,7 +2050,14 @@ class BootstrapRenderingTests(unittest.TestCase):
 
     def test_project_bootstrap_removed_framework_revision_escape_hatch(self) -> None:
         help_result = run_bounded(
-            [sys.executable, "-B", str(SCRIPTS_DIR / "project_bootstrap.py"), "--help"],
+            [
+                sys.executable,
+                "-E",
+                "-S",
+                "-B",
+                str(SCRIPTS_DIR / "project_bootstrap.py"),
+                "--help",
+            ],
             cwd=REPO_ROOT,
             check=False,
             capture_output=True,
@@ -2161,26 +2069,115 @@ class BootstrapRenderingTests(unittest.TestCase):
         self.assertIn("--project-kind", help_result.stdout)
         self.assertIn("--contract-root", help_result.stdout)
 
-    def test_project_bootstrap_framework_authoring_render_has_no_runtime_entrypoint(self) -> None:
-        answers = {"bootstrap_mode": "minimal", "agent": "Agent", "project_name": "Framework"}
-        authoring_ref = ("pri" + "vate") + "/authoring"
+    def test_project_bootstrap_ignores_cache_and_rejects_package_shadows(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            scripts_root = root / "scripts"
+            shutil.copytree(
+                SCRIPTS_DIR,
+                scripts_root,
+                ignore=shutil.ignore_patterns("__pycache__"),
+            )
+            shutil.copytree(REPO_ROOT / "integrations", root / "integrations")
+            dependency = scripts_root / "bootstrap_transaction.py"
+            reviewed_source = dependency.read_bytes()
+            cache_marker = root / "cache-ran"
+            dependency.write_text(
+                "from pathlib import Path\n"
+                f"Path({str(cache_marker)!r}).write_text('ran', encoding='utf-8')\n",
+                encoding="utf-8",
+            )
+            compile_adjacent_bytecode(dependency, unchecked_hash=True)
+            dependency.write_bytes(reviewed_source)
 
-        outputs = project_bootstrap.render_output_files(
-            answers,
-            None,
-            "$FRAMEWORK",
-            project_kind="framework-authoring",
-            contract_root_ref=authoring_ref,
+            cache_result = run_bounded(
+                [
+                    sys.executable,
+                    "-E",
+                    "-S",
+                    "-B",
+                    str(scripts_root / "project_bootstrap.py"),
+                    "--help",
+                ],
+                cwd=root,
+                check=False,
+            )
+            self.assertEqual(
+                0,
+                cache_result.returncode,
+                cache_result.stdout + cache_result.stderr,
+            )
+            self.assertFalse(cache_marker.exists())
+
+            package_marker = root / "package-ran"
+            package = scripts_root / "bootstrap_transaction"
+            package.mkdir()
+            (package / "__init__.py").write_text(
+                "from pathlib import Path\n"
+                f"Path({str(package_marker)!r}).write_text('ran', encoding='utf-8')\n",
+                encoding="utf-8",
+            )
+            shadow_result = run_bounded(
+                [
+                    sys.executable,
+                    "-E",
+                    "-S",
+                    "-B",
+                    str(scripts_root / "project_bootstrap.py"),
+                    "--help",
+                ],
+                cwd=root,
+                check=False,
+            )
+            self.assertFalse(package_marker.exists())
+
+        self.assertNotEqual(0, shadow_result.returncode)
+        self.assertIn(
+            "project bootstrap rejected local import shadow: bootstrap_transaction",
+            shadow_result.stderr,
         )
 
-        self.assertNotIn("AGENTS.md", outputs)
-        self.assertNotIn("CLAUDE.md", outputs)
-        self.assertIn(f"{authoring_ref}/AGENT_PROJECT.md", outputs)
-        self.assertIn(f"{authoring_ref}/STATEMENT_OF_WORK.md", outputs)
-        contract = outputs[f"{authoring_ref}/AGENT_PROJECT.md"]
-        self.assertIn("--profile core-project --root .", contract)
-        self.assertIn("--project-kind framework-authoring", contract)
-        self.assertIn(f"--contract-root {authoring_ref}", contract)
+    def test_import_boundary_rejects_nonregular_adjacent_entry(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            scripts_root = root / "scripts"
+            shutil.copytree(
+                SCRIPTS_DIR,
+                scripts_root,
+                ignore=shutil.ignore_patterns("__pycache__"),
+            )
+            shutil.copytree(REPO_ROOT / "integrations", root / "integrations")
+            os.mkfifo(scripts_root / "untrusted-import-artifact")
+
+            result = run_bounded(
+                [
+                    sys.executable,
+                    "-E",
+                    "-S",
+                    "-B",
+                    str(scripts_root / "project_bootstrap.py"),
+                    "--help",
+                ],
+                cwd=root,
+                check=False,
+            )
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn(
+            "project bootstrap rejected non-regular import-adjacent entry: "
+            "untrusted-import-artifact",
+            result.stderr,
+        )
+
+    def test_exact_source_trampoline_requires_no_follow_open(self) -> None:
+        with mock.patch.object(os, "O_NOFOLLOW", 0):
+            with self.assertRaisesRegex(
+                RuntimeError,
+                "requires O_CLOEXEC and O_NOFOLLOW",
+            ):
+                project_bootstrap._load_trusted_import_boundary(
+                    str(SCRIPTS_DIR / "project_bootstrap.py")
+                )
 
     def test_project_bootstrap_nested_downstream_entrypoint_resolves_selected_contract(self) -> None:
         _name, entrypoint = project_bootstrap.render_entrypoint(
@@ -2214,7 +2211,14 @@ class BootstrapRenderingTests(unittest.TestCase):
 
     def test_project_bootstrap_has_one_template_source_root(self) -> None:
         help_result = run_bounded(
-            [sys.executable, "-B", str(SCRIPTS_DIR / "project_bootstrap.py"), "--help"],
+            [
+                sys.executable,
+                "-E",
+                "-S",
+                "-B",
+                str(SCRIPTS_DIR / "project_bootstrap.py"),
+                "--help",
+            ],
             cwd=REPO_ROOT,
             check=False,
             capture_output=True,
