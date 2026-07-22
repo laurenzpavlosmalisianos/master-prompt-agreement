@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import io
+import os
 from pathlib import Path
+import shlex
 import tempfile
 import unittest
 from unittest import mock
@@ -100,9 +102,191 @@ class EvidenceScopeTests(unittest.TestCase):
                 evidence_scope.collect_paths(args, evidence_scope.validate_root(args.root)),
             )
 
+    def test_evidence_scope_does_not_execute_repository_fsmonitor(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir)
+            root = fixture / "repo"
+            root.mkdir()
+            run_bounded(["git", "init", "-q"], cwd=root, check=True)
+            tracked = root / "tracked.md"
+            tracked.write_text("baseline\n", encoding="utf-8")
+            run_bounded(["git", "add", "tracked.md"], cwd=root, check=True)
+            run_bounded(
+                [
+                    "git",
+                    "-c",
+                    "user.name=Framework Test",
+                    "-c",
+                    "user.email=framework@example.invalid",
+                    "commit",
+                    "-qm",
+                    "baseline",
+                ],
+                cwd=root,
+                check=True,
+            )
+            marker = fixture / "fsmonitor-executed"
+            monitor = fixture / "fsmonitor.sh"
+            monitor.write_text(
+                "#!/bin/sh\nprintf executed > " + shlex.quote(str(marker)) + "\n",
+                encoding="utf-8",
+            )
+            monitor.chmod(0o700)
+            run_bounded(
+                ["git", "config", "core.fsmonitor", str(monitor)],
+                cwd=root,
+                check=True,
+            )
+            outside_worktree = fixture / "outside-worktree"
+            outside_worktree.mkdir()
+            (outside_worktree / "outside-only.md").write_text(
+                "outside\n",
+                encoding="utf-8",
+            )
+            run_bounded(
+                ["git", "config", "core.worktree", str(outside_worktree)],
+                cwd=root,
+                check=True,
+            )
+            tracked.write_text("changed\n", encoding="utf-8")
+            (root / "untracked.md").write_text("untracked\n", encoding="utf-8")
+            args = evidence_scope.build_parser().parse_args(
+                ["--diff-base", "HEAD", "--root", str(root)]
+            )
+
+            self.assertEqual(
+                ["tracked.md", "untracked.md"],
+                evidence_scope.collect_paths(args, evidence_scope.validate_root(args.root)),
+            )
+            self.assertFalse(marker.exists())
+
+    def test_git_query_rejects_unmaintained_or_unbounded_shapes(self) -> None:
+        for arguments in (
+            ["status", "--short"],
+            ["diff", "--name-only", "-z", "HEAD", "--"],
+            ["cat-file", "--batch"],
+            ["check-ignore", "--", "unregistered/raw"],
+        ):
+            with self.subTest(arguments=arguments), self.assertRaises(ValueError):
+                evidence_scope.git_query.closed_git_query_command(arguments)
+
+    def test_git_query_ignores_ambient_path_and_requires_qualified_override(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            poison = Path(temp_dir)
+            fake_git = poison / "git"
+            fake_git.write_text("#!/bin/sh\nexit 97\n", encoding="utf-8")
+            fake_git.chmod(0o700)
+            fake_git_path = fake_git.resolve(strict=True)
+            with mock.patch.dict(os.environ, {"PATH": str(poison)}):
+                command = evidence_scope.git_query.closed_git_query_command(
+                    ["ls-files", "--others", "-z", "--"]
+                )
+                environment = (
+                    evidence_scope.git_query.closed_git_query_environment(poison)
+                )
+
+        self.assertTrue(Path(command[0]).is_absolute())
+        self.assertNotEqual(fake_git_path, Path(command[0]))
+        self.assertEqual(os.defpath, environment["PATH"])
+        with self.assertRaisesRegex(ValueError, "must be an absolute path"):
+            evidence_scope.git_query.closed_git_query_command(
+                ["ls-files", "--others", "-z", "--"],
+                executable="git",
+            )
+
+    def test_evidence_scope_does_not_execute_ambient_path_git(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            root = base / "repo"
+            poison = base / "poison"
+            root.mkdir()
+            poison.mkdir()
+            run_bounded(["git", "init", "-q"], cwd=root, check=True)
+            (root / "untracked.md").write_text("new\n", encoding="utf-8")
+            marker = base / "poison-git-executed"
+            fake_git = poison / "git"
+            fake_git.write_text(
+                "#!/bin/sh\nprintf executed > "
+                + shlex.quote(str(marker))
+                + "\nexit 97\n",
+                encoding="utf-8",
+            )
+            fake_git.chmod(0o700)
+
+            with mock.patch.dict(os.environ, {"PATH": str(poison)}):
+                paths = evidence_scope.run_git(
+                    ["ls-files", "--others", "--exclude-standard", "-z", "--"],
+                    root,
+                )
+
+        self.assertEqual(["untracked.md"], paths)
+        self.assertFalse(marker.exists())
+
+    def test_git_query_does_not_discover_an_enclosing_repository(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            outer = Path(temp_dir) / "outer:with-colon"
+            selected = outer / "selected"
+            selected.mkdir(parents=True)
+            run_bounded(["git", "init", "-q"], cwd=outer, check=True)
+            (outer / "outer-only.md").write_text("outer\n", encoding="utf-8")
+            run_bounded(["git", "add", "outer-only.md"], cwd=outer, check=True)
+            (selected / "selected-only.md").write_text(
+                "selected\n",
+                encoding="utf-8",
+            )
+
+            returncode, stdout, _stderr = evidence_scope._bounded_git(
+                ["ls-files", "--others", "-z", "--"],
+                selected,
+            )
+
+        self.assertNotEqual(0, returncode)
+        self.assertEqual(b"", stdout)
+
+    def test_git_query_supports_a_selected_linked_worktree(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir)
+            primary = fixture / "primary"
+            linked = fixture / "linked"
+            primary.mkdir()
+            run_bounded(["git", "init", "-q"], cwd=primary, check=True)
+            (primary / "tracked.md").write_text("baseline\n", encoding="utf-8")
+            run_bounded(["git", "add", "tracked.md"], cwd=primary, check=True)
+            run_bounded(
+                [
+                    "git",
+                    "-c",
+                    "user.name=Framework Test",
+                    "-c",
+                    "user.email=framework@example.invalid",
+                    "commit",
+                    "-qm",
+                    "baseline",
+                ],
+                cwd=primary,
+                check=True,
+            )
+            run_bounded(
+                ["git", "worktree", "add", "-q", "--detach", str(linked), "HEAD"],
+                cwd=primary,
+                check=True,
+            )
+            (linked / "tracked.md").write_text("changed\n", encoding="utf-8")
+            args = evidence_scope.build_parser().parse_args(
+                ["--diff-base", "HEAD", "--root", str(linked)]
+            )
+
+            self.assertEqual(
+                ["tracked.md"],
+                evidence_scope.collect_paths(
+                    args,
+                    evidence_scope.validate_root(args.root),
+                ),
+            )
+
     def test_evidence_scope_git_runner_delegates_with_exact_policy(self) -> None:
         result = evidence_scope.bounded_subprocess.BoundedProcessResult(
-            args=("git", "status", "--short"),
+            args=("git", "ls-files", "--others", "-z", "--"),
             returncode=7,
             stdout=b"stdout",
             stderr=b"stderr",
@@ -115,12 +299,18 @@ class EvidenceScopeTests(unittest.TestCase):
             "run_bounded_process",
             return_value=result,
         ) as run:
-            observed = evidence_scope._bounded_git(["status", "--short"], root)
+            observed = evidence_scope._bounded_git(
+                ["ls-files", "--others", "-z", "--"],
+                root,
+            )
 
         self.assertEqual((7, b"stdout", b"stderr"), observed)
         run.assert_called_once_with(
-            ["git", "status", "--short"],
+            evidence_scope.git_query.closed_git_query_command(
+                ["ls-files", "--others", "-z", "--"]
+            ),
             cwd=root,
+            env=evidence_scope.git_query.closed_git_query_environment(root),
             timeout_seconds=evidence_scope.GIT_COMMAND_TIMEOUT_SECONDS,
             max_output_bytes=evidence_scope.GIT_COMMAND_MAX_OUTPUT_BYTES,
             maximum_timeout_seconds=evidence_scope.GIT_COMMAND_TIMEOUT_SECONDS,
@@ -133,7 +323,7 @@ class EvidenceScopeTests(unittest.TestCase):
             (
                 True,
                 False,
-                "git status timed out after 10s",
+                "git ls-files --others -z -- timed out after 10s",
             ),
             (
                 False,
@@ -143,7 +333,7 @@ class EvidenceScopeTests(unittest.TestCase):
         )
         for timed_out, output_exceeded, expected in cases:
             result = evidence_scope.bounded_subprocess.BoundedProcessResult(
-                args=("git", "status"),
+                args=("git", "ls-files", "--others", "-z", "--"),
                 returncode=-9,
                 stdout=b"partial stdout",
                 stderr=b"partial stderr",
@@ -159,7 +349,10 @@ class EvidenceScopeTests(unittest.TestCase):
                 ),
                 self.assertRaises(SystemExit) as raised,
             ):
-                evidence_scope._bounded_git(["status"], Path.cwd())
+                evidence_scope._bounded_git(
+                    ["ls-files", "--others", "-z", "--"],
+                    Path.cwd(),
+                )
             self.assertEqual(expected, str(raised.exception))
 
     def test_evidence_scope_git_runner_preserves_start_and_nonzero_diagnostics(self) -> None:
@@ -175,15 +368,18 @@ class EvidenceScopeTests(unittest.TestCase):
             ),
             self.assertRaises(SystemExit) as raised,
         ):
-            evidence_scope._bounded_git(["status"], Path.cwd())
+            evidence_scope._bounded_git(
+                ["ls-files", "--others", "-z", "--"],
+                Path.cwd(),
+            )
         self.assertEqual(
-            "git status could not start: git unavailable",
+            "git ls-files --others -z -- could not start: git unavailable",
             str(raised.exception),
         )
 
         cases = (
             (b"ignored", b" fatal \xff error \n", "fatal � error"),
-            (b"ignored", b" \n", "git status failed"),
+            (b"ignored", b" \n", "git ls-files --others -z -- failed"),
         )
         for stdout, stderr, expected in cases:
             with (
@@ -195,7 +391,10 @@ class EvidenceScopeTests(unittest.TestCase):
                 ),
                 self.assertRaises(SystemExit) as nonzero,
             ):
-                evidence_scope.run_git(["status"], Path.cwd())
+                evidence_scope.run_git(
+                    ["ls-files", "--others", "-z", "--"],
+                    Path.cwd(),
+                )
             self.assertEqual(expected, str(nonzero.exception))
 
     def test_evidence_scope_preserves_nul_path_framing_contract(self) -> None:

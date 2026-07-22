@@ -9,11 +9,10 @@ change that earns its prompt, process, and maintenance cost, while preserving
 useful empirical controls and preventing regressions relative to the current
 framework and capable native defaults.
 
-Mode: `assess` by default. Use `act` only under direct framework-maintainer
-authority or a framework-authoring project contract that carries an explicit
-maintainer-granted standing authority for the candidate and its effects. A
-downstream SOW may authorize project-local feedback or proposals, but it cannot
-authorize edits to shared framework product surfaces.
+Mode: `assess` by default. Use `act` only when authority explicitly grants
+maintenance of the affected framework product surface and the candidate's
+effects. Project-local authority may authorize feedback or proposals, but it
+cannot authorize edits to a separately owned shared framework product.
 
 The machine-readable contract in `runtime/workflow_catalog.json` owns the legal
 mode/outcome pairs. `assess` may end only at `ready-for-act`, `needs-evidence`,

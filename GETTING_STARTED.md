@@ -2,18 +2,18 @@
 
 Use this file when you have just downloaded the framework and want an agent to set up a downstream project.
 
-## Do Not Copy Root Files
+## Product And Target Entrypoints
 
-The root `AGENTS.md` in this repository is for maintaining the framework itself. Do not copy it into a downstream project. Downstream projects should be bootstrapped from `task_orders/init.md` so the framework renders the governing contract from the declarative model and its `statement_of_work_template.md` and `runtime/project_template.md` projections, receipt-declared state from `project_state_templates/`, and runtime entrypoints or selected wrappers from `integrations/templates/`.
+The root `AGENTS.md` guides an agent that is using this framework distribution.
+Do not copy it into a downstream project. Follow `task_orders/init.md` so the
+framework renders the governing contract from the declarative model and its
+`statement_of_work_template.md` and `runtime/project_template.md` projections,
+receipt-declared state from `project_state_templates/`, and a target-local
+entrypoint or selected wrapper from `integrations/templates/`.
 
-The root `CLAUDE.md` is only a Claude Code wrapper that imports this repository's root `AGENTS.md`. Do not copy it into a downstream project either.
-
-A maintainer's richer authoring checkout may provide an excluded concrete
-authoring-project projection that the root entrypoint loads conditionally. That
-local instance is for maintaining this repository; it is neither a downstream
-template nor part of the public export.
-
-Generated downstream files may use the same names, but they are rendered from `integrations/templates/` and contain downstream-specific framework references. The root files in this repository contain framework-maintenance instructions.
+The root `CLAUDE.md` is a Claude Code wrapper for the same product guidance; do
+not copy it into a target either. Generated downstream files may use the same
+names, but they contain target-specific authority and framework references.
 
 ## Requirements
 
@@ -26,9 +26,10 @@ first bounded lifecycle transaction on the selected project filesystem.
 
 Native Windows is not currently a supported environment for bootstrap or
 refresh transactions. A POSIX container or comparable approved POSIX
-environment may be used. The `py -3 -B` spelling is only a candidate diagnostic
-runner; its presence does not establish native Windows support, and it is usable
-only when the same prerequisite report confirms every required capability.
+environment may be used. The `py -3 -E -S -B` spelling is only a candidate
+diagnostic runner; its presence does not establish native Windows support, and
+it is usable only when the same prerequisite report confirms every required
+capability.
 
 ## Launch With Both Directories
 
@@ -37,7 +38,7 @@ The setup agent must be able to read this framework checkout and inspect or writ
 Codex CLI:
 
 ```bash
-codex --cd /abs/path/to/master_prompt_agreement --add-dir /abs/path/to/project
+codex --cd /abs/path/to/framework-checkout --add-dir /abs/path/to/project
 ```
 
 Codex app:
@@ -48,12 +49,20 @@ Claude Code:
 
 ```bash
 cd /abs/path/to/project
-claude --add-dir /abs/path/to/master_prompt_agreement
+claude --add-dir /abs/path/to/framework-checkout
 ```
 
 Other filesystem-capable agents:
 
 Give the agent explicit read access to this framework checkout and explicit write access to the target project. Do not use global filesystem access merely to bypass missing workspace roots.
+
+## Runtime Choice
+
+| Target runtime | Bootstrap value | Generated entrypoint |
+|---|---|---|
+| Codex | `codex` | `AGENTS.md` |
+| Claude Code | `claude-code` | `CLAUDE.md` |
+| Other filesystem-capable agent | `generic` | `AGENTS.md` |
 
 ## Fast Path
 
@@ -65,42 +74,12 @@ Bootstrap also requires every selected managed output path to be unoccupied.
 An ordinary same-name file such as `AGENTS.md`, `CLAUDE.md`, `TODO.md`,
 `DECISIONS.md`, or root `PROJECT_INSTANCE.json` is preserved and blocks any plan
 that would overwrite it; route that collision to reviewed project-specific
-integration or select a non-colliding layout before bootstrap.
-
-In the prompts below, `<framework-checkout-on-diagnostic-host>` is the exact
-framework path in the environment that launches `scripts/check_prereqs.py`.
-`<runner>` means the exact tested interpreter reported by its no-error result
-with `runner_usable: true`, plus an unchanged container or `uv` prefix only when
-that exact boundary invoked the successful diagnostic. A wrapper-prefixed
-runner can use a different working directory or mount namespace, so
-`<framework-checkout-as-visible-to-runner>` means the exact framework path that
-the selected runner can resolve. Use that path for every framework-owned script;
-do not assume bare `scripts/...` resolves from the runner's working directory.
-
-Choose the framework reference deliberately and require
-`--framework-revision-policy <live|pinned>` in both the dry-run and approved
-write command. If generated files may be committed, shared, or published, also
-require `--framework-ref <stable-framework-reference>`.
-
-Codex:
+integration or select a non-colliding layout before bootstrap. Replace the
+three angle-bracket values below with the selected paths and runtime from the
+table above:
 
 ```text
-Read /abs/path/to/master_prompt_agreement/runtime/operative_charter.md and /abs/path/to/master_prompt_agreement/task_orders/init.md, then set up /abs/path/to/project for Codex.
-Inspect the target project first, ask only missing setup questions, explain and confirm whether its framework reference is live or operator-pinned, and determine whether generated files may be committed, shared, or published. For any such shared output, select a stable reference that resolves from a fresh downstream checkout and include `--framework-ref <stable-framework-reference>` in both the dry-run and approved write; do not substitute the maintainer's personal checkout path. Run the prerequisite check through the intended execution boundary, resolve the framework checkout as visible to the qualified runner, create a temporary answers JSON using examples/project_bootstrap_answers.example.json only as a minimal example and targeted definitions from examples/project_bootstrap_answers.schema.json as the closed field contract, then run `<runner> <framework-checkout-as-visible-to-runner>/scripts/project_bootstrap.py --dry-run --answers <temporary-answers-json> --project-root /abs/path/to/project --runtime codex --framework-revision-policy <live|pinned>`, appending `--framework-ref <stable-framework-reference>` as ordinary arguments for shared output and omitting that entire argument pair otherwise, then ask before writing files.
-```
-
-Claude Code:
-
-```text
-Read /abs/path/to/master_prompt_agreement/runtime/operative_charter.md and /abs/path/to/master_prompt_agreement/task_orders/init.md, then set up /abs/path/to/project for Claude Code.
-Use runtime claude-code so the generated entrypoint is CLAUDE.md. Inspect the target project first, ask only missing setup questions, explain and confirm whether its framework reference is live or operator-pinned, and determine whether generated files may be committed, shared, or published. For any such shared output, select a stable reference that resolves from a fresh downstream checkout and include `--framework-ref <stable-framework-reference>` in both the dry-run and approved write; do not substitute the maintainer's personal checkout path. Run the prerequisite check through the intended execution boundary, resolve the framework checkout as visible to the qualified runner, create a temporary answers JSON using examples/project_bootstrap_answers.example.json only as a minimal example and targeted definitions from examples/project_bootstrap_answers.schema.json as the closed field contract, then run `<runner> <framework-checkout-as-visible-to-runner>/scripts/project_bootstrap.py --dry-run --answers <temporary-answers-json> --project-root /abs/path/to/project --runtime claude-code --framework-revision-policy <live|pinned>`, appending `--framework-ref <stable-framework-reference>` as ordinary arguments for shared output and omitting that entire argument pair otherwise, and ask before writing files.
-```
-
-Other filesystem-capable agents:
-
-```text
-Read /abs/path/to/master_prompt_agreement/runtime/operative_charter.md and /abs/path/to/master_prompt_agreement/task_orders/init.md, then set up /abs/path/to/project with runtime generic.
-Inspect the target project first, ask only missing setup questions, explain and confirm whether its framework reference is live or operator-pinned, and determine whether generated files may be committed, shared, or published. For any such shared output, select a stable reference that resolves from a fresh downstream checkout and include `--framework-ref <stable-framework-reference>` in both the dry-run and approved write; do not substitute the maintainer's personal checkout path. Run the prerequisite check through the intended execution boundary, resolve the framework checkout as visible to the qualified runner, create a temporary answers JSON using examples/project_bootstrap_answers.example.json only as a minimal example and targeted definitions from examples/project_bootstrap_answers.schema.json as the closed field contract, then run `<runner> <framework-checkout-as-visible-to-runner>/scripts/project_bootstrap.py --dry-run --answers <temporary-answers-json> --project-root /abs/path/to/project --runtime generic --framework-revision-policy <live|pinned>`, appending `--framework-ref <stable-framework-reference>` as ordinary arguments for shared output and omitting that entire argument pair otherwise, and ask before writing files.
+Read <framework-checkout>/runtime/operative_charter.md and <framework-checkout>/task_orders/init.md, then set up <project-root> using runtime <codex|claude-code|generic>. Follow the Task Order exactly: inspect the target; preserve any collision; ask only for missing project facts; qualify the intended runner; confirm a live or pinned framework reference and a fresh-checkout-stable reference for any generated files that may be shared; build temporary retained input from the minimal example and only the relevant schema definitions; render and explain the exact dry-run plan; and stop for the required digest and warning approvals before any write. Do not place a maintainer's personal checkout path in shared output.
 ```
 
 ## What Setup Creates
@@ -120,8 +99,8 @@ Retained input can contain concrete project paths, commands, and other private
 facts. Do not store secrets in it. Minimize unnecessary sensitive material while
 retaining required project facts, and review the retained file before tracking,
 sharing, or publishing the downstream repository; use approved indirection for
-sensitive values. Framework-publication ignore rules do not sanitize downstream
-repositories. The instance receipt uses
+sensitive values. Ignore rules in the framework checkout do not sanitize a
+downstream repository. The instance receipt uses
 the retained contract effective date and does not accumulate refresh timestamps
 or history. Its `contract_root` field locates the retained input, authority, and
 state when an explicitly selected layout keeps those surfaces in a nested
@@ -129,44 +108,32 @@ directory.
 
 Optional files such as `FINDINGS.md`, `REVIEWER_LANE_FEEDBACK.md`, `FRAMEWORK_FEEDBACK.md`, `PRECEDENTS.md`, `SOURCE_PACKS.md`, `SOURCE_UPDATE.md`, `SOURCE_MONITOR_RESEARCHER.md`, `SECURITY_VERIFICATION.md`, and `AUTOMATION_ORDERS.json` are selected during initial setup or a later approved candidate-input refresh only when the project needs them. The source-monitor brief is generated immutable procedure from retained configuration; the other listed optional surfaces are retained mutable state. Procedures may update a receipt-declared mutable surface while preserving its origin marker, but project-specific monitor additions belong in the declared source/state/overlay owners rather than edits to the generated brief. Do not create, copy, rename, or delete an optional generated surface ad hoc. A candidate-disabled optional surface is retired only through the exact plan-bound `RETIRE-IMMUTABLE-####` or `RETIRE-MUTABLE-####` action matching its receipt partition, a path-specific warning, and the applicable verified exact-preimage controls.
 
-## Source And Feedback Loop
+After setup, route source monitoring, retained research, reviewer feedback, and
+reusable improvement candidates through [Source And Feedback](docs/source_and_feedback.md).
+Those optional workflows are not part of the initialization packet unless the
+project selects them.
 
-Downstream projects should not re-research a source family from scratch when the project already has `SOURCE_PACKS.md`, `SOURCE_UPDATE.md`, or an approved shared framework source reference for that surface. For example, a Rust project should check the project source registry and any approved framework-maintained Rust source reference before launching a new web search for routine Rust release or tooling facts. If those sources are stale, incomplete, inaccessible, or not approved for the current acquisition boundary, record the gap and then perform the smallest approved source check.
+## Detailed Procedure
 
-Use `SOURCE_MONITOR_RESEARCHER.md` only for observe-only recurring or explicitly
-delegated source discovery; project authority owns the cadence or trigger. It
-points agents at approved parent roots, feeds, changelogs, repositories, or
-project registries and should produce a findings packet for later coordinator
-review. Do not let a monitor run edit source registries, templates, guides,
-code, or standing instructions without a separate review/apply step.
+`<framework-checkout-on-diagnostic-host>` is the exact framework path in the
+environment that launches `scripts/check_prereqs.py`. `<runner>` means the exact
+tested interpreter reported by its no-error result with `runner_usable: true`,
+plus an unchanged container or `uv` prefix only when that exact boundary invoked
+the successful diagnostic. A wrapper-prefixed runner can use a different
+working directory or mount namespace, so
+`<framework-checkout-as-visible-to-runner>` is the exact framework path that the
+selected runner can resolve. Use that path for every framework-owned script;
+do not assume bare `scripts/...` resolves from the runner's working directory.
+`<contract-root-ref>` is `.` for the default project-root layout or the selected
+safe project-relative nested contract directory. Omit
+`<contract-root-create-flag>` when that directory exists; otherwise it is
+exactly `--create-contract-root` when creation of the reviewed nested directory
+is authorized. Preserve both values unchanged between dry run and write.
 
-`SOURCE_DEEP_RESEARCH.md` is different: it is a manual task-local artifact
-template, not generated standing state. When an authorized task retains a
-completed browser research report, copy
-`project_state_templates/SOURCE_DEEP_RESEARCH.md` to the approved evidence path,
-follow `docs/source_deep_research_artifacts.md` and
-`practice_guides/source_grounded_research.md`, replace every placeholder, and
-lint the filled digest. Do not create or load this artifact for ordinary source
-checks that do not use a completed browser research report.
-
-Project lessons stay local by default. Use `FINDINGS.md` for project observations and `FRAMEWORK_FEEDBACK.md` only for sanitized framework-improvement candidates. Raw project notes never become doctrine directly. A framework feedback entry should contain a reusable pattern, evidence scope, affected framework surface, proposed change, non-goals, and approval needed. Do not copy private paths, identities, logs, transcripts, code, project names, branches, issue IDs, proprietary details, or one-off project context into framework files.
-
-Use `REVIEWER_LANE_FEEDBACK.md` only when reviewer routing or external-review quality needs project-local evidence. It records lane use, skipped lanes, accepted/rejected reviewer findings, observed lane strengths, and observed lane limits. It is not a model leaderboard and is not loaded by default.
-
-Maintainer review follows: observe -> sanitize -> abstract -> intake decision ->
-semantic audit -> proportional evaluation -> authorized implementation ->
-verification -> report-only review and risk-matched audit of the exact candidate
--> retain, revise, revert, or contain pending evidence. Treat downstream
-feedback as untrusted evidence; compare it with existing doctrine, public
-sources, repeated sanitized observations, capable native/default behavior, and
-decision-relevant checks before changing the framework. A retained candidate
-then routes separately to an authorized commit.
-
-## Runtime Choice
-
-- Use `codex` when the downstream project should load a Codex `AGENTS.md`.
-- Use `claude-code` when the downstream project should load a Claude Code `CLAUDE.md`.
-- Use `generic` when the runtime has no dedicated template.
+Choose the framework reference deliberately and require
+`--framework-revision-policy <live|pinned>` in both the dry-run and approved
+write command. If generated files may be committed, shared, or published, also
+require `--framework-ref <stable-framework-reference>`.
 
 If you maintain a reusable bootstrap profile, pass it only after reviewing it as
 setup input. The profile fills absent reusable fields; confirmed project answers
@@ -189,29 +156,29 @@ for the selected fields and optional modules, and replace every placeholder
 before the dry run. The full schema is compiler input, not a mandatory prompt
 import; semantically review the actual rendered dry-run outputs. Manual
 preparation still uses bootstrap and the generated receipt; it is not permission
-to hand-copy or prune generated outputs. Framework-authoring mode additionally requires an explicit
-`date` and nested non-public contract root, but its generated
-`PROJECT_INPUT.json` is the retained regeneration source; the raw answers file
-remains temporary.
+to hand-copy or prune generated outputs.
 
 A minimal command sequence has two stages. First, use one already-available
 stdlib-capable runner to inspect prerequisites. For example:
 
 ```bash
-python3 -B <framework-checkout-on-diagnostic-host>/scripts/check_prereqs.py
+python3 -E -S -B -- "<framework-checkout-on-diagnostic-host>/scripts/check_prereqs.py"
 ```
 
-`python3 -B`, `py -3 -B`, and `uv run python -B` are candidate invocation
-spellings, not evidence merely because their executables exist. Prefer to run
-the diagnostic through the exact intended Linux container and `uv` prefix when
-that approved boundary already exists. Choose one available form; do not install
-or initialize a runner merely to perform prerequisite discovery.
+`python3 -E -S -B`, `py -3 -E -S -B`, and `uv run python -E -S -B` are
+candidate invocation spellings, not evidence merely because their executables
+exist. `-E` ignores `PYTHON*` environment configuration, `-S` suppresses
+automatic `site`, `.pth`, and startup-customization loading, and `-B` prevents
+bytecode writes. Prefer to run the diagnostic through the exact intended Linux
+container and `uv` prefix when that approved boundary already exists. Choose one
+available form; do not install or initialize a runner merely to perform
+prerequisite discovery.
 
 Continue only when `check_prereqs.py` exits zero and reports
 `runner_usable: true`. Copy its exact tested interpreter into the answers file as
 `framework_verification_runner` and use that runner for bootstrap. If the
 successful diagnostic was deliberately invoked through a stable container,
-environment wrapper, or `uv run python -B`, record that exact invocation prefix
+environment wrapper, or `uv run python -E -S -B`, record that exact invocation prefix
 instead of substituting a merely discovered alternate launcher. A reusable setup profile must
 not provide this environment capability. The value prefixes framework-owned
 Python scripts only. Bootstrap validates it, records it in the SOW, and projects
@@ -225,12 +192,12 @@ Then use that exact retained runner for the dry run and pass the confirmed
 revision policy explicitly:
 
 ```bash
-<runner> <framework-checkout-as-visible-to-runner>/scripts/project_bootstrap.py --dry-run --answers <temporary-answers-json> --project-root /abs/path/to/project --runtime <codex|claude-code|generic> --framework-revision-policy <live|pinned>
+<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/project_bootstrap.py" --dry-run --answers <temporary-answers-json> --project-root /abs/path/to/project --contract-root <contract-root-ref> <contract-root-create-flag> --runtime <codex|claude-code|generic> --framework-revision-policy <live|pinned>
 ```
 
 Stop after the dry run. Review the resolved target and contract root, exact input and optional-profile digests, runtime and wrappers, framework reference, revision policy and captured identity, ordered warnings and informational `warnings_sha256`, planned outputs, rendered-output digests, and `write_plan_sha256`. Continue only by rerunning the same bootstrap command without `--dry-run`, preserving the reviewed arguments and adding `--approve-write-plan-sha256 <reviewed-write-plan-sha256>`. This option is required for every write, including a plan with no warnings. Its domain-separated digest binds the complete rendered plan; any input, profile, target, warning, framework, runtime, wrapper, or output change requires a new dry run and review. Missing, malformed, stale, or repeated approvals fail before the writer is called. Plan approval does not approve conformance warnings or relax the strict initial acceptance performed inside the write transaction.
 
-Use `uv run python -B` only when it actually invoked the successful prerequisite diagnostic in the approved environment. Otherwise retain the exact tested interpreter reported by that diagnostic; do not replace it with a discovered `uv`, `python3`, or `py` spelling. `py -3 -B` is not a native-Windows support claim. Do not install `uv`, download Python, resolve dependencies, or create environments during bootstrap unless the user approves that state-changing setup step. Record the project-specific command form in the SOW.
+Use `uv run python -E -S -B` only when it actually invoked the successful prerequisite diagnostic in the approved environment. Otherwise retain the exact tested interpreter and flags reported by that diagnostic; do not replace them with a discovered `uv`, `python3`, or `py` spelling. `py -3 -E -S -B` is not a native-Windows support claim. Do not install `uv`, download Python, resolve dependencies, or create environments during bootstrap unless the user approves that state-changing setup step. Record the project-specific command form in the SOW.
 
 The agent should write `<temporary-answers-json>` as a temporary file, never
 put secret values in it, review the complete dry-run plan and its
@@ -281,7 +248,7 @@ When Codex uses rendered integrations, invoke the `master-prompt-new-project` sk
 
 When either skill should be a receipt-managed output of the generated downstream instance, pass `--runtime-wrapper project_init` and/or `--runtime-wrapper project_refresh` on both the dry run and the approved write. Bootstrap records the complete wrapper-ID set in retained input, binds the rendered outputs in the root receipt, and routes later changes through refresh. The hyphenated `project-init` and `project-refresh` names are template-folder names, not registry IDs.
 
-Use `<runner> <framework-checkout-as-visible-to-runner>/scripts/render_integrations.py --integration codex --output-dir <render-dir> --framework-ref <stable-framework-ref>` only for reviewed standalone or user-level integration packaging outside a receipt-managed generated instance. Supply `--framework-ref` exactly as the destination project resolves it; the renderer rebases relative references inside nested Codex skills, so do not pre-rebase them from the skill directory. Generic entrypoint and task-order routing remains sufficient without these wrappers. Package a plugin only when you want to distribute a stable bundle of skills, app integrations, MCP configuration, hooks, or assets.
+Use `<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/render_integrations.py" --integration codex --output-dir <render-dir> --framework-ref <stable-framework-ref>` only for reviewed standalone or user-level integration packaging outside a receipt-managed generated instance. Supply `--framework-ref` exactly as the destination project resolves it; the renderer rebases relative references inside nested Codex skills, so do not pre-rebase them from the skill directory. Generic entrypoint and task-order routing remains sufficient without these wrappers. Package a plugin only when you want to distribute a stable bundle of skills, app integrations, MCP configuration, hooks, or assets.
 
 For Claude Code, the normal project surface is the generated `CLAUDE.md`. Use Claude-specific skills, agents, hooks, or rules only when a project needs those runtime-native surfaces.
 
@@ -301,7 +268,7 @@ for recovery verification, focused diagnosis, later drift, or independently
 requested evidence. A later standalone core diagnostic uses:
 
 ```bash
-<runner> <framework-checkout-as-visible-to-runner>/scripts/conformance_check.py --profile core-project --root /abs/path/to/project --project-kind downstream --contract-root . --strict-warnings
+<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/conformance_check.py" --profile core-project --root /abs/path/to/project --project-kind downstream --contract-root <contract-root-ref> --strict-warnings
 ```
 
 The core-project aggregate includes required-surface preflight,
@@ -313,7 +280,8 @@ for profile definitions. The receipt is the profile inventory for a separately
 required rerun; do not infer coverage from optional-file guesses.
 
 The generated `AGENT_PROJECT.md` also contains the routine core conformance
-command for later drift checks and task-time verification. It runs
+command for later drift checks and task-time verification. It targets the
+project root and passes the selected contract-root reference. It runs
 from the downstream project root and calls the framework-owned script through
 the approved framework reference using the SOW's confirmed Framework
 Verification Runner. It must not be rewritten as a project-local `scripts/...`
@@ -328,7 +296,3 @@ than rerunning bootstrap or hand-editing generated surfaces. Remove the temporar
 raw answers file using the environment's approved cleanup method only after the
 transaction succeeds and required post-write review is complete. The retained
 project input, not that temporary file, owns future regeneration.
-
-## Maintainers
-
-Framework maintenance uses the repository validation and compliance scripts, but those checks are not part of ordinary downstream setup. Maintainers should run the checks listed in `README.md`, `GOVERNANCE.md`, and the current maintenance task instructions before publishing or committing framework changes.

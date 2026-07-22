@@ -13,6 +13,29 @@ import check_reference_freshness  # noqa: E402
 import url_safety  # noqa: E402
 
 
+GENERIC_REFERENCE_DIRS = (Path("references"),)
+
+
+def collect_reference_issues(
+    root: Path,
+    today: check_reference_freshness.date,
+    max_age_days: int,
+    include_non_reference_docs: bool,
+    *,
+    audit_monitor_roots: bool = False,
+    resolve_hostnames: bool = False,
+) -> list[check_reference_freshness.Issue]:
+    return check_reference_freshness.collect_issues(
+        root,
+        today,
+        max_age_days,
+        include_non_reference_docs,
+        reference_dirs=GENERIC_REFERENCE_DIRS,
+        audit_monitor_roots=audit_monitor_roots,
+        resolve_hostnames=resolve_hostnames,
+    )
+
+
 class ReferenceFreshnessTests(unittest.TestCase):
     def test_source_pack_metadata_scopes_entries_to_sources_section(self) -> None:
         template = (
@@ -167,7 +190,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
     def test_reference_freshness_flags_latest_claims_without_claim_date(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            refs = root / "private" / "references"
+            refs = root / "references"
             refs.mkdir(parents=True)
             doc = refs / "sources.md"
             doc.write_text(
@@ -187,7 +210,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = check_reference_freshness.collect_issues(
+            issues = collect_reference_issues(
                 root,
                 check_reference_freshness.date.fromisoformat("2026-06-12"),
                 180,
@@ -215,7 +238,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = check_reference_freshness.collect_issues(
+            issues = collect_reference_issues(
                 root,
                 check_reference_freshness.date.fromisoformat("2026-06-12"),
                 180,
@@ -224,13 +247,17 @@ class ReferenceFreshnessTests(unittest.TestCase):
 
         self.assertEqual([], issues)
 
-    def test_reference_freshness_public_doc_scan_uses_declared_public_surface(self) -> None:
+    def test_reference_freshness_scans_existing_product_docs_without_complete_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             for rel in ("SECURITY.md", "GOVERNANCE.md", "SPECIFICATION.md", "CONFORMANCE.md", "examples/demo.md"):
                 path = root / rel
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text("# Public Surface\n", encoding="utf-8")
+            (root / "workspace_notes.md").write_text(
+                "# Auxiliary record\n",
+                encoding="utf-8",
+            )
 
             paths = check_reference_freshness.iter_public_markdown_files(
                 root,
@@ -244,11 +271,41 @@ class ReferenceFreshnessTests(unittest.TestCase):
         self.assertIn("SPECIFICATION.md", rels)
         self.assertIn("CONFORMANCE.md", rels)
         self.assertIn("examples/demo.md", rels)
+        self.assertNotIn("workspace_notes.md", rels)
+
+    def test_reference_freshness_product_doc_scan_rejects_symlink_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "repo"
+            outside = Path(temp_dir) / "outside.md"
+            (root / "docs").mkdir(parents=True)
+            outside.write_text("# Outside\n", encoding="utf-8")
+            (root / "docs" / "linked.md").symlink_to(outside)
+
+            with self.assertRaisesRegex(ValueError, "must not contain symlinks"):
+                check_reference_freshness.existing_product_markdown_files(root)
+
+    def test_reference_freshness_product_doc_scan_enforces_entry_bound(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            docs = root / "docs"
+            docs.mkdir()
+            (docs / "one.md").write_text("# One\n", encoding="utf-8")
+            (docs / "two.md").write_text("# Two\n", encoding="utf-8")
+
+            with (
+                mock.patch.object(
+                    check_reference_freshness,
+                    "PRODUCT_DOCUMENTATION_MAX_ENTRIES",
+                    1,
+                ),
+                self.assertRaisesRegex(ValueError, "1-entry limit"),
+            ):
+                check_reference_freshness.existing_product_markdown_files(root)
 
     def test_reference_freshness_does_not_count_dated_url_as_claim_date(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            refs = root / "private" / "references"
+            refs = root / "references"
             refs.mkdir(parents=True)
             doc = refs / "sources.md"
             doc.write_text(
@@ -268,7 +325,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = check_reference_freshness.collect_issues(
+            issues = collect_reference_issues(
                 root,
                 check_reference_freshness.date.fromisoformat("2026-06-12"),
                 180,
@@ -300,7 +357,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = check_reference_freshness.collect_issues(
+            issues = collect_reference_issues(
                 root,
                 check_reference_freshness.date.fromisoformat("2026-06-12"),
                 180,
@@ -327,7 +384,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = check_reference_freshness.collect_issues(
+            issues = collect_reference_issues(
                 root,
                 check_reference_freshness.date.fromisoformat("2026-06-12"),
                 180,
@@ -360,7 +417,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = check_reference_freshness.collect_issues(
+            issues = collect_reference_issues(
                 root,
                 check_reference_freshness.date.fromisoformat("2026-06-12"),
                 180,
@@ -392,7 +449,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = check_reference_freshness.collect_issues(
+            issues = collect_reference_issues(
                 root,
                 check_reference_freshness.date.fromisoformat("2026-06-12"),
                 180,
@@ -428,7 +485,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = check_reference_freshness.collect_issues(
+            issues = collect_reference_issues(
                 root,
                 check_reference_freshness.date.fromisoformat("2026-06-12"),
                 180,
@@ -474,7 +531,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = check_reference_freshness.collect_issues(
+            issues = collect_reference_issues(
                 root,
                 check_reference_freshness.date.fromisoformat("2026-06-12"),
                 180,
@@ -507,7 +564,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = check_reference_freshness.collect_issues(
+            issues = collect_reference_issues(
                 root,
                 check_reference_freshness.date.fromisoformat("2026-06-12"),
                 180,
@@ -747,7 +804,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = check_reference_freshness.collect_issues(
+            issues = collect_reference_issues(
                 root,
                 check_reference_freshness.date.fromisoformat("2026-06-12"),
                 180,
@@ -767,7 +824,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
         for url, expected in cases.items():
             with self.subTest(url=url), tempfile.TemporaryDirectory() as temp_dir:
                 root = Path(temp_dir)
-                refs = root / "private" / "references"
+                refs = root / "references"
                 refs.mkdir(parents=True)
                 doc = refs / "sources.md"
                 doc.write_text(
@@ -787,7 +844,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                     encoding="utf-8",
                 )
 
-                issues = check_reference_freshness.collect_issues(
+                issues = collect_reference_issues(
                     root,
                     check_reference_freshness.date.fromisoformat("2026-06-12"),
                     180,
@@ -799,7 +856,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
     def test_reference_freshness_treats_commit_hashes_as_source_state(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            refs = root / "private" / "references"
+            refs = root / "references"
             refs.mkdir(parents=True)
             doc = refs / "sources.md"
             doc.write_text(
@@ -819,7 +876,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = check_reference_freshness.collect_issues(
+            issues = collect_reference_issues(
                 root,
                 check_reference_freshness.date.fromisoformat("2026-06-12"),
                 180,
@@ -834,7 +891,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
     def test_reference_freshness_rejects_invalid_claim_dates(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            refs = root / "private" / "references"
+            refs = root / "references"
             refs.mkdir(parents=True)
             doc = refs / "sources.md"
             doc.write_text(
@@ -854,7 +911,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = check_reference_freshness.collect_issues(
+            issues = collect_reference_issues(
                 root,
                 check_reference_freshness.date.fromisoformat("2026-06-12"),
                 180,
@@ -869,7 +926,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
     def test_reference_freshness_rejects_unqualified_prerelease_urls(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            refs = root / "private" / "references"
+            refs = root / "references"
             refs.mkdir(parents=True)
             doc = refs / "sources.md"
             doc.write_text(
@@ -889,7 +946,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = check_reference_freshness.collect_issues(
+            issues = collect_reference_issues(
                 root,
                 check_reference_freshness.date.fromisoformat("2026-06-12"),
                 180,
@@ -925,7 +982,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
     def test_reference_freshness_rejects_parent_roots_inside_case_study_entries(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            refs = root / "private" / "references"
+            refs = root / "references"
             refs.mkdir(parents=True)
             doc = refs / "sources.md"
             doc.write_text(
@@ -946,7 +1003,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = check_reference_freshness.collect_issues(
+            issues = collect_reference_issues(
                 root,
                 check_reference_freshness.date.fromisoformat("2026-06-12"),
                 180,
@@ -961,7 +1018,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
     def test_reference_freshness_does_not_reject_case_study_monitor_root_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            refs = root / "private" / "references"
+            refs = root / "references"
             refs.mkdir(parents=True)
             doc = refs / "sources.md"
             doc.write_text(
@@ -986,7 +1043,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = check_reference_freshness.collect_issues(
+            issues = collect_reference_issues(
                 root,
                 check_reference_freshness.date.fromisoformat("2026-06-12"),
                 180,
@@ -1002,7 +1059,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
     def test_reference_freshness_does_not_flag_dated_latest_claims(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            refs = root / "private" / "references"
+            refs = root / "references"
             refs.mkdir(parents=True)
             doc = refs / "sources.md"
             doc.write_text(
@@ -1022,7 +1079,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = check_reference_freshness.collect_issues(
+            issues = collect_reference_issues(
                 root,
                 check_reference_freshness.date.fromisoformat("2026-06-12"),
                 180,
@@ -1034,7 +1091,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
     def test_reference_freshness_monitor_root_audit_does_not_flag_reference_only_exact_item(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            refs = root / "private" / "references"
+            refs = root / "references"
             refs.mkdir(parents=True)
             doc = refs / "sources.md"
             doc.write_text(
@@ -1054,7 +1111,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = check_reference_freshness.collect_issues(
+            issues = collect_reference_issues(
                 root,
                 check_reference_freshness.date.fromisoformat("2026-06-12"),
                 180,
@@ -1067,7 +1124,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
     def test_reference_freshness_monitor_root_audit_does_not_flag_parent_root(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            refs = root / "private" / "references"
+            refs = root / "references"
             refs.mkdir(parents=True)
             doc = refs / "sources.md"
             doc.write_text(
@@ -1088,7 +1145,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = check_reference_freshness.collect_issues(
+            issues = collect_reference_issues(
                 root,
                 check_reference_freshness.date.fromisoformat("2026-06-12"),
                 180,
@@ -1104,7 +1161,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
     def test_reference_freshness_monitor_root_audit_does_not_flag_canonical_exact_root_with_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            refs = root / "private" / "references"
+            refs = root / "references"
             refs.mkdir(parents=True)
             doc = refs / "sources.md"
             doc.write_text(
@@ -1133,7 +1190,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = check_reference_freshness.collect_issues(
+            issues = collect_reference_issues(
                 root,
                 check_reference_freshness.date.fromisoformat("2026-06-12"),
                 180,
@@ -1146,7 +1203,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
     def test_reference_freshness_monitor_root_audit_rejects_retired_canonical_exact_root_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            refs = root / "private" / "references"
+            refs = root / "references"
             refs.mkdir(parents=True)
             doc = refs / "sources.md"
             doc.write_text(
@@ -1174,7 +1231,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = check_reference_freshness.collect_issues(
+            issues = collect_reference_issues(
                 root,
                 check_reference_freshness.date.fromisoformat("2026-06-12"),
                 180,
@@ -1194,7 +1251,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
     def test_reference_freshness_monitor_root_audit_rejects_latest_path_without_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            refs = root / "private" / "references"
+            refs = root / "references"
             refs.mkdir(parents=True)
             doc = refs / "sources.md"
             doc.write_text(
@@ -1216,7 +1273,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = check_reference_freshness.collect_issues(
+            issues = collect_reference_issues(
                 root,
                 check_reference_freshness.date.fromisoformat("2026-06-12"),
                 180,
@@ -1232,7 +1289,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
     def test_reference_freshness_monitor_root_audit_does_not_flag_topic_root(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            refs = root / "private" / "references"
+            refs = root / "references"
             refs.mkdir(parents=True)
             doc = refs / "sources.md"
             doc.write_text(
@@ -1254,7 +1311,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = check_reference_freshness.collect_issues(
+            issues = collect_reference_issues(
                 root,
                 check_reference_freshness.date.fromisoformat("2026-06-12"),
                 180,
@@ -1267,7 +1324,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
     def test_reference_freshness_monitor_root_audit_does_not_flag_search_label_root(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            refs = root / "private" / "references"
+            refs = root / "references"
             refs.mkdir(parents=True)
             doc = refs / "sources.md"
             doc.write_text(
@@ -1289,7 +1346,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = check_reference_freshness.collect_issues(
+            issues = collect_reference_issues(
                 root,
                 check_reference_freshness.date.fromisoformat("2026-06-12"),
                 180,
@@ -1305,7 +1362,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
     def test_reference_freshness_monitor_root_audit_rejects_product_specific_root_without_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            refs = root / "private" / "references"
+            refs = root / "references"
             refs.mkdir(parents=True)
             doc = refs / "sources.md"
             doc.write_text(
@@ -1327,7 +1384,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = check_reference_freshness.collect_issues(
+            issues = collect_reference_issues(
                 root,
                 check_reference_freshness.date.fromisoformat("2026-06-24"),
                 180,
@@ -1343,7 +1400,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
     def test_reference_freshness_monitor_root_audit_does_not_flag_section_parent_root(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            refs = root / "private" / "references"
+            refs = root / "references"
             refs.mkdir(parents=True)
             doc = refs / "sources.md"
             doc.write_text(
@@ -1367,7 +1424,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = check_reference_freshness.collect_issues(
+            issues = collect_reference_issues(
                 root,
                 check_reference_freshness.date.fromisoformat("2026-06-12"),
                 180,
@@ -1383,7 +1440,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
     def test_reference_freshness_monitor_root_audit_does_not_flag_reference_only_without_section_parent(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            refs = root / "private" / "references"
+            refs = root / "references"
             refs.mkdir(parents=True)
             doc = refs / "sources.md"
             doc.write_text(
@@ -1409,7 +1466,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = check_reference_freshness.collect_issues(
+            issues = collect_reference_issues(
                 root,
                 check_reference_freshness.date.fromisoformat("2026-06-12"),
                 180,
@@ -1425,7 +1482,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
     def test_reference_freshness_monitor_root_audit_treats_parent_url_as_root(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            refs = root / "private" / "references"
+            refs = root / "references"
             refs.mkdir(parents=True)
             doc = refs / "sources.md"
             doc.write_text(
@@ -1446,7 +1503,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = check_reference_freshness.collect_issues(
+            issues = collect_reference_issues(
                 root,
                 check_reference_freshness.date.fromisoformat("2026-06-12"),
                 180,
@@ -1463,7 +1520,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
         obsolete_marker = "none" + "-one-off"
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            refs = root / "private" / "references"
+            refs = root / "references"
             refs.mkdir(parents=True)
             doc = refs / "sources.md"
             doc.write_text(
@@ -1484,7 +1541,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = check_reference_freshness.collect_issues(
+            issues = collect_reference_issues(
                 root,
                 check_reference_freshness.date.fromisoformat("2026-06-12"),
                 180,
@@ -1500,7 +1557,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
     def test_reference_freshness_monitor_root_audit_rejects_exact_monitor_root(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            refs = root / "private" / "references"
+            refs = root / "references"
             refs.mkdir(parents=True)
             doc = refs / "sources.md"
             doc.write_text(
@@ -1522,7 +1579,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = check_reference_freshness.collect_issues(
+            issues = collect_reference_issues(
                 root,
                 check_reference_freshness.date.fromisoformat("2026-06-12"),
                 180,
@@ -1538,7 +1595,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
     def test_reference_freshness_monitor_root_audit_rejects_prose_only_cross_host_approval(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            refs = root / "private" / "references"
+            refs = root / "references"
             refs.mkdir(parents=True)
             doc = refs / "sources.md"
             doc.write_text(
@@ -1561,7 +1618,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = check_reference_freshness.collect_issues(
+            issues = collect_reference_issues(
                 root,
                 check_reference_freshness.date.fromisoformat("2026-06-12"),
                 180,
@@ -1577,7 +1634,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
     def test_reference_freshness_monitor_root_audit_does_not_infer_subdomain_authority(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            refs = root / "private" / "references"
+            refs = root / "references"
             refs.mkdir(parents=True)
             doc = refs / "sources.md"
             doc.write_text(
@@ -1599,7 +1656,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = check_reference_freshness.collect_issues(
+            issues = collect_reference_issues(
                 root,
                 check_reference_freshness.date.fromisoformat("2026-06-12"),
                 180,
@@ -1646,7 +1703,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            refs = root / "private" / "references"
+            refs = root / "references"
             refs.mkdir(parents=True)
             doc = refs / "sources.md"
             doc.write_text(
@@ -1669,7 +1726,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = check_reference_freshness.collect_issues(
+            issues = collect_reference_issues(
                 root,
                 check_reference_freshness.date.fromisoformat("2026-06-12"),
                 180,
@@ -1919,7 +1976,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
     def test_reference_freshness_monitor_root_audit_rejects_repository_tree_root(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            refs = root / "private" / "references"
+            refs = root / "references"
             refs.mkdir(parents=True)
             doc = refs / "sources.md"
             doc.write_text(
@@ -1942,7 +1999,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = check_reference_freshness.collect_issues(
+            issues = collect_reference_issues(
                 root,
                 check_reference_freshness.date.fromisoformat("2026-06-12"),
                 180,
@@ -1958,7 +2015,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
     def test_reference_freshness_monitor_root_audit_rejects_text_only_monitor_root(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            refs = root / "private" / "references"
+            refs = root / "references"
             refs.mkdir(parents=True)
             doc = refs / "sources.md"
             doc.write_text(
@@ -1979,7 +2036,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = check_reference_freshness.collect_issues(
+            issues = collect_reference_issues(
                 root,
                 check_reference_freshness.date.fromisoformat("2026-06-12"),
                 180,
@@ -1995,7 +2052,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
     def test_reference_freshness_monitor_root_audit_does_not_flag_declared_repository_home(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            refs = root / "private" / "references"
+            refs = root / "references"
             refs.mkdir(parents=True)
             doc = refs / "sources.md"
             doc.write_text(
@@ -2025,7 +2082,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = check_reference_freshness.collect_issues(
+            issues = collect_reference_issues(
                 root,
                 check_reference_freshness.date.fromisoformat("2026-06-12"),
                 180,
@@ -2072,7 +2129,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
         obsolete_marker = "none" + "-one-off"
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            refs = root / "private" / "references"
+            refs = root / "references"
             refs.mkdir(parents=True)
             doc = refs / "sources.md"
             doc.write_text(
@@ -2094,7 +2151,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = check_reference_freshness.collect_issues(
+            issues = collect_reference_issues(
                 root,
                 check_reference_freshness.date.fromisoformat("2026-06-12"),
                 180,
@@ -2110,7 +2167,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
     def test_reference_freshness_entry_monitor_root_does_not_require_later_reference_monitor_root(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            refs = root / "private" / "references"
+            refs = root / "references"
             refs.mkdir(parents=True)
             doc = refs / "sources.md"
             doc.write_text(
@@ -2136,7 +2193,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = check_reference_freshness.collect_issues(
+            issues = collect_reference_issues(
                 root,
                 check_reference_freshness.date.fromisoformat("2026-06-12"),
                 180,
@@ -2152,7 +2209,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
     def test_reference_freshness_rejects_whole_domain_monitor_root(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            refs = root / "private" / "references"
+            refs = root / "references"
             refs.mkdir(parents=True)
             doc = refs / "sources.md"
             doc.write_text(
@@ -2174,7 +2231,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = check_reference_freshness.collect_issues(
+            issues = collect_reference_issues(
                 root,
                 check_reference_freshness.date.fromisoformat("2026-06-12"),
                 180,
@@ -2191,7 +2248,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
         obsolete_marker = "none" + "-one-off"
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            refs = root / "private" / "references"
+            refs = root / "references"
             refs.mkdir(parents=True)
             doc = refs / "sources.md"
             doc.write_text(
@@ -2215,7 +2272,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = check_reference_freshness.collect_issues(
+            issues = collect_reference_issues(
                 root,
                 check_reference_freshness.date.fromisoformat("2026-06-12"),
                 180,
@@ -2231,7 +2288,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
     def test_reference_freshness_does_not_flag_one_day_timezone_skew(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            refs = root / "private" / "references"
+            refs = root / "references"
             refs.mkdir(parents=True)
             doc = refs / "sources.md"
             doc.write_text(
@@ -2251,7 +2308,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = check_reference_freshness.collect_issues(
+            issues = collect_reference_issues(
                 root,
                 check_reference_freshness.date.fromisoformat("2026-06-12"),
                 180,
@@ -2263,7 +2320,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
     def test_reference_freshness_rejects_two_day_future_reviewed_date(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            refs = root / "private" / "references"
+            refs = root / "references"
             refs.mkdir(parents=True)
             doc = refs / "sources.md"
             doc.write_text(
@@ -2283,7 +2340,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            issues = check_reference_freshness.collect_issues(
+            issues = collect_reference_issues(
                 root,
                 check_reference_freshness.date.fromisoformat("2026-06-12"),
                 180,
@@ -2314,7 +2371,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
     def test_reference_freshness_snapshots_all_inputs_before_hostname_checks(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            references = root / "private" / "references"
+            references = root / "references"
             references.mkdir(parents=True)
             (references / "valid.md").write_text(
                 "Reviewed: 2026-07-12\nhttps://example.com/releases\n",
@@ -2327,7 +2384,7 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 "blocked_external_url_reason",
             ) as blocked:
                 with self.assertRaises(ValueError):
-                    check_reference_freshness.collect_issues(
+                    collect_reference_issues(
                         root,
                         check_reference_freshness.date.fromisoformat("2026-07-12"),
                         180,

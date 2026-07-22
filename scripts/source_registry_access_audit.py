@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 import socket
 import sys
+import unicodedata
 from urllib import robotparser
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse, urlunparse
@@ -22,7 +23,6 @@ from url_safety import blocked_external_url_reason, safe_redirect_target, safe_u
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_REFERENCE_DIRS = (Path("private/references"),)
 PROJECT_SOURCE_REGISTRY_FILES = (Path("SOURCE_PACKS.md"), Path("SOURCE_UPDATE.md"))
 URL_RE = re.compile(r"https?://\S+")
 MONITOR_ROOT_LINE_RE = re.compile(r"^\s*Monitor root:\s*(https?://\S+)", re.IGNORECASE)
@@ -125,7 +125,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--reference-dir",
         action="append",
         type=Path,
-        help="Reference directory relative to the root. Defaults to private/references.",
+        help=(
+            "Reference directory relative to the root. Repeatable; when omitted, "
+            "only root project source-registry files are considered."
+        ),
     )
     parser.add_argument("--monitor-roots-only", action="store_true", help="Audit only explicit Monitor root lines.")
     parser.add_argument("--check-robots", action="store_true", help="Check robots.txt permission for monitor roots.")
@@ -137,7 +140,10 @@ def build_parser() -> argparse.ArgumentParser:
             maximum=MAX_TIMEOUT_SECONDS,
         ),
         default=10.0,
-        help=f"Per-request timeout in seconds (greater than 0, at most {MAX_TIMEOUT_SECONDS:g}).",
+        help=(
+            "Total network deadline per request attempt in seconds "
+            f"(greater than 0, at most {MAX_TIMEOUT_SECONDS:g})."
+        ),
     )
     parser.add_argument(
         "--workers",
@@ -170,6 +176,24 @@ def build_parser() -> argparse.ArgumentParser:
 
 def clean_url(value: str) -> str:
     return value.rstrip(TRAILING_URL_PUNCTUATION)
+
+
+def terminal_safe_text(value: str) -> str:
+    """Render untrusted text without terminal controls or line injection."""
+
+    encoded: list[str] = []
+    for character in value:
+        codepoint = ord(character)
+        category = unicodedata.category(character)
+        if category not in {"Cc", "Cf", "Cs", "Zl", "Zp"}:
+            encoded.append(character)
+        elif codepoint <= 0xFF:
+            encoded.append(f"\\x{codepoint:02x}")
+        elif codepoint <= 0xFFFF:
+            encoded.append(f"\\u{codepoint:04x}")
+        else:
+            encoded.append(f"\\U{codepoint:08x}")
+    return "".join(encoded)
 
 
 def non_fenced_lines(text: str) -> list[tuple[int, str]]:
@@ -296,6 +320,8 @@ def robots_url_for(url: str) -> str:
 
 def robots_status(url: str, timeout: float, user_agent: str) -> str:
     robots_url = robots_url_for(url)
+    content_type = ""
+    body = ""
     try:
         request = Request(robots_url, headers={"User-Agent": user_agent})
         with safe_urlopen(request, timeout=timeout) as response:
@@ -341,7 +367,7 @@ def run_audit(
     snapshots: tuple[source_registry_files.MarkdownSnapshot, ...] | None = None,
 ) -> list[AuditRow]:
     root = args.root.resolve()
-    reference_dirs = tuple(args.reference_dir) if args.reference_dir else DEFAULT_REFERENCE_DIRS
+    reference_dirs = tuple(args.reference_dir or ())
     urls = collect_urls(
         root,
         reference_dirs,
@@ -382,18 +408,23 @@ def print_text(
     print(f"get_fallback_successes: {len(get_fallbacks)}")
     print(f"monitor_robots_disallowed: {len(robot_disallowed)}")
     for error in input_errors:
-        print(f"input_error: {error}")
+        print(f"input_error: {terminal_safe_text(error)}")
     for row in failures + robot_disallowed:
         print("---")
-        print(row.url)
-        print("refs: " + ", ".join(f"{ref.path}:{ref.line}" for ref in row.refs[:4]))
+        print(terminal_safe_text(row.url))
+        print(
+            "refs: "
+            + ", ".join(
+                f"{terminal_safe_text(ref.path)}:{ref.line}" for ref in row.refs[:4]
+            )
+        )
         print(
             "HEAD ok={ok} status={status} final={final} error={error} content_type={ctype}".format(
                 ok=row.head.ok,
                 status=row.head.status,
-                final=row.head.final_url,
-                error=row.head.error,
-                ctype=row.head.content_type,
+                final=terminal_safe_text(row.head.final_url),
+                error=terminal_safe_text(row.head.error),
+                ctype=terminal_safe_text(row.head.content_type),
             )
         )
         if row.get is not None:
@@ -401,13 +432,13 @@ def print_text(
                 "GET ok={ok} status={status} final={final} error={error} content_type={ctype}".format(
                     ok=row.get.ok,
                     status=row.get.status,
-                    final=row.get.final_url,
-                    error=row.get.error,
-                    ctype=row.get.content_type,
+                    final=terminal_safe_text(row.get.final_url),
+                    error=terminal_safe_text(row.get.error),
+                    ctype=terminal_safe_text(row.get.content_type),
                 )
             )
         if row.monitor_root:
-            print(f"robots: {row.robots}")
+            print(f"robots: {terminal_safe_text(row.robots)}")
 
 
 def audit_errors(rows: list[AuditRow], source_file_count: int) -> list[str]:
@@ -426,7 +457,7 @@ def audit_errors(rows: list[AuditRow], source_file_count: int) -> list[str]:
 def main() -> int:
     args = build_parser().parse_args()
     root = args.root.resolve()
-    reference_dirs = tuple(args.reference_dir) if args.reference_dir else DEFAULT_REFERENCE_DIRS
+    reference_dirs = tuple(args.reference_dir or ())
     rows: list[AuditRow] = []
     input_errors: list[str] = []
     try:

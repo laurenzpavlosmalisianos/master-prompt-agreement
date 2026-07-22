@@ -9,14 +9,14 @@ remain in Task Orders, Practice Guides, runtime contracts, and scripts.
 | Layer | Owns | Examples |
 |---|---|---|
 | Project commands | project-specific proof | tests, builds, lint, type checks, deployment checks |
-| Framework scripts | objective checks and scoped inventories | bootstrap sync, state lint, link checks, public export, selected load-surface and configured file-size reports |
+| Framework scripts | objective checks and scoped inventories | bootstrap sync, state lint, link checks, product inventory, selected load-surface and configured file-size reports |
 | Task Orders | workflow sequence and closure | review, audit, source update, arbitration, commit |
 | Practice Guides | domain quality bar | language guides, security, frontend, source research, prompt-agent quality |
 | Reviewer lanes | bounded challenge or specialist review | narrow evidence packets, adversarial review, model/tool spot checks |
-| Human authority | approval and final judgment | scope changes, external effects, publication, unresolved tradeoffs |
+| Human authority | approval and final judgment | scope changes, external effects, distribution, unresolved tradeoffs |
 
 Scripts can prove that a file exists, a schema matches, a link resolves, a
-template renders, or a public export excludes private surfaces. They cannot
+template renders, or a product inventory matches its manifest. They cannot
 prove that prose is wise, a source abstraction is meaningful, or an architecture
 is strategically correct. Those decisions require inspected evidence and agent
 or human judgment.
@@ -114,23 +114,30 @@ effectiveness claim, or a consequential model-selection or routing,
 reviewer-lane, or topology decision. A negative or mixed result is valid
 evidence: before effects it may justify no action; after effects it requires
 retention, revision, restoration, or a contained needs-evidence state under the
-declared acceptance and non-degradation contract. Owner-local
-experiments remain evidence until a reusable result survives the normal review
+declared acceptance and non-degradation contract. Project-local experiments
+remain evidence until a reusable result survives the normal review
 and retention path.
 
-## Normal Framework Check
+## Product Distribution Check
 
-For framework-maintenance work, run the compliance suite from the framework root
-or through the approved project container:
+Run the product profile with the exact CPython interpreter and `-E -S -B`
+startup flags qualified by the prerequisite check:
 
 ```bash
-uv run python -B scripts/framework_compliance.py --tree-role authoring-source
+<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/conformance_check.py" --profile framework-product --root <framework-checkout-as-visible-to-runner> --exact-product-tree --strict-warnings
 ```
 
-The suite aggregates compile checks, unit tests, framework validation, public
-export checks, source registry linting, routing checks, bootstrap matrix checks,
-and link checks. Passing the suite is necessary for publication-quality changes,
-but it is not sufficient for semantic approval.
+The profile verifies the exact product inventory and, in exact-tree mode, rejects
+undeclared entries. It does not run the shipped tests. After exact-tree
+conformance, run the complete product-side suite through the same qualified
+runner:
+
+```bash
+<runner> -m unittest tests.test_validation_scripts
+```
+
+Both checks are necessary for a qualified distribution. Neither is sufficient
+for semantic approval or an effectiveness claim.
 
 ## Semantic Review
 
@@ -144,10 +151,10 @@ framework product surface, regardless of its origin or file type. This includes:
 - Practice Guide quality standards
 - source-monitoring policy
 - reviewer-lane or arbitration behavior
-- public/private boundaries
-- publication-facing README, docs, or visuals
+- product/project boundaries
+- product-facing README, docs, or visuals
 - deterministic support, tests, examples, or metadata that encode reusable
-  framework behavior or publication claims
+  framework behavior or product claims
 
 Semantic review asks whether the change meets its stated agent-output quality
 target without
@@ -232,9 +239,9 @@ Prepare each receipt from the live bundle with an explicit timestamp. The
 command prints only a validated proposal and never edits the manifest or bundle:
 
 ```bash
-uv run python -B scripts/review_packet_contract.py bundle/review_packet.json \
+<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/review_packet_contract.py" bundle/review_packet.json \
   --prepare-receipt packet_ready \
-  --validated-at 2026-07-11T10:15:00Z
+  --validated-at <RFC3339-UTC>
 ```
 
 Record the returned packet digest, lifecycle fields, and `packet_ready` receipt.
@@ -242,9 +249,9 @@ After exact approval and a passed, timestamped preflight, prepare and record the
 second receipt immediately before submission:
 
 ```bash
-uv run python -B scripts/review_packet_contract.py bundle/review_packet.json \
+<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/review_packet_contract.py" bundle/review_packet.json \
   --prepare-receipt pre_submission \
-  --validated-at 2026-07-11T10:20:00Z
+  --validated-at <RFC3339-UTC>
 ```
 
 Only an empty `errors` array makes the `prepared` object recordable. Rerun the
@@ -267,17 +274,15 @@ Exact articles and papers usually support claims as evidence URLs. Monitoring
 should prefer durable parent roots, official docs, changelogs, release feeds,
 package metadata, advisory indexes, and official repositories.
 
-## Publication Gates
+## Product Distribution Gates
 
-Before preparing a public variant, verify:
+Before sharing or adopting a product distribution, verify:
 
-- public README and docs describe the current architecture
+- the README and docs describe the current architecture
 - visuals match the current runtime loop and reviewer-lane model
-- public files do not leak owner-specific paths, private workflows, local
-  authoring state, secrets, or personal project choices. The neutral root
-  maintainer entrypoint may contain only the release-check-allowlisted
-  conditional loader for the excluded authoring contract; every other
-  private-path reference is a release error
+- product files contain no credentials, maintainer-local paths,
+  project-specific authority or state, raw reviewer material, or personal
+  project choices
 - vendor-specific details appear only where the topic itself requires them
 - source-derived ideas are abstracted, not copied
 - framework-improvement claims use the smallest sufficient evidence tier;
@@ -289,7 +294,7 @@ Before preparing a public variant, verify:
   lifecycle schemas, transaction recovery, and conformance descriptions agree
   on one root receipt, nested-contract addressing, exact-plan approval, warning
   handling, and acceptance ownership
-- framework compliance and public-export checks pass
+- the `framework-product` profile passes
 
 The framework is agent-first. Human-facing documentation and the interactive
 HTML and TypeScript presentation may explain and visualize the system, but they

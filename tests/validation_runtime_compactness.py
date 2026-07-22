@@ -296,7 +296,7 @@ class RuntimeCompactnessTests(unittest.TestCase):
             set(verification),
         )
         self.assertIn(
-            "$FRAMEWORK/scripts/conformance_check.py --profile core-project --root .",
+            'uv run python -E -S -B -- "${FRAMEWORK:?FRAMEWORK is required}/scripts/conformance_check.py" --profile core-project --root . --project-kind downstream',
             verification["Core conformance"],
         )
         self.assertNotIn("scripts/project_contract_sync.py", runtime)

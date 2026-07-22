@@ -1,9 +1,11 @@
 # Source-Chain Artifact Contract
 
-This chapter is the public, project-neutral artifact shape for the optional
-monitor, review, apply, and assurance chain. The executable authority is
-`scripts/source_chain_artifact_lint.py`; framework consistency checks keep the
-four templates below aligned with its required fields and schema version.
+This chapter describes the product, project-neutral artifact shape for the
+optional monitor, review, apply, and assurance chain.
+`scripts/source_chain_artifact_lint.py` enforces that machine-readable shape;
+framework consistency checks keep the four templates below aligned with its
+required fields and schema version. The description, validator, and templates
+remain subordinate to the normative framework authority surfaces.
 Each stage header is closed: only the fields shown by its versioned contract
 are accepted, and arbitrary project extension fields are rejected.
 
@@ -29,8 +31,8 @@ The scope is NFKC-normalized and case-folded to a lowercase slug containing
 only letters, digits, dots, underscores, or hyphens. `model_label`,
 `reasoning_effort`, and `execution_mode` record the visible stage provenance;
 use the literal `not_exposed` when the runtime does not expose a setting.
-These fields do not prove capability or correctness. A private or downstream
-adapter may enforce stricter route and per-stage execution-identity assignments.
+These fields do not prove capability or correctness. A project-specific adapter
+may enforce stricter route and per-stage execution-identity assignments.
 
 Artifact paths under a project `review_artifacts/` tree are conventionally:
 
@@ -357,10 +359,10 @@ monitor-to-review handoff, while the monitor still claims to represent the
 current source and policy inputs, and use the decision-hash gate before apply:
 
 ```bash
-<runner> <framework-ref>/scripts/source_chain_artifact_lint.py --project-root <project-root> --stage monitor --expected-model-route <route-id> --expected-timezone <IANA-timezone> --verify-current-input-hashes <monitor-artifact>
-<runner> <framework-ref>/scripts/source_chain_artifact_lint.py --project-root <project-root> --stage review --expected-model-route <route-id> --expected-timezone <IANA-timezone> --verify-decision-hashes <review-artifact>
-<runner> <framework-ref>/scripts/source_chain_artifact_lint.py --project-root <project-root> --stage apply --expected-model-route <route-id> --expected-timezone <IANA-timezone> <apply-artifact>
-<runner> <framework-ref>/scripts/source_chain_artifact_lint.py --project-root <project-root> --stage assurance --expected-model-route <route-id> --expected-timezone <IANA-timezone> <assurance-artifact>
+<runner> -- "<framework-ref>/scripts/source_chain_artifact_lint.py" --project-root <project-root> --stage monitor --expected-model-route <route-id> --expected-timezone <IANA-timezone> --verify-current-input-hashes <monitor-artifact>
+<runner> -- "<framework-ref>/scripts/source_chain_artifact_lint.py" --project-root <project-root> --stage review --expected-model-route <route-id> --expected-timezone <IANA-timezone> --verify-decision-hashes <review-artifact>
+<runner> -- "<framework-ref>/scripts/source_chain_artifact_lint.py" --project-root <project-root> --stage apply --expected-model-route <route-id> --expected-timezone <IANA-timezone> <apply-artifact>
+<runner> -- "<framework-ref>/scripts/source_chain_artifact_lint.py" --project-root <project-root> --stage assurance --expected-model-route <route-id> --expected-timezone <IANA-timezone> <assurance-artifact>
 ```
 
 Relative artifact paths resolve from the explicit project root, not from the
@@ -371,7 +373,7 @@ Prepare canonical decision payloads and SHA-256 values without modifying the
 review artifact:
 
 ```bash
-<runner> <framework-ref>/scripts/source_chain_artifact_lint.py --prepare-decision-hashes <review-artifact>
+<runner> -- "<framework-ref>/scripts/source_chain_artifact_lint.py" --prepare-decision-hashes <review-artifact>
 ```
 
 Preparation is a separate mode: it does not need route or timezone arguments

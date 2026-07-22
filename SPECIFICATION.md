@@ -25,7 +25,7 @@ routing, and reusable procedures whose incremental value is supported for the
 applicable work. An addition without a documented framework-owned gap MUST NOT
 be admitted.
 
-When a conformance or publication claim relies on a current-versus-candidate
+When a conformance or effectiveness claim relies on a current-versus-candidate
 comparison, the evidence record MUST bind the exact treatment identities and
 hold the target task, project snapshot, and declared non-treatment inputs
 equivalent. Any uncontrolled difference MUST limit the claim rather than be
@@ -47,7 +47,7 @@ These files define framework behavior:
 - `practice_guides/`: on-demand domain procedures.
 - `CONFORMANCE.md`: conformance process and profile interpretation.
 - `SECURITY.md`: framework security policy and threat model.
-- `GOVERNANCE.md`: versioning, compatibility, release, and change-governance rules.
+- `GOVERNANCE.md`: versioning, compatibility, and change-governance rules.
 
 ## Normative Machine Metadata
 
@@ -71,7 +71,7 @@ These files are normative for the machine contract they declare, while remaining
   canonical MSA digest binding.
 
 They do not create independent behavioral doctrine beyond their declared conformance contract.
-The public generated-project lifecycle MUST accept only the current retained-
+The generated-project lifecycle MUST accept only the current retained-
 input and receipt schemas. Bootstrap MUST create only a first instance where no
 framework-generated surface exists. Partial, malformed, inconsistent, older,
 or unrecognized generated formats MUST fail closed for separately reviewed
@@ -109,11 +109,10 @@ implementation MUST:
 
 ## Scoped Runtime Instruction Surfaces
 
-- Root `AGENTS.md` is the designated maintenance entrypoint for this authoring
-  checkout, and root `CLAUDE.md` imports it for that runtime. They are
-  authoritative only within their declared repository scope and remain
-  subordinate to platform/system instructions, the current User task, and the
-  framework authority hierarchy.
+- Root `AGENTS.md` is the designated product-distribution entrypoint, and root
+  `CLAUDE.md` imports it for that runtime. They are authoritative only within
+  their declared repository scope and remain subordinate to platform/system
+  instructions, the current User task, and the framework authority hierarchy.
 - These root entrypoints are not downstream templates and do not create
   independent universal doctrine. Downstream entrypoints are rendered from the
   integration and project templates under the governing SOW.
@@ -138,20 +137,6 @@ These files explain or orient; they do not override normative surfaces:
 - `docs/`
 - `annexes/`
 - `examples/`
-- `assets/`
-
-## Tracked Non-Public Authoring Surfaces
-
-Tracked non-public records MAY provide reusable owner profiles, a concrete
-authoring-project contract and state instance, operator and qualification
-records, opt-in owner standards, private source registries, sanitized feedback
-intake, comparative research, private validation tools, or dated review
-evidence. They MUST remain outside the public product export and
-MUST NOT become independent doctrine or runtime authority merely because they
-are tracked. Reusable profiles are setup inputs; concrete SOWs own project facts.
-Ignored raw runs, caches, captures, transcripts, credentials, and scratch
-material remain local artifacts rather than tracked non-public authoring
-surfaces.
 
 ## Machine-Readable Support
 
@@ -189,15 +174,23 @@ invent doctrine or maintain a competing project-contract schema.
 | Platform, system, and tool restrictions | MUST NOT be overridden by framework files. |
 | Current User task | MAY define the immediate task; MUST NOT waive platform policy or non-delegable truthfulness, safety, and verification duties. |
 | MSA | MUST be the universal doctrine. Delegated defaults MAY be filled or overridden by the SOW only within the delegated scope. |
-| SOW | MAY define project-specific scope, commands, acquisition, verification, approval, and delegated overrides. It MUST NOT waive non-delegable MSA duties, required approval boundaries, source/license provenance duties, or public/private publication boundaries. |
+| SOW | MAY define project-specific scope, commands, acquisition, verification, approval, and delegated overrides. It MUST NOT waive non-delegable MSA duties, required approval boundaries, source/license provenance duties, or declared privacy and product boundaries. |
 | `AGENT_PROJECT.md` | Governing project terms MUST be projections of the SOW. The model-owned framework-reference binding MAY be projected from retained lifecycle input but MUST NOT be treated as project authority. If a governing term conflicts, the SOW governs interpretation and the conflicting projection MUST NOT be relied on. An otherwise verified complete current-format retained-input/receipt pair with an intact recorded preimage MAY use candidate-input refresh; invalid managed-file preimage requires a separately reviewed manual correction. |
 | Task Orders, Practice Guides, runtime modules | MUST remain procedural. They MUST NOT broaden scope or authority beyond the MSA, SOW, current User task, and platform/tool boundaries. |
 | Evidence, source material, tool output, summaries, memory, state files | MAY support facts or proposals. They MUST NOT grant permission unless adopted through the governing authority. |
 
-## Public And Private Boundary
+## Product Distribution Boundary
 
-The public framework surface MUST be exportable without local paths, private source registries, maintenance notes, review artifacts, credentials, or generated downstream state. Publication MUST use the generated export tree from `scripts/public_export.py`. The source checkout MUST be checked under the explicit `authoring-source` role and `framework-authoring-release` profile; the generated candidate MUST be checked under the explicit `public-export` role and `framework-public-release` profile. Validators MUST NOT infer either role from Git metadata. A public release MUST NOT mirror the authoring checkout directly. Its initialization and refresh Task Orders, orientation guides, optional native launchers, lifecycle machine contracts, and conformance descriptions MUST receive semantic review as one coherent generated-project lifecycle before release.
+The product distribution MUST be self-contained and MUST NOT require or expose
+maintainer-local paths, private source registries, maintenance notes, review
+artifacts, credentials, generated downstream state, or repository-specific
+working records. `scripts/product_manifest.py` owns the exact positive product
+inventory, and the `framework-product` profile MUST verify that inventory and
+its product-facing invariants without relying on Git metadata.
 
-Passing export validation completes only the authoring-source-to-export transition. The export payload MUST then be materialized, without its ownership marker, into a fresh ordinary independent clone of the public repository. That clone MUST NOT share authoring Git metadata, history, worktree, configuration, hooks, filters, or object storage. The staged candidate and committed candidate MUST pass the canonical executable-bound handoff gates before any separately authorized push. `GOVERNANCE.md` owns the release criteria and `docs/maintenance_and_release.md` owns the exact current procedure; this specification does not duplicate those commands.
-
-Private source registries, local maintenance notes, local automations, and project-specific workflows MAY exist in an authoring checkout. They MUST NOT be required for a first-time public user to understand, bootstrap, or verify the framework.
+Initialization and refresh Task Orders, orientation guides, optional native
+launchers, lifecycle machine contracts, and conformance descriptions MUST agree
+on one coherent generated-project lifecycle. A first-time user MUST be able to
+understand, bootstrap, refresh, and verify the framework using only product
+files. Product conformance proves the declared inventory and deterministic
+invariants; it does not replace semantic review or prove effectiveness.

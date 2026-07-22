@@ -3,30 +3,21 @@
 from __future__ import annotations
 
 from functools import cmp_to_key
-from pathlib import Path
 import unittest
 
 from tests.validation_automation_state import AutomationStateTests
-from tests.validation_authoring_workspace_hygiene import AuthoringWorkspaceHygieneTests
 from tests.validation_bootstrap_end_to_end import BootstrapEndToEndTests
 from tests.validation_bootstrap_runtime import BootstrapRenderingTests
 from tests.validation_bootstrap_transactions import BootstrapTransactionTests
-from tests.validation_codex_automation_registry import CodexAutomationRegistryTests
-from tests.validation_conformance import ConformanceTests
 from tests.validation_evidence_scope import EvidenceScopeTests
-from tests.validation_framework_contracts import FrameworkConsistencyContractComplianceTests
-from tests.validation_framework_quality import FrameworkQualityTests
 from tests.validation_link_check import LinkCheckTests
 from tests.validation_markdown_structure import MarkdownStructureTests
+from tests.validation_product_conformance import ProductConformanceTests
+from tests.validation_product_manifest import ProductManifestTests
+from tests.validation_product_quality import ProductQualityTests
 from tests.validation_project_contract_sync import ProjectContractSyncTests
 from tests.validation_project_refresh import ProjectRefreshLifecycleTests
 from tests.validation_project_runtime import ProjectStateInstanceContextTests
-from tests.validation_public_handoff import (
-    PublicHandoffLifecycleTests,
-    PublicHandoffTests,
-)
-from tests.validation_public_release_controller import PublicReleaseControllerTests
-from tests.validation_publication import PublicationTests
 from tests.validation_reference_freshness import ReferenceFreshnessTests
 from tests.validation_runtime_compactness import RuntimeCompactnessTests
 from tests.validation_safe_io_integrations import SafeIoIntegrationTests
@@ -38,49 +29,44 @@ from tests.validation_validation_routing import ValidationRoutingTests
 
 
 _DOMAIN_CASES: tuple[type[unittest.TestCase], ...] = (
-    FrameworkQualityTests,
-    ConformanceTests,
+    ProductManifestTests,
+    ProductQualityTests,
+    ProductConformanceTests,
     ReferenceFreshnessTests,
     ValidationRoutingTests,
     LinkCheckTests,
     MarkdownStructureTests,
     SourceRegistryAccessTests,
     SourceDeepResearchTests,
-    CodexAutomationRegistryTests,
     UrlSafetyTests,
     AutomationStateTests,
-    AuthoringWorkspaceHygieneTests,
     BootstrapEndToEndTests,
     BootstrapRenderingTests,
     BootstrapTransactionTests,
     ProjectStateInstanceContextTests,
-    FrameworkConsistencyContractComplianceTests,
     ProjectContractSyncTests,
     ProjectRefreshLifecycleTests,
     RuntimeCompactnessTests,
     SafeIoIntegrationTests,
-    PublicHandoffLifecycleTests,
-    PublicHandoffTests,
-    PublicReleaseControllerTests,
-    PublicationTests,
     SourceChainTests,
     EvidenceScopeTests,
 )
-_DECLARED_SUPPORT_MODULES = frozenset({"validation_test_support"})
-
-
 def _validate_domain_inventory() -> None:
-    """Fail when a validation module is omitted from the discovery entrypoint."""
+    """Fail when an exact product validation module is omitted."""
 
-    test_root = Path(__file__).resolve().parent
-    discovered_modules = {
-        path.stem for path in test_root.glob("validation_*.py")
-    } - _DECLARED_SUPPORT_MODULES
+    from scripts import product_manifest
+
+    declared_modules = {
+        relative.removeprefix("tests/").removesuffix(".py")
+        for relative in product_manifest.PRODUCT_REQUIRED_FILES
+        if relative.startswith("tests/validation_")
+        and relative != "tests/validation_test_support.py"
+    }
     represented_modules = {
         test_case.__module__.rsplit(".", 1)[-1] for test_case in _DOMAIN_CASES
     }
-    missing = sorted(discovered_modules - represented_modules)
-    unknown = sorted(represented_modules - discovered_modules)
+    missing = sorted(declared_modules - represented_modules)
+    unknown = sorted(represented_modules - declared_modules)
     if missing or unknown:
         details: list[str] = []
         if missing:

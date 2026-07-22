@@ -434,6 +434,22 @@ def _project_lock_transaction_id(
     return hashlib.sha256(encoded).hexdigest()[:32]
 
 
+def _recovery_journal_identity_errors(
+    root: _DirectoryBinding,
+    lock_descriptor: int,
+    payload: Mapping[str, object],
+) -> list[str]:
+    """Bind canonical journal identity to the exact selected root and lock."""
+
+    expected = _project_lock_transaction_id(root, lock_descriptor)
+    if payload.get("transaction_id") == expected:
+        return []
+    return [
+        "bootstrap recovery journal transaction ID does not match the exact "
+        "project transaction lock identity"
+    ]
+
+
 def _directory_identity(metadata: os.stat_result) -> tuple[int, ...]:
     return _inode_object_identity(metadata)
 
@@ -2279,8 +2295,16 @@ def _write_recovery_journal(
     payload: dict[str, object],
     *,
     require_absent: bool,
+    lock_descriptor: int,
 ) -> None:
     errors = _validate_journal_payload(payload)
+    errors.extend(
+        _recovery_journal_identity_errors(
+            root,
+            lock_descriptor,
+            payload,
+        )
+    )
     if errors:
         raise BootstrapTransactionError("invalid bootstrap recovery journal: " + "; ".join(errors))
     serialized = _journal_bytes(payload)
@@ -2344,6 +2368,7 @@ def _write_recovery_journal(
     else:
         os.close(descriptor)
     try:
+        _verify_project_lock(root, lock_descriptor)
         current = _journal_metadata(root)
         if require_absent:
             if current is not None:
@@ -2376,6 +2401,7 @@ def _write_recovery_journal(
             dst_dir_fd=_binding_descriptor(root),
         )
         os.fsync(_binding_descriptor(root))
+        _verify_project_lock(root, lock_descriptor)
     except BaseException as exc:
         try:
             current_temporary = _journal_temporary_metadata(root)
@@ -2394,6 +2420,11 @@ def _write_recovery_journal(
             ) from exc
         raise
     _journal_metadata(root)
+    if _recovery_journal_identity_errors(root, lock_descriptor, payload):
+        raise BootstrapTransactionError(
+            "bootstrap recovery journal lost its exact project transaction "
+            "lock identity after installation"
+        )
 
 
 def _remove_recovery_journal(root: _DirectoryBinding) -> None:
@@ -3095,6 +3126,19 @@ def transaction_recovery_status(project_root: Path) -> BootstrapRecoveryStatus:
                     can_finalize=False,
                     errors=(),
                 )
+        if journal_metadata is not None and lock_descriptor is None:
+            return BootstrapRecoveryStatus(
+                state="invalid",
+                transaction_id=None,
+                phase=None,
+                operation_paths=(),
+                can_rollback=False,
+                can_finalize=False,
+                errors=(
+                    "bootstrap recovery journal exists without its original "
+                    "transaction lock",
+                ),
+            )
         payload, journal_errors = _read_recovery_journal(root)
         if payload is None:
             if journal_errors:
@@ -3144,6 +3188,26 @@ def transaction_recovery_status(project_root: Path) -> BootstrapRecoveryStatus:
                     ),
                 ),
             )
+        if lock_descriptor is None:
+            return BootstrapRecoveryStatus(
+                state="invalid",
+                transaction_id=None,
+                phase=None,
+                operation_paths=(),
+                can_rollback=False,
+                can_finalize=False,
+                errors=(
+                    "bootstrap recovery journal exists without its original "
+                    "transaction lock",
+                ),
+            )
+        journal_errors.extend(
+            _recovery_journal_identity_errors(
+                root,
+                lock_descriptor,
+                payload,
+            )
+        )
         views, view_errors = _recovery_operation_views(root, payload, all_bindings)
         (
             _inside,
@@ -3239,19 +3303,25 @@ def _recover_interrupted_transaction(
             raise BootstrapTransactionError(
                 "bootstrap recovery cannot proceed without recorded transaction controls"
             )
-        payload, journal_errors = _read_recovery_journal(root)
-        if payload is None:
-            if journal_errors:
-                raise BootstrapTransactionError("; ".join(journal_errors))
-            if lock_missing or not journal_missing:
-                raise BootstrapTransactionError(
-                    "bootstrap recovery cannot proceed without a recovery journal"
-                )
+        if lock_missing and not journal_missing:
+            raise BootstrapTransactionError(
+                "bootstrap recovery journal exists without its original "
+                "transaction lock"
+            )
+        if not lock_missing:
             lock_descriptor, _lock_created = _acquire_project_lock(
                 root,
                 exclusive=True,
                 create=False,
             )
+        payload, journal_errors = _read_recovery_journal(root)
+        if payload is None:
+            if journal_errors:
+                raise BootstrapTransactionError("; ".join(journal_errors))
+            if lock_descriptor is None or not journal_missing:
+                raise BootstrapTransactionError(
+                    "bootstrap recovery cannot proceed without a recovery journal"
+                )
             transaction_id = _project_lock_transaction_id(root, lock_descriptor)
             if transaction_id != expected_transaction_id:
                 raise BootstrapTransactionError(
@@ -3297,16 +3367,23 @@ def _recover_interrupted_transaction(
             _verify_project_lock(root, lock_descriptor)
             _remove_project_lock(root, lock_descriptor)
             return _clean_recovery_status()
+        if lock_descriptor is None:
+            raise BootstrapTransactionError(
+                "bootstrap recovery journal exists without its original "
+                "transaction lock"
+            )
+        identity_errors = _recovery_journal_identity_errors(
+            root,
+            lock_descriptor,
+            payload,
+        )
+        if identity_errors:
+            raise BootstrapTransactionError("; ".join(identity_errors))
         transaction_id = payload.get("transaction_id")
         if transaction_id != expected_transaction_id:
             raise BootstrapTransactionError(
                 "bootstrap recovery transaction identity changed after inspection"
             )
-        lock_descriptor, _lock_created = _acquire_project_lock(
-            root,
-            exclusive=True,
-            create=lock_missing,
-        )
         views, view_errors = _recovery_operation_views(root, payload, all_bindings)
         (
             _inside,
@@ -3482,8 +3559,8 @@ def _recover_interrupted_transaction(
             if retired_directory_errors:
                 raise BootstrapTransactionError("; ".join(retired_directory_errors))
         _remove_recovery_journal_temporary(root)
-        _remove_project_lock(root, lock_descriptor)
         _remove_recovery_journal(root)
+        _remove_project_lock(root, lock_descriptor)
         return _clean_recovery_status()
     except BootstrapTransactionError:
         raise
@@ -4103,7 +4180,12 @@ def transactional_write_outputs(
                 validated_retirement_modes,
             )
         journal_update_started = True
-        _write_recovery_journal(root_binding, journal, require_absent=True)
+        _write_recovery_journal(
+            root_binding,
+            journal,
+            require_absent=True,
+            lock_descriptor=project_lock,
+        )
         journal_created = True
 
         for plan in plans:
@@ -4195,7 +4277,12 @@ def transactional_write_outputs(
             )
             if binding.project_relative_parts
         ]
-        _write_recovery_journal(root_binding, journal, require_absent=False)
+        _write_recovery_journal(
+            root_binding,
+            journal,
+            require_absent=False,
+            lock_descriptor=project_lock,
+        )
 
         transaction_by_parent: dict[tuple[str, ...], _TransactionDirectory] = {}
         for plan, record in zip(plans, records, strict=True):
@@ -4242,14 +4329,29 @@ def transactional_write_outputs(
         )
         _verify_bound_directories(all_bindings)
         _verify_project_lock(root_binding, project_lock)
-        _write_recovery_journal(root_binding, journal, require_absent=False)
+        _write_recovery_journal(
+            root_binding,
+            journal,
+            require_absent=False,
+            lock_descriptor=project_lock,
+        )
         journal["phase"] = "applying"
-        _write_recovery_journal(root_binding, journal, require_absent=False)
+        _write_recovery_journal(
+            root_binding,
+            journal,
+            require_absent=False,
+            lock_descriptor=project_lock,
+        )
         for index, record in enumerate(records):
             _verify_project_lock(root_binding, project_lock)
             _install_staged_output(record, index, all_bindings)
             journal["applied_count"] = index + 1
-            _write_recovery_journal(root_binding, journal, require_absent=False)
+            _write_recovery_journal(
+                root_binding,
+                journal,
+                require_absent=False,
+                lock_descriptor=project_lock,
+            )
         _verify_bound_directories(all_bindings)
         _verify_project_lock(root_binding, project_lock)
         _verify_installed_records(records)
@@ -4266,7 +4368,12 @@ def transactional_write_outputs(
             )
             _verify_installed_records(records)
         journal["phase"] = "verified"
-        _write_recovery_journal(root_binding, journal, require_absent=False)
+        _write_recovery_journal(
+            root_binding,
+            journal,
+            require_absent=False,
+            lock_descriptor=project_lock,
+        )
         committed = True
         try:
             cleanup_warnings.extend(
@@ -4282,9 +4389,9 @@ def transactional_write_outputs(
             )
         if not cleanup_warnings:
             try:
-                _remove_project_lock(root_binding, project_lock)
                 _remove_recovery_journal(root_binding)
                 journal_created = False
+                _remove_project_lock(root_binding, project_lock)
             except BaseException as exc:
                 cleanup_warnings.append(
                     "could not remove verified bootstrap recovery controls: "
@@ -4357,6 +4464,22 @@ def transactional_write_outputs(
                 root_binding is not None
                 and project_lock is not None
                 and project_lock_created
+                and journal_created
+                and not rollback_errors
+            ):
+                try:
+                    _remove_recovery_journal(root_binding)
+                    journal_created = False
+                except BaseException as journal_exc:
+                    rollback_errors.append(
+                        "could not remove bootstrap recovery journal after "
+                        f"rollback: {journal_exc}"
+                    )
+            if (
+                root_binding is not None
+                and project_lock is not None
+                and project_lock_created
+                and not journal_created
                 and not rollback_errors
             ):
                 try:
@@ -4364,14 +4487,6 @@ def transactional_write_outputs(
                 except BaseException as lock_exc:
                     rollback_errors.append(
                         f"could not remove bootstrap lock after rollback: {lock_exc}"
-                    )
-            if journal_created and root_binding is not None and not rollback_errors:
-                try:
-                    _remove_recovery_journal(root_binding)
-                    journal_created = False
-                except BaseException as journal_exc:
-                    rollback_errors.append(
-                        f"could not remove bootstrap recovery journal after rollback: {journal_exc}"
                     )
         detail = f"bootstrap write transaction failed: {exc}"
         if rollback_errors:

@@ -1,10 +1,12 @@
 # Source Deep-Research Artifact Contract
 
-This contract owns the optional, project-neutral digest used when a completed
-browser research report supplies candidate abstractions for source-grounded
-review. The reusable manual template is
-`project_state_templates/SOURCE_DEEP_RESEARCH.md`; the executable authority is
-`scripts/source_deep_research_lint.py`.
+This chapter describes the optional, project-neutral digest used when a
+completed browser research report supplies candidate abstractions for
+source-grounded review. The reusable manual template is
+`project_state_templates/SOURCE_DEEP_RESEARCH.md`, and
+`scripts/source_deep_research_lint.py` enforces its machine-readable shape.
+These informative descriptions remain subordinate to the normative framework
+authority surfaces.
 
 Using the template does not authorize browser access, authenticated account
 use, external egress, source adoption, project edits, or retention. The project
@@ -118,7 +120,7 @@ Copy the manual template into the approved evidence path, replace every
 placeholder, then run:
 
 ```text
-<runner> <framework-ref>/scripts/source_deep_research_lint.py --project-root <project-root> <artifact>
+<runner> -- "<framework-ref>/scripts/source_deep_research_lint.py" --project-root <project-root> <artifact>
 ```
 
 `--project-root` is the explicit Git repository used to resolve every `repo:`

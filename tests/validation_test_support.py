@@ -5,16 +5,16 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+import py_compile
 import shutil
 import subprocess
 import sys
 from typing import Any, Sequence, cast
-from unittest import mock
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS_DIR = REPO_ROOT / "scripts"
-TEST_FRAMEWORK_RUNNER = "uv run python -B"
+TEST_FRAMEWORK_RUNNER = "uv run python -E -S -B"
 DEFERRED_VALUE_CLASSIFICATION_CASES = (
     ("TBD", True),
     (" tBd after inspection ", True),
@@ -37,7 +37,6 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 import bounded_subprocess  # noqa: E402
-import public_surface  # noqa: E402
 import review_packet_contract  # noqa: E402
 
 
@@ -54,6 +53,35 @@ class TestSubprocessOutputLimit(RuntimeError):
 
 
 TestSubprocessCleanupError = bounded_subprocess.BoundedSubprocessCleanupError
+
+
+def compile_adjacent_bytecode(
+    source: Path,
+    *,
+    unchecked_hash: bool = False,
+) -> Path:
+    """Compile a fixture beside its source, independent of ambient cache policy."""
+
+    if not source.is_absolute() or source.suffix != ".py" or not source.is_file():
+        raise ValueError("bytecode fixture source must be an absolute regular .py file")
+    cache_tag = sys.implementation.cache_tag
+    if not cache_tag or any(character in cache_tag for character in "/\\"):
+        raise RuntimeError("bytecode fixture requires a safe interpreter cache tag")
+    cache = source.parent / "__pycache__" / f"{source.stem}.{cache_tag}.pyc"
+    mode = (
+        py_compile.PycInvalidationMode.UNCHECKED_HASH
+        if unchecked_hash
+        else py_compile.PycInvalidationMode.TIMESTAMP
+    )
+    compiled = py_compile.compile(
+        str(source),
+        cfile=str(cache),
+        doraise=True,
+        invalidation_mode=mode,
+    )
+    if compiled != str(cache) or not cache.is_file():
+        raise RuntimeError("bytecode fixture compilation produced an unexpected output")
+    return cache
 
 
 def run_bounded(
@@ -107,54 +135,6 @@ def run_bounded(
             stderr=completed.stderr,
         )
     return completed
-
-
-def retained_git_discovery(tracked: set[str]) -> object:
-    """Return a Git-discovery double that honors retained-binding ownership."""
-
-    tracked_files = frozenset(tracked)
-
-    def discover(
-        _root: Path,
-        *,
-        _inventory: object | None = None,
-        _binding_sink: list[object] | None = None,
-    ) -> set[str]:
-        del _inventory
-        binding = mock.Mock()
-        binding.tracked_files = tracked_files
-        if _binding_sink is not None:
-            _binding_sink.append(binding)
-        return set(tracked_files)
-
-    return discover
-
-
-def write_required_public_files(root: Path) -> None:
-    """Write the canonical synthetic public files used by export tests."""
-
-    for relative_path in public_surface.PUBLIC_REQUIRED_FILES:
-        path = root / relative_path
-        path.parent.mkdir(parents=True, exist_ok=True)
-        if relative_path == "AGENTS.md":
-            text = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
-        elif relative_path == "CLAUDE.md":
-            text = (REPO_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
-        else:
-            text = "# Required public sentinel\n"
-        path.write_text(text, encoding="utf-8")
-
-
-def prepare_export_source(root: Path) -> None:
-    """Write and stage a complete canonical synthetic public source tree."""
-
-    write_required_public_files(root)
-    run_bounded(["git", "init", "-q"], cwd=root, check=True)
-    run_bounded(
-        ["git", "add", *public_surface.PUBLIC_REQUIRED_FILES],
-        cwd=root,
-        check=True,
-    )
 
 
 def valid_automation_job() -> dict[str, object]:
@@ -225,7 +205,7 @@ def valid_automation_job() -> dict[str, object]:
         },
         "standard_of_care": "careful",
         "timeout_minutes": 30,
-        "timezone": "Europe/Vienna",
+        "timezone": "Europe/Paris",
         "workload_class": "general",
         "write_scope": "artifacts",
     }

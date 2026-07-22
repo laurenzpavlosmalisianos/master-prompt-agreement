@@ -1,8 +1,8 @@
 # Runtime Task: Automation
 
-Use for recurring scheduled agent work. Load `task_orders/automation.md`. Schema-v7 activation and boundary decisions come from closed fields and objects, never from objectives, descriptions, prompts, or policy prose.
+Use for recurring scheduled agent work. Schema-v7 activation and boundary decisions come from closed fields and objects, never from objectives, descriptions, prompts, or policy prose.
 
-Before acting, reload `AGENT_PROJECT.md`; consult `STATEMENT_OF_WORK.md`, `TODO.md`, `DECISIONS.md`, or `PRECEDENTS.md` when authority, approval, current state, durable decisions, or recorded triggers can affect the task.
+Consult `STATEMENT_OF_WORK.md`, `TODO.md`, `DECISIONS.md`, or `PRECEDENTS.md` when authority, approval, current state, durable decisions, or recorded triggers can affect the task.
 
 <!-- mpa-common-precondition -->
 <!-- mpa-obligation: AUTO-authority-boundaries -->

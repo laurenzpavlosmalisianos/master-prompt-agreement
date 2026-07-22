@@ -17,13 +17,28 @@ Repository checks establish structural and conformance properties. They do not,
 by themselves, prove that the framework universally improves agent output. Any
 effectiveness claim must stay within the evidence that was actually collected.
 
-<picture>
-  <source media="(max-width: 960px)" srcset="assets/framework_runtime_loop_mobile.svg">
-  <img alt="Authority flows from the agreement and project Statement of Work into a runtime project contract. A recovery gate precedes ordinary loading; scoped work, verification, and reviewed evidence feed only accepted framework improvements." src="assets/framework_runtime_loop.svg">
-</picture>
+Master Prompt Agreement uses a minimal-sufficient context policy: remove
+redundant or prescriptive scaffolding without withholding relevant project
+context. It therefore keeps one small universal layer and loads project facts,
+state, procedures, evidence, and checks only when they can affect the current
+task or its verification. Prompt reductions still require representative
+checks; fewer tokens alone do not establish better work.
 
-[Open the wide framework overview](assets/framework_runtime_loop.svg) or the
-[narrow-layout overview](assets/framework_runtime_loop_mobile.svg).
+```mermaid
+flowchart TB
+  A["Runtime entrypoint"] --> B["Operative charter"]
+  B --> C{"Transaction control present?"}
+  C -- "yes" --> D["Stop ordinary loading"]
+  D --> E["Inspect and recover by exact transaction ID"]
+  C -- "no" --> F["Project contract"]
+  F --> G["Current task and relevant state headers"]
+  G --> H["Task-conditioned procedure, guides, evidence, and checks"]
+  H --> I["Agent work"]
+  I --> J["Verification"]
+```
+
+The diagram is explanatory. The adjacent sections and linked normative files
+own the same route in text for accessibility and exact interpretation.
 
 ## Choose Your Path
 
@@ -32,23 +47,54 @@ effectiveness claim must stay within the evidence that was actually collected.
 | The target has no framework-generated surfaces and no collision at any selected managed output path | [Getting Started](GETTING_STARTED.md) and the [Initialization Task Order](task_orders/init.md) |
 | The target has no framework-generated surface, but an ordinary file occupies a selected managed output path | Preserve it; choose a reviewed non-colliding layout or perform a project-specific integration/relocation before bootstrap |
 | The target is a verified, complete current-format instance | [Updating A Generated Project](UPDATING.md) and the [Framework Refresh Task Order](task_orders/framework_refresh.md) |
-| The target came from the public pre-v2 line | Preserve it and follow the [v1-to-v2 migration guide](docs/migrating_v1_to_v2.md) |
 | The target is partial, malformed, inconsistent, or otherwise unrecognized | Preserve it and follow the [unsupported-format route](UPDATING.md#unsupported-formats) for a reviewed project-specific update |
 | The target declares a newer schema | Use a framework checkout that supports it; do not interpret or rewrite it with the current checkout |
-| You want to understand the architecture | [Concepts](docs/concepts.md), [Architecture](ARCHITECTURE.md), and the [interactive guide](docs/interactive/index.html) |
-| You are maintaining or releasing the framework | [Governance](GOVERNANCE.md) and [Maintenance And Release](docs/maintenance_and_release.md) |
-
-The current public line uses the v2/current-format architecture. A project
-created from `v1.0.0` or a later pre-v2 public snapshot is not a valid input to
-the current refresh workflow. Preserve that project and follow the
-[v1-to-v2 migration guide](docs/migrating_v1_to_v2.md) for a reviewed, one-time
-transition. The migration route does not add a compatibility layer or ongoing
-legacy support. Public release versions are distinct from the version markers
-used by individual framework documents, generated contracts, and schemas.
+| You want to understand the architecture | [Concepts](docs/concepts.md), [Architecture](ARCHITECTURE.md), and the [local interactive guide](docs/interactive/index.html) |
 
 In a Codex checkout, `$master-prompt-new-project` and
 `$master-prompt-refresh-project` are optional thin launchers for the same
 canonical setup and update procedures. They are not separate workflows.
+
+## Start A New Project
+
+Give the agent the target project and ask it to follow
+[GETTING_STARTED.md](GETTING_STARTED.md). For example:
+
+```text
+Read <framework-checkout>/GETTING_STARTED.md and help me set up <project-root>.
+```
+
+The setup procedure inspects the target, asks only for missing project facts,
+renders a complete plan, and requires the digest of that exact reviewed plan
+before any write. Its transactional acceptance gate must pass before the new
+instance is accepted. Human review of rendered authority and declared manual
+acceptance items remains separate.
+
+Bootstrap is only for a target with no framework-generated surfaces and no
+collision at a selected managed output path. The
+machine-readable answer contract and safety-relevant flag map live in
+[`examples/project_bootstrap_answers.schema.json`](examples/project_bootstrap_answers.schema.json)
+and [`scripts/README.md`](scripts/README.md); `--help` remains the executable
+source of truth. Start from the minimal example and inspect only the relevant
+schema definitions; the full schema is compiler input, not a mandatory prompt
+import.
+
+## Update A Generated Project
+
+Use [UPDATING.md](UPDATING.md) for inspection, current-format refresh, contract
+revision, recovery, and plan-bound restore.
+
+The update path has three important boundaries:
+
+- it uses an operator-selected local framework checkout and never fetches or
+  decides what “latest” means;
+- it accepts only a verified complete current-format retained-input/receipt
+  pair with the required preimage; and
+- every mutation is bound to one exact reviewed plan and verified inside the
+  transaction.
+
+Do not rerun bootstrap, reset state, or hand-edit generated authority as an
+update shortcut.
 
 ## What The Framework Owns
 
@@ -117,57 +163,16 @@ doctrine. The full loading design is documented in
 Version control or an approved archive owns history. Runtime state should not
 become a duplicate project chronicle.
 
-## Start A New Project
-
-Give the agent the target project and ask it to follow
-[GETTING_STARTED.md](GETTING_STARTED.md). For example:
-
-```text
-Read <framework-checkout>/GETTING_STARTED.md and help me set up <project-root>.
-```
-
-The setup procedure inspects the target, asks only for missing project facts,
-renders a complete plan, and requires the digest of that exact reviewed plan
-before any write. Its transactional acceptance gate must pass before the new
-instance is accepted. Human review of rendered authority and declared manual
-acceptance items remains separate.
-
-Bootstrap is only for a target with no framework-generated surfaces and no
-collision at a selected managed output path. The
-machine-readable answer contract and safety-relevant flag map live in
-[`examples/project_bootstrap_answers.schema.json`](examples/project_bootstrap_answers.schema.json)
-and [`scripts/README.md`](scripts/README.md); `--help` remains the executable
-source of truth. Start from the minimal example and inspect only the relevant
-schema definitions; the full schema is compiler input, not a mandatory prompt
-import.
-
-## Update A Generated Project
-
-Use [UPDATING.md](UPDATING.md) for inspection, current-format refresh, contract
-revision, recovery, and plan-bound restore.
-
-The update path has three important boundaries:
-
-- it uses an operator-selected local framework checkout and never fetches or
-  decides what “latest” means;
-- it accepts only a verified complete current-format retained-input/receipt
-  pair with the required preimage; and
-- every mutation is bound to one exact reviewed plan and verified inside the
-  transaction.
-
-Do not rerun bootstrap, reset state, or hand-edit generated authority as an
-update shortcut.
-
 ## Command Reference
 
 The [complete command and script reference](scripts/README.md) is the
-inventory-checked catalog for every public command and import-only support
+inventory-checked catalog for every product command and import-only support
 module. Use an argument-parsing command's `--help` for its exact current flags,
 choices, argument requirements, and safety descriptions; `check_prereqs.py` emits its JSON
 diagnostic directly.
 
 For the two project lifecycle entrypoints, start with the
-[Bootstrap Flag Map](scripts/README.md#bootstrap-flag-map) or the
+[Bootstrap Safety Map](scripts/README.md#bootstrap-safety-map) or the
 [Refresh Command Map](scripts/README.md#refresh-command-map), then follow
 [GETTING_STARTED.md](GETTING_STARTED.md) or [UPDATING.md](UPDATING.md) for the
 owning procedure. The maps navigate the interfaces; they do not replace those
@@ -180,7 +185,7 @@ workflow guides.
 | Choose a workflow | [Task Orders](task_orders/README.md) |
 | Choose a risk and specialist standard | [Risk Routing and Practice Guide index](practice_guides/risk_routing.md) |
 | Inspect compact workflow metadata | [`runtime/workflow_catalog.json`](runtime/workflow_catalog.json) and [`runtime/task_modules/`](runtime/task_modules/) |
-| Navigate supported commands and flags | [Complete Command And Script Reference](scripts/README.md), including the [Bootstrap Flag Map](scripts/README.md#bootstrap-flag-map) and [Refresh Command Map](scripts/README.md#refresh-command-map), plus each argument-parsing command's `--help` |
+| Navigate supported commands and flags | [Complete Command And Script Reference](scripts/README.md), including the [Bootstrap Safety Map](scripts/README.md#bootstrap-safety-map) and [Refresh Command Map](scripts/README.md#refresh-command-map), plus each argument-parsing command's `--help` |
 | Inspect conformance profiles | [Conformance](CONFORMANCE.md) |
 
 Routing flags describe observed task characteristics such as review, visual
@@ -207,9 +212,9 @@ Passing an aggregate check does not turn a weak oracle into strong evidence.
 Counts, links, sections, and green test totals matter only when they represent
 the actual invariant being accepted.
 
-Framework maintainers use this on-demand aggregate through the approved project
-runner. Here and in the release guide, `<runner>` means the locally validated
-exact interpreter from a no-error prerequisite report with
+The product distribution has a self-contained conformance profile. Here,
+`<runner>` means the locally validated exact CPython interpreter and required
+`-E -S -B` startup flags from a no-error prerequisite report with
 `runner_usable: true`, or the unchanged container/`uv` invocation prefix only
 when that exact boundary ran the successful diagnostic.
 `<framework-checkout-as-visible-to-runner>` is the exact absolute framework
@@ -217,27 +222,27 @@ checkout path inside that runner, which can differ from the host path when a
 wrapper or container is used:
 
 ```bash
-<runner> <framework-checkout-as-visible-to-runner>/scripts/framework_compliance.py --tree-role authoring-source
+<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/conformance_check.py" --profile framework-product --root <framework-checkout-as-visible-to-runner> --exact-product-tree --strict-warnings
 ```
 
 The command establishes the configured deterministic gate; semantic review and
 applicable manual acceptance still remain. See
 [Verification And Quality](docs/verification_and_quality.md).
 
-### Visual assets
+### Visual verification
 
-Visuals are verified as rendered artifacts, not only as SVG or markup source.
+Diagrams and interactive visuals are verified as rendered presentations, not
+only as source markup.
 When visual risk warrants a durable record, use
 [`project_state_templates/VISUAL_ASSET_QA.md`](project_state_templates/VISUAL_ASSET_QA.md)
 with the [Visual Verification Practice Guide](practice_guides/visual_verification.md).
 Define real geometry and presentation contracts—such as no clipping at named
-widths and readable fixed-palette rendering on the asset's opaque canvas—rather
-than generic aesthetic scores. Framework diagrams use one self-contained color
-language across host themes; only the forced-colors accessibility fallback may
-replace that palette. Wide and narrow variants differ by geometry, not theme;
-duplicate light/dark SVG sets are unnecessary. When an asset or embedding
-changes, inspect the committed GitHub rendering in both host themes as well as
-the declared local viewports.
+widths and readable rendering at declared viewports—rather than generic
+aesthetic scores. Mermaid diagrams follow the host renderer. The interactive
+guide uses one semantic token vocabulary across light, dark, increased-contrast,
+and forced-color environments. When a visual or embedding changes, inspect the
+committed GitHub rendering in both host themes as well as the declared local
+viewports.
 
 ## Continuous Improvement And Reviewer Lanes
 
@@ -247,13 +252,17 @@ only after it is abstracted into project-neutral language, assigned to an owning
 surface, evaluated with decision-relevant evidence, implemented within
 authority, verified, and reviewed as the exact candidate.
 
-<picture>
-  <source media="(max-width: 960px)" srcset="assets/reviewer_lane_feedback_loop_mobile.svg">
-  <img alt="A coordinator routes bounded reviewers, verifies candidate findings, and records accepted or rejected outcomes without giving reviewer output authority." src="assets/reviewer_lane_feedback_loop.svg">
-</picture>
-
-[Open the wide reviewer-lane lifecycle](assets/reviewer_lane_feedback_loop.svg)
-or the [narrow-layout lifecycle](assets/reviewer_lane_feedback_loop_mobile.svg).
+```mermaid
+flowchart LR
+  A["Candidate evidence"] --> B["Semantic audit"]
+  B --> C{"Admit a framework candidate?"}
+  C -- "no" --> D["Reject with reason"]
+  C -- "yes" --> E["Exact candidate change"]
+  E --> F["Verification and bounded review"]
+  F --> G{"Acceptance evidence passes?"}
+  G -- "no" --> H["Revise, revert, or contain"]
+  G -- "yes" --> I["Retain in the owning surface"]
+```
 
 Reviewer lanes are optional and bounded. One coordinator remains accountable
 for scope, the evidence packet, data boundaries, validation, integration, and
@@ -266,6 +275,15 @@ See [Source And Feedback](docs/source_and_feedback.md), the
 [Framework Feedback Intake Task Order](task_orders/framework_feedback_intake.md),
 and the [Framework Improvement Task Order](task_orders/framework_improvement.md).
 
+## Product Distribution
+
+[`scripts/product_manifest.py`](scripts/product_manifest.py) declares the exact
+self-contained product inventory. It includes the doctrine, templates, runtime
+files, Task Orders, Practice Guides, integrations, documentation, examples,
+human-facing diagrams, downstream lifecycle and verification scripts, and the product
+tests that verify those delivered behaviors. Files outside that positive
+inventory are not required to use or verify Master Prompt Agreement.
+
 ## Documentation
 
 | Topic | Document |
@@ -275,21 +293,16 @@ and the [Framework Improvement Task Order](task_orders/framework_improvement.md)
 | Normative and informative surfaces | [Specification](SPECIFICATION.md) |
 | Setup | [Getting Started](GETTING_STARTED.md) |
 | Current-instance lifecycle | [Updating](UPDATING.md) |
-| One-time public v1 migration | [Migrating From v1 To v2](docs/migrating_v1_to_v2.md) |
 | Verification profiles | [Conformance](CONFORMANCE.md) |
-| Public change and release policy | [Governance](GOVERNANCE.md) |
+| Change and version policy | [Governance](GOVERNANCE.md) |
 | Threat model and reporting | [Security](SECURITY.md) |
 | Repository ownership boundaries | [Repository Taxonomy](docs/repository_taxonomy.md) |
 | Source intake and monitoring | [Source And Feedback](docs/source_and_feedback.md) |
-| Framework maintenance | [Maintenance And Release](docs/maintenance_and_release.md) |
 
-The [interactive guide](docs/interactive/index.html) is a human-facing view of
-the same architecture. It is explanatory, not an authority source.
-
-Framework maintainers should follow [Governance](GOVERNANCE.md) and
-[Maintenance And Release](docs/maintenance_and_release.md). Those documents own
-versioning, sanitized publication, and release verification; their procedures
-do not apply to ordinary downstream setup or updates.
+The [interactive guide](docs/interactive/index.html) is a self-contained local
+HTML view of the same architecture. Download or clone the product and open it
+locally; GitHub's repository view displays the HTML source rather than running
+it. The guide is explanatory, not an authority source.
 
 ## Principles
 

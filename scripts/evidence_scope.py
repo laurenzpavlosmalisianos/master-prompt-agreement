@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 import bounded_subprocess
+import git_query
 import recommend_stack
 import safe_paths
 
@@ -85,8 +86,9 @@ def _bounded_git(args: list[str], root: Path) -> tuple[int, bytes, bytes]:
         raise SystemExit("Git path collection requires POSIX process-group pipes")
     try:
         result = bounded_subprocess.run_bounded_process(
-            ["git", *args],
+            git_query.closed_git_query_command(args),
             cwd=root,
+            env=git_query.closed_git_query_environment(root),
             timeout_seconds=GIT_COMMAND_TIMEOUT_SECONDS,
             max_output_bytes=GIT_COMMAND_MAX_OUTPUT_BYTES,
             maximum_timeout_seconds=GIT_COMMAND_TIMEOUT_SECONDS,
@@ -131,7 +133,18 @@ def collect_paths(args: argparse.Namespace, root: Path) -> list[str]:
         return sorted(dict.fromkeys(validate_paths(args.path, root)))
     if args.diff_base:
         validate_diff_base(args.diff_base)
-        tracked = run_git(["diff", "--name-only", "-z", args.diff_base, "--"], root)
+        tracked = run_git(
+            [
+                "diff",
+                "--no-ext-diff",
+                "--no-textconv",
+                "--name-only",
+                "-z",
+                args.diff_base,
+                "--",
+            ],
+            root,
+        )
         untracked = run_git(["ls-files", "--others", "--exclude-standard", "-z", "--"], root)
         return sorted(dict.fromkeys(validate_paths([*tracked, *untracked], root)))
     raise SystemExit("pass --path or --diff-base")

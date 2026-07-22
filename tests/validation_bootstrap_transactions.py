@@ -359,6 +359,15 @@ class BootstrapTransactionTests(unittest.TestCase):
                 ),
                 mock.patch.object(
                     bootstrap_transaction,
+                    "_project_lock_transaction_id",
+                    return_value="a" * 32,
+                ),
+                mock.patch.object(
+                    bootstrap_transaction,
+                    "_verify_project_lock",
+                ),
+                mock.patch.object(
+                    bootstrap_transaction,
                     "_journal_temporary_metadata",
                     side_effect=[None, metadata],
                 ),
@@ -394,6 +403,7 @@ class BootstrapTransactionTests(unittest.TestCase):
                     parent,
                     payload,
                     require_absent=True,
+                    lock_descriptor=70,
                 )
 
             self.assertIs(primary, caught.exception)
@@ -920,54 +930,6 @@ class BootstrapTransactionTests(unittest.TestCase):
         report = json.loads(output)
         self.assertEqual(0, result, report)
         self.assertEqual([], report.get("errors", []), report)
-
-    def test_framework_authoring_discovery_excludes_only_owned_state_template_sources(
-        self,
-    ) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            project_root = Path(temp_dir) / "framework"
-            owned_source = project_root / "project_state_templates" / "TODO.md"
-            owned_source.parent.mkdir(parents=True)
-            owned_source.write_text(
-                project_bootstrap.state_template_content("TODO.md"),
-                encoding="utf-8",
-            )
-
-            clean_errors = (
-                project_bootstrap.outside_requested_generated_surface_errors(
-                    project_root,
-                    set(),
-                    project_kind="framework-authoring",
-                    framework_root=project_root,
-                )
-            )
-
-            unowned_source = (
-                project_root / "project_state_templates" / "nested" / "TODO.md"
-            )
-            unowned_source.parent.mkdir()
-            unowned_source.write_text(
-                project_bootstrap.state_template_content("TODO.md"),
-                encoding="utf-8",
-            )
-            residue_errors = (
-                project_bootstrap.outside_requested_generated_surface_errors(
-                    project_root,
-                    set(),
-                    project_kind="framework-authoring",
-                    framework_root=project_root,
-                )
-            )
-
-        self.assertEqual([], clean_errors)
-        self.assertTrue(
-            any(
-                "project_state_templates/nested/TODO.md" in error
-                and "outside the requested output graph" in error
-                for error in residue_errors
-            ),
-            residue_errors,
-        )
 
     def test_unmarked_state_names_do_not_consume_generated_candidate_bound(
         self,
@@ -1970,23 +1932,6 @@ class BootstrapTransactionTests(unittest.TestCase):
                 "downstream project kind requires --runtime",
             ),
             (
-                "framework authoring rejects runtime",
-                (
-                    "--project-kind",
-                    "framework-authoring",
-                    "--runtime",
-                    "generic",
-                    "--contract-root",
-                    "contracts/authoring",
-                ),
-                "framework-authoring project kind must not set --runtime because it preserves the root maintainer entrypoint",
-            ),
-            (
-                "framework authoring requires contract root",
-                ("--project-kind", "framework-authoring"),
-                "framework-authoring project kind requires --contract-root",
-            ),
-            (
                 "nested contract creation requires confirmation",
                 ("--runtime", "generic", "--contract-root", "contracts"),
                 "contract root does not exist:",
@@ -2065,7 +2010,7 @@ class BootstrapTransactionTests(unittest.TestCase):
             root = Path(temp_dir)
             project_root = root / "project"
             project_root.mkdir()
-            contract_root = project_root / "contracts" / "authoring"
+            contract_root = project_root / "contracts" / "project"
             answers_path = root / "answers.json"
             _write_minimal_answers(answers_path)
 
@@ -2073,14 +2018,14 @@ class BootstrapTransactionTests(unittest.TestCase):
                 answers_path,
                 project_root,
                 "--contract-root",
-                "contracts/authoring",
+                "contracts/project",
                 "--dry-run",
             )
             accepted_result, accepted_output = _run_project_bootstrap(
                 answers_path,
                 project_root,
                 "--contract-root",
-                "contracts/authoring",
+                "contracts/project",
                 "--create-contract-root",
                 "--dry-run",
             )
@@ -3278,6 +3223,7 @@ class BootstrapTransactionTests(unittest.TestCase):
                 payload: dict[str, object],
                 *,
                 require_absent: bool,
+                lock_descriptor: int,
             ) -> None:
                 captured_payloads.append(
                     cast(
@@ -3293,6 +3239,7 @@ class BootstrapTransactionTests(unittest.TestCase):
                     root,
                     payload,
                     require_absent=require_absent,
+                    lock_descriptor=lock_descriptor,
                 )
 
             with mock.patch.object(
@@ -3385,6 +3332,214 @@ class BootstrapTransactionTests(unittest.TestCase):
 
             self.assertEqual("clean", status.state, status)
             self.assertEqual([], list(project_root.iterdir()))
+
+    def test_project_bootstrap_rejects_forged_journal_without_original_lock(
+        self,
+    ) -> None:
+        def evidence(raw: bytes, mode: int) -> dict[str, object]:
+            return {
+                "sha256": hashlib.sha256(raw).hexdigest(),
+                "mode": mode,
+                "size": len(raw),
+            }
+
+        cases = (
+            ("replacement", "write", b"safe authority\n", b"forged authority\n"),
+            ("deletion", "write", b"safe authority\n", None),
+            ("creation", "remove", None, b"forged authority\n"),
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            base = Path(temp_dir)
+            for index, (label, action, target_raw, backup_raw) in enumerate(cases):
+                with self.subTest(branch=label):
+                    project_root = base / label
+                    project_root.mkdir()
+                    target = project_root / "AGENTS.md"
+                    if target_raw is not None:
+                        target.write_bytes(target_raw)
+                        target.chmod(0o600)
+                    transaction_name = (
+                        ".mpa-bootstrap-transaction-" + f"{index + 1:032x}"
+                    )
+                    transaction_dir = project_root / transaction_name
+                    transaction_dir.mkdir(mode=0o700)
+                    original = None
+                    backup_name = None
+                    if backup_raw is not None:
+                        backup = transaction_dir / "backup-0"
+                        backup.write_bytes(backup_raw)
+                        backup.chmod(0o600)
+                        original = evidence(backup_raw, 0o600)
+                        backup_name = "backup-0"
+                    candidate = (
+                        evidence(target_raw, 0o600)
+                        if target_raw is not None and action == "write"
+                        else None
+                    )
+                    transaction_id = f"{index + 10:032x}"
+                    payload: dict[str, object] = {
+                        "schema_version": (
+                            bootstrap_transaction.RECOVERY_JOURNAL_SCHEMA_VERSION
+                        ),
+                        "transaction_id": transaction_id,
+                        "phase": "applying",
+                        "applied_count": 1,
+                        "created_directories": [],
+                        "retired_directories": [],
+                        "operations": [
+                            {
+                                "path": "AGENTS.md",
+                                "action": action,
+                                "transaction_directory": transaction_name,
+                                "stage_name": "stage-0" if action == "write" else None,
+                                "backup_name": backup_name,
+                                "original": original,
+                                "candidate": candidate,
+                            }
+                        ],
+                    }
+                    self.assertEqual(
+                        [],
+                        bootstrap_transaction._validate_journal_payload(payload),
+                    )
+                    journal = (
+                        project_root / bootstrap_transaction.RECOVERY_JOURNAL_NAME
+                    )
+                    journal.write_bytes(
+                        bootstrap_transaction._journal_bytes(payload)
+                    )
+                    journal.chmod(0o600)
+
+                    status = bootstrap_transaction.transaction_recovery_status(
+                        project_root
+                    )
+                    with self.assertRaisesRegex(
+                        bootstrap_transaction.BootstrapTransactionError,
+                        "original transaction lock",
+                    ):
+                        bootstrap_transaction.rollback_interrupted_transaction(
+                            project_root,
+                            expected_transaction_id=transaction_id,
+                        )
+                    with self.assertRaisesRegex(
+                        bootstrap_transaction.BootstrapTransactionError,
+                        "original transaction lock",
+                    ):
+                        bootstrap_transaction.finalize_interrupted_transaction(
+                            project_root,
+                            expected_transaction_id=transaction_id,
+                        )
+
+                    self.assertEqual("invalid", status.state, status)
+                    self.assertFalse(status.can_rollback, status)
+                    self.assertFalse(status.can_finalize, status)
+                    self.assertTrue(
+                        any(
+                            "original transaction lock" in error
+                            for error in status.errors
+                        ),
+                        status,
+                    )
+                    self.assertEqual(target_raw is not None, target.exists())
+                    if target_raw is not None:
+                        self.assertEqual(target_raw, target.read_bytes())
+                    self.assertTrue(journal.is_file())
+                    self.assertTrue(transaction_dir.is_dir())
+                    self.assertFalse(
+                        (
+                            project_root
+                            / bootstrap_transaction.TRANSACTION_LOCK_NAME
+                        ).exists()
+                    )
+
+    @unittest.skipIf(bootstrap_transaction.fcntl is None, "requires POSIX flock")
+    def test_project_bootstrap_rejects_journal_identity_not_bound_to_lock(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir) / "project"
+            project_root.mkdir()
+            target = project_root / "AGENTS.md"
+            target_raw = b"safe authority\n"
+            target.write_bytes(target_raw)
+            target.chmod(0o600)
+            lock = project_root / bootstrap_transaction.TRANSACTION_LOCK_NAME
+            lock.write_bytes(b"")
+            lock.chmod(0o600)
+
+            bindings: list[bootstrap_transaction._DirectoryBinding] = []
+            root_binding = bootstrap_transaction._open_project_root_transaction(
+                project_root,
+                all_bindings=bindings,
+            )
+            lock_descriptor, _created = bootstrap_transaction._acquire_project_lock(
+                root_binding,
+                exclusive=True,
+                create=False,
+            )
+            try:
+                bound_id = bootstrap_transaction._project_lock_transaction_id(
+                    root_binding,
+                    lock_descriptor,
+                )
+            finally:
+                bootstrap_transaction._cleanup_transaction_resources(
+                    root_binding,
+                    lock_descriptor,
+                    bindings,
+                )
+            forged_id = "0" * 32 if bound_id != "0" * 32 else "1" * 32
+            transaction_name = ".mpa-bootstrap-transaction-" + "2" * 32
+            (project_root / transaction_name).mkdir(mode=0o700)
+            payload: dict[str, object] = {
+                "schema_version": bootstrap_transaction.RECOVERY_JOURNAL_SCHEMA_VERSION,
+                "transaction_id": forged_id,
+                "phase": "applying",
+                "applied_count": 1,
+                "created_directories": [],
+                "retired_directories": [],
+                "operations": [
+                    {
+                        "path": "AGENTS.md",
+                        "action": "write",
+                        "transaction_directory": transaction_name,
+                        "stage_name": "stage-0",
+                        "backup_name": None,
+                        "original": None,
+                        "candidate": {
+                            "sha256": hashlib.sha256(target_raw).hexdigest(),
+                            "mode": 0o600,
+                            "size": len(target_raw),
+                        },
+                    }
+                ],
+            }
+            journal = project_root / bootstrap_transaction.RECOVERY_JOURNAL_NAME
+            journal.write_bytes(bootstrap_transaction._journal_bytes(payload))
+            journal.chmod(0o600)
+
+            status = bootstrap_transaction.transaction_recovery_status(project_root)
+            with self.assertRaisesRegex(
+                bootstrap_transaction.BootstrapTransactionError,
+                "exact project transaction lock identity",
+            ):
+                bootstrap_transaction.rollback_interrupted_transaction(
+                    project_root,
+                    expected_transaction_id=forged_id,
+                )
+
+            self.assertEqual("invalid", status.state, status)
+            self.assertFalse(status.can_rollback, status)
+            self.assertTrue(
+                any(
+                    "exact project transaction lock identity" in error
+                    for error in status.errors
+                ),
+                status,
+            )
+            self.assertEqual(target_raw, target.read_bytes())
+            self.assertTrue(lock.is_file())
+            self.assertTrue(journal.is_file())
 
     def test_project_bootstrap_temporary_journal_only_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -4444,8 +4599,8 @@ class BootstrapTransactionTests(unittest.TestCase):
             self.assertEqual(23, os.waitstatus_to_exitcode(child_status))
             self.assertEqual(b"new bytes\n", target.read_bytes())
             self.assertEqual(0o640, target.stat().st_mode & 0o777)
-            self.assertFalse(
-                (project_root / bootstrap_transaction.TRANSACTION_LOCK_NAME).exists()
+            self.assertTrue(
+                (project_root / bootstrap_transaction.TRANSACTION_LOCK_NAME).is_file()
             )
             self.assertTrue(
                 (project_root / bootstrap_transaction.RECOVERY_JOURNAL_NAME).is_file()
@@ -4467,8 +4622,8 @@ class BootstrapTransactionTests(unittest.TestCase):
                     project_root,
                     expected_transaction_id=wrong_id,
                 )
-            self.assertFalse(
-                (project_root / bootstrap_transaction.TRANSACTION_LOCK_NAME).exists()
+            self.assertTrue(
+                (project_root / bootstrap_transaction.TRANSACTION_LOCK_NAME).is_file()
             )
             self.assertTrue(
                 (project_root / bootstrap_transaction.RECOVERY_JOURNAL_NAME).is_file()
@@ -4575,8 +4730,8 @@ class BootstrapTransactionTests(unittest.TestCase):
             _, child_status = os.waitpid(child, 0)
             self.assertEqual(expected_exit, os.waitstatus_to_exitcode(child_status))
             self.assertFalse((project_root / "nested").exists())
-            self.assertFalse(
-                (project_root / bootstrap_transaction.TRANSACTION_LOCK_NAME).exists()
+            self.assertTrue(
+                (project_root / bootstrap_transaction.TRANSACTION_LOCK_NAME).is_file()
             )
             self.assertTrue(
                 (project_root / bootstrap_transaction.RECOVERY_JOURNAL_NAME).is_file()
@@ -4680,6 +4835,10 @@ class BootstrapTransactionTests(unittest.TestCase):
                 )
 
             self.assertEqual(["injected retained cleanup"], result.cleanup_warnings)
+            lock = project_root / bootstrap_transaction.TRANSACTION_LOCK_NAME
+            journal = project_root / bootstrap_transaction.RECOVERY_JOURNAL_NAME
+            self.assertTrue(lock.is_file())
+            self.assertTrue(journal.is_file())
             recovery = bootstrap_transaction.transaction_recovery_status(project_root)
             self.assertEqual("verified", recovery.state, recovery)
             self.assertFalse(recovery.can_rollback, recovery)
@@ -4687,6 +4846,8 @@ class BootstrapTransactionTests(unittest.TestCase):
             transaction_id = recovery.transaction_id
             if transaction_id is None:
                 self.fail("verified recovery status omitted its transaction identity")
+            journal_payload = json.loads(journal.read_text(encoding="utf-8"))
+            self.assertEqual(transaction_id, journal_payload["transaction_id"])
             with self.assertRaisesRegex(
                 bootstrap_transaction.BootstrapTransactionError,
                 "does not permit rollback",

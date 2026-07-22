@@ -13,14 +13,14 @@ Mode: run this task as `observe`, `propose`, or `act`. Default to `observe` unle
 - `propose`: inspect, classify, and write only the approved proposal or report artifact with proposed edits. Stop before editing operative project files until the User approves exact changes.
 - `act`: implement only approved changes under the project's approval boundary, then verify and update state.
 Source-acquisition, automation, integration, or reviewer authority does not by itself select `propose` or `act`, and a monitoring trigger does not authorize project changes.
-In a framework-authoring project, `act` does not authorize changes to shared or
-reusable framework product surfaces. Source Update may update separately
-authorized project-local source evidence or records; a source-derived candidate
-for framework doctrine, templates, runtime files, integrations, scripts, tests,
+Regardless of project layout, Source Update does not directly edit shared or
+reusable framework product surfaces. It may update separately authorized
+project-local source evidence or records; a source-derived candidate for
+framework doctrine, templates, runtime files, integrations, scripts, tests,
 public documentation, or other reusable product surfaces must stop at a bounded
 `propose` handoff and route through `task_orders/framework_semantic_audit.md` and
-`task_orders/framework_improvement.md`. Ordinary downstream project updates
-retain the direct `act` path.
+`task_orders/framework_improvement.md`. Authorized project-local application,
+configuration, documentation, and test updates retain the direct `act` path.
 
 1. Read `AGENT_PROJECT.md` for active stack, commands, source-acquisition boundary, version policy, version-control policy, branch policy, backout policy, approval boundaries, verification profiles, critical surfaces, any `SOURCE_PACKS.md` approved source list, and any `SOURCE_UPDATE.md` update registry. Consult `STATEMENT_OF_WORK.md` only when canonical project terms or omitted details matter.
 2. Confirm the requested update surface. If the user says "check official sources", "check the source host", "update against latest docs", "modernize this framework/library/tool", or similar, treat the task as source-sensitive.
@@ -82,12 +82,12 @@ retain the direct `act` path.
    - branch or backout posture when the update may need side-branch work or rollback
    - required approvals for version changes, dependency changes, feature changes, migrations, deploy changes, or irreversible actions
    - verification commands
-9. Implement only approved downstream or project-local changes in `act` mode.
+9. Implement only approved project-local changes in `act` mode.
    Keep the patch minimal and project-consistent. Do not copy upstream code or
    assets without explicit approval and license review. In `propose` mode, stop
-   after the approved proposal or report artifact. In framework-authoring work,
-   keep a reusable framework candidate in the bounded handoff until semantic
-   audit and framework improvement separately authorize and verify its effect.
+   after the approved proposal or report artifact. Keep every reusable framework
+   candidate in the bounded handoff until semantic audit and framework
+   improvement separately authorize and verify its effect.
 10. Update project docs, comments, examples, or tests only when needed to keep the project accurate after the change.
 11. Run the agreed verification commands. If a check cannot run, report the blocker and remaining risk.
 12. In `propose` mode, include any proposed `SOURCE_PACKS.md`, `SOURCE_UPDATE.md`, `TODO.md`, or `DECISIONS.md` deltas inside the approved proposal or report artifact only; do not edit those operative files. In `act` mode, update `SOURCE_PACKS.md` when the approved source list, tier, volatility, acquisition method, or action rule changed, and update `SOURCE_UPDATE.md` when a source-check run, reviewed date, cadence, last-seen state, result, or open gap changed, only when each file is already receipt-declared mutable state; preserve its exact generated-state origin marker. If either optional source surface is absent, keep the proposed content in the report and route its enablement through an approved candidate-input refresh before resuming the write. Update receipt-declared `TODO.md` only for unresolved follow-up work. Record durable choices in receipt-declared `DECISIONS.md` when the project chooses to pin, upgrade, defer, or reject a source-derived change. If the project repeatedly rechecks a source family already covered by the framework, or discovers a high-quality source missing from the shared framework registry, keep a concise framework-source candidate in receipt-declared `SOURCE_PACKS.md` or the source-update proposal. Classify its ownership directly: a shared or reusable framework candidate routes to `task_orders/framework_semantic_audit.md`; invoke `task_orders/insights.md` only when its separate decision trigger applies.
@@ -100,9 +100,9 @@ Acceptance Criteria
 - Pinned versions were not silently upgraded.
 - The User approved material version, dependency, feature, migration, deploy, or irreversible changes before implementation.
 - Applied changes are limited to the approved update surface.
-- A framework-authoring Source Update did not directly edit a shared or reusable
-  framework product surface; such a candidate was routed through semantic audit
-  and framework improvement.
+- Source Update did not directly edit a shared or reusable framework product
+  surface; such a candidate was routed through semantic audit and framework
+  improvement.
 - Verification commands were run or blockers were reported.
 - In `observe` mode, only the approved report artifact was written. In `propose` mode, only the approved proposal or report artifact was written. In `act` mode, receipt-declared `SOURCE_PACKS.md` and `SOURCE_UPDATE.md` were updated when project source lists, review status, cadence, or source-run state changed and that update was approved; absent optional source surfaces were proposed for candidate-input refresh rather than created ad hoc.
 - Rejected source-derived ideas are documented when they are likely to recur.

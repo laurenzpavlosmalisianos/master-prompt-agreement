@@ -6,22 +6,44 @@ import argparse
 from dataclasses import dataclass
 from datetime import date, timedelta
 import json
+import os
 from pathlib import Path
 import re
+import stat
 import sys
 from urllib.parse import ParseResult, urlparse
 
 import markdown_structure
 import safe_paths
-import public_surface
+import product_manifest
 import source_registry_files
 from url_safety import blocked_external_url_reason
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-REFERENCE_DIRS = (Path("private/references"),)
+REFERENCE_DIRS: tuple[Path, ...] = ()
 PROJECT_SOURCE_PACKS = Path("SOURCE_PACKS.md")
 PROJECT_SOURCE_UPDATE = Path("SOURCE_UPDATE.md")
+PRODUCT_ROOT_MARKDOWN_FILES = tuple(
+    Path(relative)
+    for relative in product_manifest.PRODUCT_REQUIRED_FILES
+    if "/" not in relative and relative.endswith(".md")
+)
+PRODUCT_DOCUMENTATION_ROOTS = (
+    Path(".agents/skills/master-prompt-new-project"),
+    Path(".agents/skills/master-prompt-refresh-project"),
+    Path("annexes"),
+    Path("docs"),
+    Path("examples"),
+    Path("integrations"),
+    Path("practice_guides"),
+    Path("project_state_templates"),
+    Path("runtime"),
+    Path("scripts"),
+    Path("task_orders"),
+)
+PRODUCT_DOCUMENTATION_MAX_ENTRIES = 16_384
+PRODUCT_DOCUMENTATION_MAX_DEPTH = 32
 REVIEWED_RE = re.compile(r"^Reviewed:\s*(\d{4}-\d{2}-\d{2})\s*$", re.MULTILINE)
 ISO_DATE_RE = re.compile(r"\b20\d{2}-\d{2}-\d{2}\b")
 URL_RE = re.compile(r"https?://\S+")
@@ -276,7 +298,8 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help=(
             "Directory containing local source-maintenance Markdown. "
-            "Defaults to private/references when present."
+            "Repeat for each selected directory; no local reference directory "
+            "is assumed by default."
         ),
     )
     parser.add_argument(
@@ -313,7 +336,7 @@ def is_declared_project_state_template(root: Path, path: Path) -> bool:
 
     rel = rel_path(root, path)
     return (
-        rel in public_surface.PUBLIC_REQUIRED_FILES
+        rel in product_manifest.PRODUCT_REQUIRED_FILE_SET
         and rel.startswith("project_state_templates/")
     )
 
@@ -343,6 +366,106 @@ def source_update_markdown_files(root: Path) -> list[Path]:
     return source_registry_files.project_registry_markdown_files(root, (PROJECT_SOURCE_UPDATE,))
 
 
+def existing_product_markdown_files(root: Path) -> list[Path]:
+    """Inventory existing Markdown in the closed product documentation scope.
+
+    This is a content scan, not a product-completeness check.  A downstream
+    project or a focused fixture may contain only a subset of these locations,
+    so absent locations are ignored.  Existing documentation directories are
+    walked through no-follow descriptors with explicit depth and entry bounds;
+    symlinks fail closed instead of redirecting the scan.
+    """
+
+    paths: set[Path] = set()
+    for relative in PRODUCT_ROOT_MARKDOWN_FILES:
+        candidate = safe_paths.safe_relative_child(
+            root,
+            relative,
+            description="product documentation file",
+        )
+        if not candidate.exists():
+            continue
+        if not candidate.is_file():
+            raise ValueError(
+                "product documentation file must be a regular file: "
+                f"{relative.as_posix()}"
+            )
+        paths.add(candidate)
+
+    directory_flags = (
+        os.O_RDONLY
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+    )
+    observed_entries = 0
+
+    def walk(directory_fd: int, relative_directory: Path, depth: int) -> None:
+        nonlocal observed_entries
+        if depth > PRODUCT_DOCUMENTATION_MAX_DEPTH:
+            raise ValueError(
+                "product documentation inventory exceeds the "
+                f"{PRODUCT_DOCUMENTATION_MAX_DEPTH}-level depth limit"
+            )
+        with os.scandir(directory_fd) as entries:
+            for entry in entries:
+                observed_entries += 1
+                if observed_entries > PRODUCT_DOCUMENTATION_MAX_ENTRIES:
+                    raise ValueError(
+                        "product documentation inventory exceeds the "
+                        f"{PRODUCT_DOCUMENTATION_MAX_ENTRIES}-entry limit"
+                    )
+                relative = relative_directory / entry.name
+                metadata = entry.stat(follow_symlinks=False)
+                if stat.S_ISLNK(metadata.st_mode):
+                    raise ValueError(
+                        "product documentation scope must not contain symlinks: "
+                        f"{relative.as_posix()}"
+                    )
+                if stat.S_ISDIR(metadata.st_mode):
+                    child_fd = os.open(entry.name, directory_flags, dir_fd=directory_fd)
+                    try:
+                        opened = os.fstat(child_fd)
+                        if (
+                            opened.st_dev != metadata.st_dev
+                            or opened.st_ino != metadata.st_ino
+                            or not stat.S_ISDIR(opened.st_mode)
+                        ):
+                            raise ValueError(
+                                "product documentation directory changed during inventory: "
+                                f"{relative.as_posix()}"
+                            )
+                        walk(child_fd, relative, depth + 1)
+                    finally:
+                        os.close(child_fd)
+                elif relative.suffix == ".md":
+                    if not stat.S_ISREG(metadata.st_mode):
+                        raise ValueError(
+                            "product documentation Markdown must be a regular file: "
+                            f"{relative.as_posix()}"
+                        )
+                    paths.add(root / relative)
+
+    for relative in PRODUCT_DOCUMENTATION_ROOTS:
+        directory = safe_paths.safe_relative_child(
+            root,
+            relative,
+            description="product documentation directory",
+        )
+        if not directory.exists() and not directory.is_symlink():
+            continue
+        safe_paths.validate_directory_no_follow(
+            directory,
+            description="product documentation directory",
+        )
+        directory_fd = os.open(directory, directory_flags)
+        try:
+            walk(directory_fd, relative, 0)
+        finally:
+            os.close(directory_fd)
+    return sorted(paths)
+
+
 def iter_public_markdown_files(
     root: Path,
     include_non_reference_docs: bool,
@@ -351,9 +474,7 @@ def iter_public_markdown_files(
     paths = set(reference_markdown_files(root, reference_dirs))
     paths.update(source_update_markdown_files(root))
     if include_non_reference_docs:
-        for path in public_surface.iter_public_root_files(root):
-            if path.suffix == ".md":
-                paths.add(path)
+        paths.update(existing_product_markdown_files(root))
     return sorted(paths)
 
 
@@ -1670,8 +1791,8 @@ def collect_issues(
         if snapshot.path == root / PROJECT_SOURCE_UPDATE
     }
     if include_non_reference_docs:
-        for path in public_surface.iter_public_root_files(root):
-            if path.suffix != ".md" or path in snapshots:
+        for path in existing_product_markdown_files(root):
+            if path in snapshots:
                 continue
             snapshot = source_registry_files.read_markdown_snapshot(
                 root,

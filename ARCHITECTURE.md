@@ -1,6 +1,6 @@
 # Framework Architecture
 
-Last reviewed: 2026-07-16
+Last reviewed: 2026-07-21
 
 This note describes the framework architecture and runtime assembly model.
 
@@ -43,9 +43,11 @@ Authority, loading order, and evidence are separate. The MSA is the canonical un
 
 Within the tools, formats, and protocols already allowed by the current task and project boundary, prefer common, inspectable, well-documented choices when they satisfy the task. Such choices can reduce project-local setup prose because their canonical references are easier to inspect; do not rely on presumed model familiarity. Verify live capability, version, schema, permission, and effect behavior when those facts matter. Record only the project-specific invocation, trust boundary, version, and approval rule; do not paste manuals or volatile setup steps into runtime context.
 
-## Repository Surfaces
+## Product Surfaces
 
-The repository is an authoring tree for the framework. Publication is a selected export of the product surfaces, not a direct mirror of every local working file.
+The distribution is a positive-manifest product: every included file has an
+explicit product role. The layout is the framework architecture, not a mirror
+of any maintainer workspace.
 
 Core framework product:
 
@@ -58,7 +60,7 @@ Core framework product:
 7. thin `integrations/`
 8. lean deterministic `scripts/`
 
-Public orientation and support surfaces:
+Orientation and support surfaces:
 
 - `AGENTS.md`
 - `CLAUDE.md`
@@ -75,27 +77,26 @@ Public orientation and support surfaces:
 - `SECURITY.md`
 - `annexes/`
 - `examples/`
-- `assets/`
 - `tests/`
 - `LICENSE`
 - `NOTICE`
 
-Tracked non-public authoring records have distinct roles: reusable owner
-profiles and templates, a concrete contract and state instance for maintaining
-this repository, operator and qualification records, opt-in owner standards,
-dated private source registries, sanitized feedback intake, private validation
-tools, and research or review evidence. They may support the authoring tree,
-but they are not public doctrine, public product files, or automatic runtime authority.
-Ignored caches, raw runs, captures, transcripts, credentials, and scratch
-artifacts remain separate local state.
+The exact required inventory is defined by `scripts/product_manifest.py` and
+checked by the `framework-product` conformance profile. Files outside that
+inventory are not required to understand, set up, refresh, or verify a
+downstream instance.
 
-The selected public export surface is defined in `scripts/public_surface.py` and produced by `scripts/public_export.py`. It is a packaging rule for publication, not a second framework architecture.
-
-The public framework is not a bundled benchmark corpus, owner prompt laboratory, or second rule engine implemented in Python. Excluded owner-local research may evaluate framework effectiveness; it remains evidence, not doctrine or public product, until sanitized, reviewed, and retained through the normal framework-change path.
+The framework is not a bundled benchmark corpus, prompt laboratory, or second
+rule engine implemented in Python. Project-local research may evaluate
+framework behavior; it remains evidence, not doctrine, until abstracted,
+reviewed, and retained through the normal framework-change path.
 
 Scripts verify objective invariants such as schema validity, drift, configured file-size ceilings, link integrity, and generated-file consistency. Agents remain responsible for interpretation, source choice, tradeoffs, and deciding when a check is relevant. This is an engineering control for auditability, not proof that every possible script improves model performance. Do not automate subjective judgment or duplicate behavior already enforced by the runtime harness.
 
-Public framework claims must be evidence-classified. Keep source-backed facts, repeated downstream precedents, and narrowly labeled design judgments. Reject unverified plausible-sounding rules unless they can be tested or tied to current primary sources.
+Framework claims must be evidence-classified. Keep source-backed facts,
+repeated downstream precedents, and narrowly labeled design judgments. Reject
+unverified plausible-sounding rules unless they can be tested or tied to
+current primary sources.
 
 Prompt-engineering rules have the strictest evidence requirement. Keep them only when they are backed by the applicable provider's current first-party guidance, primary research, runtime-specific constraints, or measured downstream results. Treat provider guidance as primary operational evidence for that provider's model family, not as automatic cross-model doctrine.
 
@@ -139,7 +140,8 @@ Purpose:
 - avoidance of unnecessary prompt content
 - task-specific loading only when justified
 
-This is not a human-vs-agent split. Both layers are for agents. The split exists because authoring and execution have different load requirements.
+This is not a human-vs-agent split. Both layers are for agents. The split exists
+because canonical reference and task execution have different load requirements.
 
 ## Generated Project Lifecycle
 
@@ -173,8 +175,8 @@ does not create another instance.
 Retained input may expose project paths, commands, and other private facts. It
 must contain no secrets; minimize unnecessary sensitive material while retaining
 required project facts, then review it before a downstream repository is
-tracked, shared, or published. Public
-framework export ignores do not sanitize downstream repositories. The current
+tracked, shared, or published. Ignore rules in the framework checkout do not
+sanitize downstream repositories. The current
 receipt carries `contract_effective_date` from retained input; refresh does not
 add a timestamp or history entry.
 
@@ -243,7 +245,7 @@ Runtime changes and generated-file retirement must be explicit plan effects and
 preimage-bound. Optional state is never retired implicitly: only a receipt-owned
 surface disabled by exact candidate input can produce a numbered
 partition-matched `RETIRE-MUTABLE-####` or `RETIRE-IMMUTABLE-####` removal,
-path-specific warning, and required approval. Public lifecycle
+path-specific warning, and required approval. Framework lifecycle
 tooling accepts only the current retained-input and receipt formats. Absent,
 partial, malformed, inconsistent, older, or unrecognized formats fail closed
 for a separately reviewed manual project update rather than reverse parsing,
@@ -254,7 +256,7 @@ not become authority or history.
 
 Each receipt binds two framework identities. The downstream-effective digest and
 file map cover generation, operative behavior, and acceptance checks. The
-distribution digest covers the complete neutral public package for provenance.
+distribution digest covers the complete neutral product package for provenance.
 Inspection therefore reports `distribution-only-drift` when the distribution
 differs but downstream-effective content matches; it is not evidence that
 generated or operative bytes changed, and the exact-current `--check` gate still
@@ -622,9 +624,10 @@ Purpose:
 
 - define standards-facing conformance profiles
 - map each profile to required files and deterministic check identifiers
-- keep public release and downstream profile checks machine-readable
+- keep product and downstream profile checks machine-readable
 
-This file is release and standards metadata. It is not part of the always-on runtime prompt layer.
+This file is product and standards metadata. It is not part of the always-on
+runtime prompt layer.
 
 ## Script Role
 
@@ -646,18 +649,17 @@ High-value script jobs:
 - render thin integration files
 - report selected load-surface inventory, configured file-size ceilings, and framework consistency
 
-Authoring convenience scripts are acceptable only when they preserve the same principle: deterministic support for the canonical markdown, not replacement of it.
-
 ## Design Rules
 
-- Keep the public framework centered on doctrine, project-state templates, task orders, and Practice Guides.
+- Keep the framework centered on doctrine, project-state templates, Task
+  Orders, and Practice Guides.
 - Keep scripts stdlib-only unless a real capability gap justifies otherwise.
 - Keep hardcoded values limited to real boundaries such as supported trigger flags, explicit validator budgets, or schema fields.
 - Do not add generic prompt-wrapper scripts when the runtime harness already separates instructions, user input, files, and tool results. Structured tags belong in one-off prompts or a deliberately adopted project-specific adapter only when they clearly reduce ambiguity.
 - Use plain operating language unless a specialized term measurably reduces ambiguity.
 - Keep examples, project-state templates, and integration templates free of unnecessary real-world entities.
-- Keep internal development notes out of the public framework surface.
-- Keep downstream project setup separate from framework-repo internal work.
+- Keep project-specific and workspace-specific records out of product surfaces.
+- Keep downstream project setup separate from changes to the framework product.
 - Do not force formal bootstrap on an immature project concept. Route first to ideation or use minimal bootstrap when the User still wants structure.
 
 ## Working Rule

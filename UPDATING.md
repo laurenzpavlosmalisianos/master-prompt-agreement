@@ -20,6 +20,10 @@ is [`task_orders/framework_refresh.md`](task_orders/framework_refresh.md), and
 either changes, correct this guide rather than treating it as a second workflow
 specification.
 
+The recorded `<runner>` must retain the exact compatible CPython interpreter
+and `-E -S -B` startup flags qualified by `scripts/check_prereqs.py`; do not
+drop or reorder those flags when invoking refresh.
+
 ## Recovery Gate
 
 Read `runtime/operative_charter.md` from the explicitly selected framework
@@ -38,14 +42,14 @@ may set its workdir to the downstream project, so use this explicit path for
 every framework script rather than bare `scripts/...`.
 
 ```bash
-<runner> <framework-checkout-as-visible-to-runner>/scripts/project_refresh.py inspect --project-root <project-root>
+<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/project_refresh.py" inspect --project-root <project-root>
 ```
 
 Then, only when that report identifies a permitted recovery action and exact
 transaction identifier, perform that action:
 
 ```bash
-<runner> <framework-checkout-as-visible-to-runner>/scripts/project_refresh.py recover --project-root <project-root> --action <rollback|finalize> --approve-transaction-id <transaction-id>
+<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/project_refresh.py" recover --project-root <project-root> --action <rollback|finalize> --approve-transaction-id <transaction-id>
 ```
 
 If no runner is available without reading generated authority, report the
@@ -70,8 +74,8 @@ The retained input may contain project paths, commands, and other private facts.
 Keep secrets out, minimize unnecessary sensitive material while preserving
 required facts, and review it before tracking, sharing, or publishing a
 downstream repository. Correct it through a candidate-input revision, never by
-hand-editing the live file. Public-framework export rules do not sanitize a
-downstream repository.
+hand-editing the live file. Ignore rules in the framework checkout do not
+sanitize a downstream repository.
 
 The receipt carries the retained `contract_effective_date`; refresh adds no
 timestamp or change log. One exact project root has one receipt even when its
@@ -122,7 +126,7 @@ then run refresh from that checkout.
   the selected checkout changes.
 
 Inspection separates the downstream-effective identity from the complete
-public-distribution identity. `distribution-only-drift` with
+product-distribution identity. `distribution-only-drift` with
 `distribution_drift: true` is a provenance warning, not evidence that operative
 files changed; `inspect --check` still fails because only exact `current`
 succeeds. A current-format effective-file delta requires
@@ -136,14 +140,14 @@ advance also requires `ADVANCE-PINNED-FRAMEWORK`.
 ## Ordinary Refresh Recipe
 
 Run commands with the exact Framework Verification Runner recorded by the SOW
-and the runner-visible selected framework path defined above. In the commands below,
-`<contract-root>` is a safe project-relative path; use `.` for the ordinary
-downstream layout and the actual nested path for framework authoring.
+and the runner-visible selected framework path defined above. In the commands
+below, `<contract-root>` is the safe project-relative path recorded by the
+current root receipt; use `.` for the ordinary downstream layout.
 
 1. Inspect without writing:
 
 ```bash
-<runner> <framework-checkout-as-visible-to-runner>/scripts/project_refresh.py inspect --project-root <project-root> [--contract-root <matching-contract-root>]
+<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/project_refresh.py" inspect --project-root <project-root> [--contract-root <matching-contract-root>]
 ```
 
 For a current-format instance, omit `--contract-root` to derive it from the
@@ -162,19 +166,11 @@ accepts the complete bootstrap answer object, not the retained
 revise only the authorized fields. Enabling an optional surface adds its
 canonical generated template. Disabling one proposes retirement of the exact
 receipt-owned file under its recorded mutable or immutable partition; it does
-not authorize ad hoc deletion. Then render
-the canonical candidate on stdout. Use the command for the recorded project
-kind. A downstream candidate requires its runtime family:
+not authorize ad hoc deletion. Then render the canonical candidate on stdout.
+A downstream candidate requires its runtime family:
 
 ```bash
-<runner> <framework-checkout-as-visible-to-runner>/scripts/project_refresh.py candidate --answers <temporary-revised-answers.json> --project-root <project-root> --project-kind downstream --contract-root <contract-root> --runtime <codex|claude-code|generic> --framework-ref <selected-framework-reference> --framework-revision-policy <live|pinned>
-```
-
-A framework-authoring candidate must omit `--runtime` and every runtime-wrapper
-selection flag:
-
-```bash
-<runner> <framework-checkout-as-visible-to-runner>/scripts/project_refresh.py candidate --answers <temporary-revised-answers.json> --project-root <project-root> --project-kind framework-authoring --contract-root <contract-root> --framework-ref <selected-framework-reference> --framework-revision-policy <live|pinned>
+<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/project_refresh.py" candidate --answers <temporary-revised-answers.json> --project-root <project-root> --project-kind downstream --contract-root <contract-root> --runtime <codex|claude-code|generic> --framework-ref <selected-framework-reference> --framework-revision-policy <live|pinned>
 ```
 
 For a verified current downstream instance whose runtime family is unchanged,
@@ -182,9 +178,8 @@ omitting wrapper-selection flags preserves the current wrapper ID set; selected
 wrappers are still regenerated from the chosen framework, so their bytes may
 change. A runtime-family change must explicitly replace the wrapper selection:
 repeat `--runtime-wrapper <id>` for every target wrapper, or use
-`--clear-runtime-wrappers` for a deliberate empty set. Omit `--runtime` and all
-wrapper-selection flags for `framework-authoring`. A candidate is data and does
-not amend the SOW until an approved transaction installs and verifies it.
+`--clear-runtime-wrappers` for a deliberate empty set. A candidate is data and
+does not amend the SOW until an approved transaction installs and verifies it.
 
 3. Create one canonical no-write plan. Include `--candidate-input` only for a
 contract, runtime, or optional-surface revision; omit it for a framework-only
@@ -192,14 +187,14 @@ refresh. Select exactly one plan backout basis. The normal branch uses the
 private bundle root:
 
 ```bash
-<runner> <framework-checkout-as-visible-to-runner>/scripts/project_refresh.py plan --project-root <project-root> [--contract-root <matching-contract-root>] [--candidate-input <temporary-candidate-project-input.json>] --backout-root <absolute-private-backout-root>
+<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/project_refresh.py" plan --project-root <project-root> [--contract-root <matching-contract-root>] [--candidate-input <temporary-candidate-project-input.json>] --backout-root <absolute-private-backout-root>
 ```
 
 Only where the authoritative Task Order permits the exception, the explicit
 no-post-apply-backout branch replaces `--backout-root` with:
 
 ```bash
-<runner> <framework-checkout-as-visible-to-runner>/scripts/project_refresh.py plan --project-root <project-root> [--contract-root <matching-contract-root>] [--candidate-input <temporary-candidate-project-input.json>] --accept-no-post-apply-backout
+<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/project_refresh.py" plan --project-root <project-root> [--contract-root <matching-contract-root>] [--candidate-input <temporary-candidate-project-input.json>] --accept-no-post-apply-backout
 ```
 
 Capture canonical JSON stdout in an approved temporary file outside managed
@@ -227,7 +222,7 @@ the project and review every changed authority/runtime file in the plan-bound
 preview:
 
 ```bash
-<runner> <framework-checkout-as-visible-to-runner>/scripts/project_refresh.py preview --project-root <project-root> --plan <temporary-plan.json>
+<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/project_refresh.py" preview --project-root <project-root> --plan <temporary-plan.json>
 ```
 
 The preview returns the exact current and target text, unified diff, bound
@@ -244,8 +239,8 @@ publish it. Create and verify the plan-bound exact-preimage bundle while the
 project still matches the plan:
 
 ```bash
-<runner> <framework-checkout-as-visible-to-runner>/scripts/project_refresh.py backout-create --project-root <project-root> --plan <temporary-plan.json> --backout-root <absolute-private-backout-root>
-<runner> <framework-checkout-as-visible-to-runner>/scripts/project_refresh.py backout-verify --project-root <project-root> --plan <temporary-plan.json> --backout-root <absolute-private-backout-root> --require-project-preimage
+<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/project_refresh.py" backout-create --project-root <project-root> --plan <temporary-plan.json> --backout-root <absolute-private-backout-root>
+<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/project_refresh.py" backout-verify --project-root <project-root> --plan <temporary-plan.json> --backout-root <absolute-private-backout-root> --require-project-preimage
 ```
 
 The normal plan records `USE-EXACT-PREIMAGE-BUNDLE` as a named action. Approve
@@ -288,7 +283,7 @@ the strict all-active-profile verification performed by apply.
 5. Apply exactly the reviewed plan:
 
 ```bash
-<runner> <framework-checkout-as-visible-to-runner>/scripts/project_refresh.py apply --project-root <project-root> --plan <temporary-plan.json> --approve-plan-sha256 <plan-sha256> [--approve-action <action-id> ...] [--approve-warning <warning-id> ...]
+<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/project_refresh.py" apply --project-root <project-root> --plan <temporary-plan.json> --approve-plan-sha256 <plan-sha256> [--approve-action <action-id> ...] [--approve-warning <warning-id> ...]
 ```
 
 Apply revalidates the plan, selected checkout, approvals, applicable backout
@@ -303,7 +298,7 @@ Rerunning the same profiles immediately is not independent evidence.
 After transaction cleanup, run the separate exact-current gate:
 
 ```bash
-<runner> <framework-checkout-as-visible-to-runner>/scripts/project_refresh.py inspect --project-root <project-root> [--contract-root <matching-contract-root>] --check
+<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/project_refresh.py" inspect --project-root <project-root> [--contract-root <matching-contract-root>] --check
 ```
 
 If apply returns `recovery-required`, follow the Recovery Gate; do not retry.
@@ -323,7 +318,7 @@ For a separately required or post-recovery standalone acceptance run, execute
 `<profile-id>` each time:
 
 ```bash
-<runner> <framework-checkout-as-visible-to-runner>/scripts/conformance_check.py --profile <profile-id> --root <project-root> --project-kind <downstream|framework-authoring> --contract-root <contract-root> --strict-warnings
+<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/conformance_check.py" --profile <profile-id> --root <project-root> --project-kind downstream --contract-root <contract-root> --strict-warnings
 ```
 
 6. Remove temporary candidate data after verification. Retain the exact plan
@@ -338,7 +333,7 @@ bundle directory. Do not pass it to governed-project recovery or blindly rerun
 creation. Use the exact plan, root, permitted action, and transaction ID:
 
 ```bash
-<runner> <framework-checkout-as-visible-to-runner>/scripts/project_refresh.py backout-recover --project-root <project-root> --plan <temporary-plan.json> --backout-root <absolute-private-backout-root> --action <rollback|finalize> --approve-transaction-id <backout-transaction-id>
+<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/project_refresh.py" backout-recover --project-root <project-root> --plan <temporary-plan.json> --backout-root <absolute-private-backout-root> --action <rollback|finalize> --approve-transaction-id <backout-transaction-id>
 ```
 
 After rollback, recreate only while project preimages still match. After
@@ -356,9 +351,9 @@ whole-instance restore window. Verify the bundle, approve both identities, and
 restore transactionally:
 
 ```bash
-<runner> <framework-checkout-as-visible-to-runner>/scripts/project_refresh.py backout-verify --project-root <project-root> --plan <temporary-plan.json> --backout-root <absolute-private-backout-root>
-<runner> <framework-checkout-as-visible-to-runner>/scripts/project_refresh.py backout-restore --project-root <project-root> --plan <temporary-plan.json> --backout-root <absolute-private-backout-root> --approve-plan-sha256 <plan-sha256> --approve-refresh-transaction-id <refresh-transaction-id>
-<runner> <framework-checkout-as-visible-to-runner>/scripts/project_refresh.py inspect --project-root <project-root> [--contract-root <matching-contract-root>]
+<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/project_refresh.py" backout-verify --project-root <project-root> --plan <temporary-plan.json> --backout-root <absolute-private-backout-root>
+<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/project_refresh.py" backout-restore --project-root <project-root> --plan <temporary-plan.json> --backout-root <absolute-private-backout-root> --approve-plan-sha256 <plan-sha256> --approve-refresh-transaction-id <refresh-transaction-id>
+<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/project_refresh.py" inspect --project-root <project-root> [--contract-root <matching-contract-root>]
 ```
 
 The final inspection verifies the restored recorded preimage before comparing
@@ -367,7 +362,7 @@ refresh condition rather than `current`.
 
 ## Unsupported Formats
 
-The public lifecycle supports only a complete current-format retained input and
+The supported lifecycle accepts only a complete current-format retained input and
 root receipt. If both are absent, no framework-generated surface exists, and no
 selected managed output path collides, the target is eligible for a first
 current-format bootstrap. Preserve ordinary same-name files and follow the
@@ -379,12 +374,8 @@ unrecognized, or inconsistent, inspection fails closed. Preserve the original
 project, inventory the affected authority, runtime, state, and metadata
 surfaces, and prepare a separately reviewed manual project update. A clearly
 newer schema instead requires a framework checkout that supports it; the current
-checkout must not interpret or rewrite it. Public refresh does not reverse-parse
-prose, infer missing authority, transform state, or expose compatibility flags.
-Public pre-v2 projects—including `v1.0.0`-generated files and later public
-branch snapshots—are older unsupported instances. Use the
-[v1-to-v2 migration guide](docs/migrating_v1_to_v2.md) for their reviewed
-project-specific update rather than bootstrap or current-format refresh.
+checkout must not interpret or rewrite it. Refresh does not reverse-parse prose,
+infer missing authority, transform state, or expose compatibility flags.
 
 Project-kind changes, contract-root relocation, retirement of required mutable
 state, and unmanaged target collisions also fail closed in ordinary refresh.

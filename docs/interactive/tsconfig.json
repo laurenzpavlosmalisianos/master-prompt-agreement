@@ -1,20 +1,34 @@
 {
   "compilerOptions": {
     "allowJs": false,
+    "allowUnreachableCode": false,
+    "allowUnusedLabels": false,
     "declaration": false,
+    "erasableSyntaxOnly": true,
     "exactOptionalPropertyTypes": true,
-    "lib": ["DOM", "DOM.Iterable", "ES2022"],
+    "forceConsistentCasingInFileNames": true,
+    "inlineSourceMap": false,
+    "lib": ["DOM", "DOM.Iterable", "ES2025"],
     "module": "ESNext",
-    "moduleResolution": "Bundler",
+    "newLine": "lf",
     "noEmitOnError": true,
     "noFallthroughCasesInSwitch": true,
     "noImplicitOverride": true,
     "noImplicitReturns": true,
+    "noPropertyAccessFromIndexSignature": true,
     "noUncheckedIndexedAccess": true,
+    "noUncheckedSideEffectImports": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "outDir": "generated",
     "removeComments": true,
+    "rootDir": "src",
+    "sourceMap": false,
     "strict": true,
-    "target": "ES2022",
-    "verbatimModuleSyntax": true
+    "target": "ES2025",
+    "types": [],
+    "useDefineForClassFields": true
   },
-  "include": ["app.ts"]
+  "include": ["src/**/*.ts"],
+  "exclude": ["generated"]
 }

@@ -445,7 +445,12 @@ def main() -> int:
     )
     parser.add_argument("--external", action="store_true", help="Also check HTTP(S) links over the network.")
     parser.add_argument("--no-anchors", action="store_true", help="Skip local Markdown anchor validation.")
-    parser.add_argument("--timeout", type=float, default=10.0, help="Per-request timeout for external URL checks.")
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=10.0,
+        help="Total network deadline for each external request attempt.",
+    )
     args = parser.parse_args()
 
     raw_root = Path(args.root).expanduser()

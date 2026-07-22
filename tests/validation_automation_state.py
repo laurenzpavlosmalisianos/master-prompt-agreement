@@ -9,18 +9,23 @@ import io
 import json
 import os
 from pathlib import Path
-import py_compile
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
 import unicodedata
 from unittest import mock
-from typing import cast
+from typing import Any, cast
 from zoneinfo import ZoneInfoNotFoundError
 
-from tests.validation_test_support import REPO_ROOT, run_bounded, valid_automation_job
+from tests.validation_test_support import (
+    REPO_ROOT,
+    compile_adjacent_bytecode,
+    run_bounded,
+    valid_automation_job,
+)
 
 import automation_orders_lint  # noqa: E402
 import project_state_lint  # noqa: E402
@@ -1541,7 +1546,7 @@ class AutomationStateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             project = root / "project"
-            contract_root = project / "private" / "authoring"
+            contract_root = project / "contracts" / "mpa"
             nested_cwd = project / "work"
             sibling = root / "sibling"
             percent_project = root / "project%cron"
@@ -2821,10 +2826,12 @@ class AutomationStateTests(unittest.TestCase):
             manifest.write_text("{}\n", encoding="utf-8")
 
             rendered = render_cron.render_job(job, project, manifest)
-            expected_digest = run_scheduled_job.job_authority_sha256(
-                job,
-                project,
-                manifest,
+            expected_digest, expected_runtime_digest = (
+                run_scheduled_job.cron_render_digests(
+                    job,
+                    project,
+                    manifest,
+                )
             )
             job["failure_policy"] = "disable-until-review"
             with self.assertRaises(ValueError):
@@ -2836,45 +2843,444 @@ class AutomationStateTests(unittest.TestCase):
             f"--expected-job-sha256 {expected_digest}",
             rendered,
         )
+        self.assertIn(
+            f"--expected-runtime-bundle-sha256 {expected_runtime_digest}",
+            rendered,
+        )
+        self.assertEqual(1, rendered.count("--expected-runtime-bundle-sha256"))
         self.assertIn(f"--project-root {project}", rendered)
         self.assertNotIn("flock", rendered)
         self.assertNotIn("mkdir", rendered)
         self.assertNotIn(">>", rendered)
-        self.assertIn("CRON_TZ=Europe/Vienna", rendered)
+        self.assertIn("CRON_TZ=Europe/Paris", rendered)
+        self.assertIn(" -I -S -B ", rendered)
         self.assertIn("-X pycache_prefix=/dev/null", rendered)
 
     def test_cron_helper_launch_ignores_existing_timestamp_bytecode_cache(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            module = root / "cache_probe.py"
-            stable_mtime = 1_700_000_000
-            module.write_text("VALUE = 'old'\n", encoding="utf-8")
-            os.utime(module, (stable_mtime, stable_mtime))
-            py_compile.compile(str(module), doraise=True)
-            module.write_text("VALUE = 'new'\n", encoding="utf-8")
-            os.utime(module, (stable_mtime, stable_mtime))
-
-            stale = run_bounded(
-                [
-                    sys.executable,
-                    "-B",
-                    "-c",
-                    "import cache_probe; print(cache_probe.VALUE)",
-                ],
-                cwd=root,
+            scripts_root = root / "scripts"
+            shutil.copytree(
+                REPO_ROOT / "scripts",
+                scripts_root,
+                ignore=shutil.ignore_patterns("__pycache__"),
             )
+            dependency = scripts_root / "automation_orders_lint.py"
+            reviewed_source = dependency.read_bytes()
+            cache_marker = root / "timestamp-cache-ran"
+            marker_source = (
+                "from pathlib import Path\n"
+                f"Path({str(cache_marker)!r}).write_text('ran', encoding='utf-8')\n"
+            ).encode("utf-8")
+            self.assertLess(len(marker_source) + 2, len(reviewed_source))
+            stale_source = (
+                marker_source
+                + b"#"
+                + b" " * (len(reviewed_source) - len(marker_source) - 2)
+                + b"\n"
+            )
+            self.assertEqual(len(reviewed_source), len(stale_source))
+            stable_mtime = 1_700_000_000
+            dependency.write_bytes(stale_source)
+            os.utime(dependency, (stable_mtime, stable_mtime))
+            compile_adjacent_bytecode(dependency)
+            dependency.write_bytes(reviewed_source)
+            os.utime(dependency, (stable_mtime, stable_mtime))
+
             isolated = run_bounded(
                 [
                     sys.executable,
-                    *run_scheduled_job.CRON_HELPER_PYTHON_FLAGS,
-                    "-c",
-                    "import cache_probe; print(cache_probe.VALUE)",
+                    "-E",
+                    "-S",
+                    "-B",
+                    str(scripts_root / "run_scheduled_job.py"),
+                    "--help",
                 ],
                 cwd=root,
+                check=False,
+            )
+            self.assertEqual(
+                0,
+                isolated.returncode,
+                isolated.stdout + isolated.stderr,
+            )
+            self.assertFalse(cache_marker.exists())
+
+    def test_scheduled_runner_help_does_not_execute_adjacent_source(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            scripts_root = root / "scripts"
+            shutil.copytree(
+                REPO_ROOT / "scripts",
+                scripts_root,
+                ignore=shutil.ignore_patterns("__pycache__"),
+            )
+            markers = []
+            for source_name in (
+                "python_import_boundary.py",
+                "resource_cleanup.py",
+            ):
+                marker = root / f"{source_name}-ran"
+                markers.append(marker)
+                (scripts_root / source_name).write_text(
+                    "from pathlib import Path\n"
+                    f"Path({str(marker)!r}).write_text('ran', encoding='utf-8')\n",
+                    encoding="utf-8",
+                )
+
+            for help_flag in ("-h", "--help"):
+                with self.subTest(help_flag=help_flag):
+                    result = run_bounded(
+                        [
+                            sys.executable,
+                            "-B",
+                            str(scripts_root / "run_scheduled_job.py"),
+                            help_flag,
+                        ],
+                        cwd=root,
+                        check=False,
+                    )
+                    self.assertEqual(
+                        0,
+                        result.returncode,
+                        result.stdout + result.stderr,
+                    )
+                    self.assertIn(
+                        "--expected-runtime-bundle-sha256",
+                        result.stdout,
+                    )
+            operational = run_bounded(
+                [
+                    sys.executable,
+                    "-B",
+                    str(scripts_root / "run_scheduled_job.py"),
+                    "--project-root",
+                    str(root),
+                    "--manifest",
+                    str(root / "AUTOMATION_ORDERS.json"),
+                    "--job-id",
+                    "weekly_report",
+                    "--expected-runtime-bundle-sha256",
+                    "0" * 64,
+                    "--expected-job-sha256",
+                    "0" * 64,
+                ],
+                cwd=root,
+                check=False,
+            )
+            self.assertNotEqual(0, operational.returncode)
+            self.assertIn(
+                "scheduled runner help and runtime require -E -S -B",
+                operational.stderr,
+            )
+            self.assertTrue(all(not marker.exists() for marker in markers))
+
+    def test_scheduled_runner_rejects_invalid_runtime_digest_before_local_source(
+        self,
+    ) -> None:
+        cases = {
+            "missing": [],
+            "malformed": ["--expected-runtime-bundle-sha256", "invalid"],
+            "uppercase": ["--expected-runtime-bundle-sha256", "A" * 64],
+            "duplicate": [
+                "--expected-runtime-bundle-sha256",
+                "0" * 64,
+                "--expected-runtime-bundle-sha256",
+                "1" * 64,
+            ],
+        }
+        for case, runtime_digest_args in cases.items():
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                scripts_root = root / "scripts"
+                shutil.copytree(
+                    REPO_ROOT / "scripts",
+                    scripts_root,
+                    ignore=shutil.ignore_patterns("__pycache__"),
+                )
+                marker = root / "local-source-ran"
+                (scripts_root / "resource_cleanup.py").write_text(
+                    "from pathlib import Path\n"
+                    f"Path({str(marker)!r}).write_text('ran', encoding='utf-8')\n",
+                    encoding="utf-8",
+                )
+                result = run_bounded(
+                    [
+                        sys.executable,
+                        *run_scheduled_job.CRON_HELPER_PYTHON_FLAGS,
+                        str(scripts_root / "run_scheduled_job.py"),
+                        "--project-root",
+                        str(root),
+                        "--manifest",
+                        str(root / "AUTOMATION_ORDERS.json"),
+                        "--job-id",
+                        "weekly_report",
+                        *runtime_digest_args,
+                        "--expected-job-sha256",
+                        "0" * 64,
+                    ],
+                    cwd=root,
+                    check=False,
+                )
+
+                self.assertNotEqual(0, result.returncode)
+                self.assertFalse(marker.exists())
+
+    def test_scheduled_runner_refuses_changed_runtime_source_before_execution(
+        self,
+    ) -> None:
+        for source_name in (
+            "python_import_boundary.py",
+            "resource_cleanup.py",
+        ):
+            with (
+                self.subTest(runtime_source=source_name),
+                tempfile.TemporaryDirectory() as temp_dir,
+            ):
+                root = Path(temp_dir)
+                scripts_root = root / "scripts"
+                shutil.copytree(
+                    REPO_ROOT / "scripts",
+                    scripts_root,
+                    ignore=shutil.ignore_patterns("__pycache__"),
+                )
+                expected_runtime_digest = run_scheduled_job.runtime_bundle_sha256(
+                    root
+                )
+                marker = root / f"{source_name}-ran"
+                (scripts_root / source_name).write_text(
+                    "from pathlib import Path\n"
+                    f"Path({str(marker)!r}).write_text('ran', encoding='utf-8')\n",
+                    encoding="utf-8",
+                )
+
+                result = run_bounded(
+                    [
+                        sys.executable,
+                        *run_scheduled_job.CRON_HELPER_PYTHON_FLAGS,
+                        str(scripts_root / "run_scheduled_job.py"),
+                        "--project-root",
+                        str(root),
+                        "--manifest",
+                        str(root / "AUTOMATION_ORDERS.json"),
+                        "--job-id",
+                        "weekly_report",
+                        "--expected-runtime-bundle-sha256",
+                        expected_runtime_digest,
+                        "--expected-job-sha256",
+                        "0" * 64,
+                    ],
+                    cwd=root,
+                    check=False,
+                )
+
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn(
+                    "scheduled runtime bundle changed since cron rendering",
+                    result.stderr,
+                )
+                self.assertFalse(marker.exists())
+                self.assertFalse((root / ".automation").exists())
+
+    def test_runtime_bundle_reader_rejects_unsafe_fixed_source_objects(self) -> None:
+        cases = ("missing", "symlink", "hardlink", "directory", "fifo", "oversize")
+        for case in cases:
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                scripts_root = root / "scripts"
+                shutil.copytree(
+                    REPO_ROOT / "scripts",
+                    scripts_root,
+                    ignore=shutil.ignore_patterns("__pycache__"),
+                )
+                source = scripts_root / "resource_cleanup.py"
+                original = source.read_bytes()
+                source.unlink()
+                if case == "symlink":
+                    outside = root / "outside.py"
+                    outside.write_bytes(original)
+                    source.symlink_to(outside)
+                elif case == "hardlink":
+                    outside = root / "outside.py"
+                    outside.write_bytes(original)
+                    os.link(outside, source)
+                elif case == "directory":
+                    source.mkdir()
+                elif case == "fifo":
+                    os.mkfifo(source)
+                elif case == "oversize":
+                    source.write_bytes(
+                        b"x" * (run_scheduled_job.MAX_RUNTIME_SOURCE_FILE_BYTES + 1)
+                    )
+
+                with self.assertRaises((OSError, RuntimeError)):
+                    run_scheduled_job.runtime_bundle_sha256(root)
+
+    def test_runtime_bundle_reader_rejects_ambiguous_fixed_source_name(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            scripts_root = root / "scripts"
+            shutil.copytree(
+                REPO_ROOT / "scripts",
+                scripts_root,
+                ignore=shutil.ignore_patterns("__pycache__"),
+            )
+            (scripts_root / "RESOURCE_CLEANUP.PY").write_text(
+                "# ambiguous alias\n",
+                encoding="utf-8",
             )
 
-        self.assertEqual("old", stale.stdout.strip())
-        self.assertEqual("new", isolated.stdout.strip())
+            with self.assertRaisesRegex(RuntimeError, "ambiguous name edges"):
+                run_scheduled_job.runtime_bundle_sha256(root)
+
+    def test_runtime_bundle_reader_rejects_source_metadata_change(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            scripts_root = root / "scripts"
+            shutil.copytree(
+                REPO_ROOT / "scripts",
+                scripts_root,
+                ignore=shutil.ignore_patterns("__pycache__"),
+            )
+            target_inode = (scripts_root / "resource_cleanup.py").stat().st_ino
+            real_fstat = os.fstat
+            target_reads = 0
+
+            class ChangedMetadata:
+                def __init__(self, original: os.stat_result) -> None:
+                    self._original = original
+                    self.st_mtime_ns = original.st_mtime_ns + 1
+
+                def __getattr__(self, name: str) -> Any:
+                    return getattr(self._original, name)
+
+            def changed_after_read(
+                descriptor: int,
+            ) -> os.stat_result | ChangedMetadata:
+                nonlocal target_reads
+                metadata = real_fstat(descriptor)
+                if metadata.st_ino == target_inode:
+                    target_reads += 1
+                    if target_reads == 2:
+                        return ChangedMetadata(metadata)
+                return metadata
+
+            with (
+                mock.patch.object(os, "fstat", side_effect=changed_after_read),
+                self.assertRaisesRegex(RuntimeError, "changed while being read"),
+            ):
+                run_scheduled_job.runtime_bundle_sha256(root)
+
+    def test_runtime_bundle_reader_rejects_scripts_root_metadata_change(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            scripts_root = root / "scripts"
+            shutil.copytree(
+                REPO_ROOT / "scripts",
+                scripts_root,
+                ignore=shutil.ignore_patterns("__pycache__"),
+            )
+            target_inode = scripts_root.stat().st_ino
+            real_fstat = os.fstat
+            target_reads = 0
+
+            class ChangedMetadata:
+                def __init__(self, original: os.stat_result) -> None:
+                    self._original = original
+                    self.st_ctime_ns = original.st_ctime_ns + 1
+
+                def __getattr__(self, name: str) -> Any:
+                    return getattr(self._original, name)
+
+            def changed_after_read(
+                descriptor: int,
+            ) -> os.stat_result | ChangedMetadata:
+                nonlocal target_reads
+                metadata = real_fstat(descriptor)
+                if metadata.st_ino == target_inode:
+                    target_reads += 1
+                    if target_reads == 2:
+                        return ChangedMetadata(metadata)
+                return metadata
+
+            with (
+                mock.patch.object(os, "fstat", side_effect=changed_after_read),
+                self.assertRaisesRegex(RuntimeError, "scripts root changed"),
+            ):
+                run_scheduled_job.runtime_bundle_sha256(root)
+
+    def test_scheduled_runner_rejects_package_shadow_before_authority(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            scripts_root = root / "scripts"
+            shutil.copytree(
+                REPO_ROOT / "scripts",
+                scripts_root,
+                ignore=shutil.ignore_patterns("__pycache__"),
+            )
+            dependency = scripts_root / "automation_orders_lint.py"
+            reviewed_source = dependency.read_bytes()
+            cache_marker = root / "cache-ran"
+            dependency.write_text(
+                "from pathlib import Path\n"
+                f"Path({str(cache_marker)!r}).write_text('ran', encoding='utf-8')\n",
+                encoding="utf-8",
+            )
+            compile_adjacent_bytecode(dependency, unchecked_hash=True)
+            dependency.write_bytes(reviewed_source)
+
+            cache_result = run_bounded(
+                [
+                    sys.executable,
+                    *run_scheduled_job.CRON_HELPER_PYTHON_FLAGS,
+                    str(scripts_root / "run_scheduled_job.py"),
+                    "--help",
+                ],
+                cwd=root,
+                check=False,
+            )
+            self.assertEqual(
+                0,
+                cache_result.returncode,
+                cache_result.stdout + cache_result.stderr,
+            )
+            self.assertFalse(cache_marker.exists())
+            expected_runtime_digest = run_scheduled_job.runtime_bundle_sha256(root)
+
+            package_marker = root / "package-ran"
+            package = scripts_root / "automation_orders_lint"
+            package.mkdir()
+            (package / "__init__.py").write_text(
+                "from pathlib import Path\n"
+                f"Path({str(package_marker)!r}).write_text('ran', encoding='utf-8')\n",
+                encoding="utf-8",
+            )
+            shadow_result = run_bounded(
+                [
+                    sys.executable,
+                    *run_scheduled_job.CRON_HELPER_PYTHON_FLAGS,
+                    str(scripts_root / "run_scheduled_job.py"),
+                    "--project-root",
+                    str(root),
+                    "--manifest",
+                    str(root / "AUTOMATION_ORDERS.json"),
+                    "--job-id",
+                    "weekly_report",
+                    "--expected-runtime-bundle-sha256",
+                    expected_runtime_digest,
+                    "--expected-job-sha256",
+                    "0" * 64,
+                ],
+                cwd=root,
+                check=False,
+            )
+            self.assertFalse(package_marker.exists())
+
+        self.assertNotEqual(0, shadow_result.returncode)
+        self.assertIn(
+            "scheduled runner rejected local import shadow: automation_orders_lint",
+            shadow_result.stderr,
+        )
 
     def test_cron_runtime_source_closure_matches_local_python_imports(self) -> None:
         scripts_root = REPO_ROOT / "scripts"
@@ -3140,6 +3546,9 @@ class AutomationStateTests(unittest.TestCase):
                     project_descriptor=project_descriptor,
                     framework_descriptor=framework_descriptor,
                 )
+                baseline_bundle_sha256 = (
+                    run_scheduled_job._runtime_bundle_sha256_from_records(baseline)
+                )
                 baseline_runtime = {
                     str(record["path"]): str(record["sha256"])
                     for record in baseline
@@ -3162,6 +3571,12 @@ class AutomationStateTests(unittest.TestCase):
                         self.assertNotEqual(
                             baseline_runtime[relative],
                             changed_runtime[relative],
+                        )
+                        self.assertNotEqual(
+                            baseline_bundle_sha256,
+                            run_scheduled_job._runtime_bundle_sha256_from_records(
+                                changed
+                            ),
                         )
                         path.write_bytes(raw)
             finally:
@@ -3547,7 +3962,7 @@ class AutomationStateTests(unittest.TestCase):
     def test_cron_renderer_accepts_manifest_nested_inside_project_root(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project = Path(temp_dir) / "project"
-            contract_root = project / "private" / "authoring"
+            contract_root = project / "contracts" / "mpa"
             contract_root.mkdir(parents=True)
             (project / "work").mkdir()
             manifest = contract_root / "AUTOMATION_ORDERS.json"

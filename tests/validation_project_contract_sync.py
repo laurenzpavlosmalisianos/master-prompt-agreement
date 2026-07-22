@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -4688,7 +4689,7 @@ class ProjectContractSyncTests(unittest.TestCase):
             "All Python commands in this project must run through uv; direct interpreter invocation is prohibited.",
             rules,
         )
-        fallback = next(rule for rule in rules if "direct `python3 -B`" in rule)
+        fallback = next(rule for rule in rules if "direct `python3 -E -S -B`" in rule)
         self.assertIn(
             "when the SOW and project language rules do not require a stricter runner",
             fallback,
@@ -4697,7 +4698,7 @@ class ProjectContractSyncTests(unittest.TestCase):
     def test_project_bootstrap_uses_validated_framework_verification_runner(self) -> None:
         mounted_projects = "/" + "workspace" + "/project-set"
         container_name = "verification-runtime"
-        runner = f"container exec -w {mounted_projects}/demo {container_name} uv run python -B"
+        runner = f"container exec -w {mounted_projects}/demo {container_name} uv run python -E -S -B"
         framework_ref = f"{mounted_projects}/framework"
         answers = {
             "bootstrap_mode": "minimal",
@@ -4716,7 +4717,7 @@ class ProjectContractSyncTests(unittest.TestCase):
         self.assertIn(f"Framework Verification Runner: {runner}", sow)
         self.assertIn(f"- Framework Verification Runner: {runner}", contract)
         self.assertIn(
-            f"- Core conformance: {runner} {framework_ref}/scripts/conformance_check.py",
+            f"- Core conformance: {runner} -- {framework_ref}/scripts/conformance_check.py",
             contract,
         )
         self.assertIn(
@@ -4732,7 +4733,7 @@ class ProjectContractSyncTests(unittest.TestCase):
             errors,
         )
         injected = dict(answers)
-        injected["framework_verification_runner"] = "uv run python -B; touch marker"
+        injected["framework_verification_runner"] = "uv run python -E -S -B; touch marker"
         injection_errors = project_bootstrap.validate_answers(injected)
         self.assertIn(
             "framework_verification_runner must be one inert command prefix without shell control or expansion metacharacters",
@@ -4751,14 +4752,14 @@ class ProjectContractSyncTests(unittest.TestCase):
         temp_root = "/" + "tmp"
         windows_python = "C:" + "/Python/python.exe"
         supported = (
-            "uv run python -B",
-            "python3 -B",
-            "py -3 -B",
-            f"{absolute_python} -B",
-            f"{windows_python} -B",
-            f"{Path(sys.executable).resolve(strict=True)} -B",
-            f"container exec -w {mounted_demo} runtime uv run python -B",
-            "container exec --workdir workspace target python3 -B",
+            "uv run python -E -S -B",
+            "python3 -E -S -B",
+            "py -3 -E -S -B",
+            f"{absolute_python} -E -S -B",
+            f"{windows_python} -E -S -B",
+            f"{Path(sys.executable).resolve(strict=True)} -E -S -B",
+            f"container exec -w {mounted_demo} runtime uv run python -E -S -B",
+            "container exec --workdir workspace target python3 -E -S -B",
         )
         for runner in supported:
             with self.subTest(runner=runner):
@@ -4779,6 +4780,9 @@ class ProjectContractSyncTests(unittest.TestCase):
             "python3 -c pass",
             "python3 -m compileall",
             "python3 script.py",
+            "python3 -B",
+            "python3 -E -S",
+            "python3 -S -E -B",
             "python3 -B -c pass",
             "python3 -B -m compileall",
             "python3 -B script.py",
@@ -4786,32 +4790,35 @@ class ProjectContractSyncTests(unittest.TestCase):
             "uv run python -c pass",
             "uv run python -m module",
             "uv run python script.py",
+            "uv run python -B",
+            "uv run python -E -S",
+            "uv run python -S -E -B",
             "uv run python -B -c pass",
             "uv run python -B -m module",
             "uv run python -B script.py",
-            "uv run python3 -B",
+            "uv run python3 -E -S -B",
             "env X=1 python3 -B",
             "env -S 'sh -c' python3 -B",
-            "python3 -B --",
-            "uv run -- python -B",
-            "container exec -- target python3 -B",
-            f"{temp_root}/fake exec target uv run python -B",
-            f"{temp_root}/container exec target uv run python -B",
-            "wrapper -c pass python3 -B",
-            "wrapper exec target sh -c ignored python3 -B",
-            "wrapper exec -w workspace target timeout 1 python3 -B",
-            "wrapper exec -w workspace --target python3 -B",
-            "wrapper exec -w --malicious target python3 -B",
-            "container exec target -w workspace python3 -B",
-            "container exec --workdir one -w two target python3 -B",
-            "container exec --workdir '' target python3 -B",
-            "container exec '' python3 -B",
-            "container exec -w %TEMP% target python3 -B",
-            "container exec -w ^escape target python3 -B",
-            "sh -c ignored uv run python -B",
-            "python3 -B > marker",
-            "python3 -B; id",
-            "python3 -B $(id)",
+            "python3 -E -S -B --",
+            "uv run -- python -E -S -B",
+            "container exec -- target python3 -E -S -B",
+            f"{temp_root}/fake exec target uv run python -E -S -B",
+            f"{temp_root}/container exec target uv run python -E -S -B",
+            "wrapper -c pass python3 -E -S -B",
+            "wrapper exec target sh -c ignored python3 -E -S -B",
+            "wrapper exec -w workspace target timeout 1 python3 -E -S -B",
+            "wrapper exec -w workspace --target python3 -E -S -B",
+            "wrapper exec -w --malicious target python3 -E -S -B",
+            "container exec target -w workspace python3 -E -S -B",
+            "container exec --workdir one -w two target python3 -E -S -B",
+            "container exec --workdir '' target python3 -E -S -B",
+            "container exec '' python3 -E -S -B",
+            "container exec -w %TEMP% target python3 -E -S -B",
+            "container exec -w ^escape target python3 -E -S -B",
+            "sh -c ignored uv run python -E -S -B",
+            "python3 -E -S -B > marker",
+            "python3 -E -S -B; id",
+            "python3 -E -S -B $(id)",
         )
         for runner in unsafe:
             with self.subTest(runner=runner):
@@ -4824,7 +4831,7 @@ class ProjectContractSyncTests(unittest.TestCase):
                 )
 
     def test_project_contract_sync_accepts_exact_safe_wrapped_runner(self) -> None:
-        runner = "container exec --workdir workspace target uv run python -B"
+        runner = "container exec --workdir workspace target uv run python -E -S -B"
         lines = project_contract_model.framework_verification_command_lines(
             "$FRAMEWORK",
             runner=runner,
@@ -4836,6 +4843,77 @@ class ProjectContractSyncTests(unittest.TestCase):
         )
 
         self.assertEqual([], errors)
+
+    def test_environment_framework_commands_preserve_one_script_token(self) -> None:
+        runner = f"{shlex.quote(sys.executable)} -E -S -B"
+        core_command = next(
+            line.removeprefix("- Core conformance: ")
+            for line in project_contract_model.framework_verification_command_lines(
+                "$FRAMEWORK",
+                runner=runner,
+            )
+            if line.startswith("- Core conformance: ")
+        )
+        monitor_command = project_contract_model.source_monitor_artifact_lint_command(
+            runner,
+            "$FRAMEWORK",
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            framework_root = root / "framework root"
+            scripts_root = framework_root / "scripts"
+            scripts_root.mkdir(parents=True)
+            for script_name in (
+                "conformance_check.py",
+                "source_chain_artifact_lint.py",
+            ):
+                (scripts_root / script_name).write_text(
+                    "from pathlib import Path\n"
+                    f"Path({str(root / (script_name + '.ran'))!r}).write_text('ran', encoding='utf-8')\n",
+                    encoding="utf-8",
+                )
+
+            injection_marker = root / "injection-ran"
+            malicious_reference = (
+                "-c __import__('pathlib').Path("
+                f"{str(injection_marker)!r}"
+                ").write_text('ran') #"
+            )
+            for command in (core_command, monitor_command):
+                with self.subTest(command=command, case="option-shaped expansion"):
+                    result = run_bounded(
+                        [
+                            "/usr/bin/env",
+                            f"FRAMEWORK={malicious_reference}",
+                            "/bin/sh",
+                            "-c",
+                            command,
+                        ],
+                        cwd=root,
+                        check=False,
+                    )
+                    self.assertNotEqual(0, result.returncode)
+                    self.assertFalse(injection_marker.exists())
+
+            for command, script_name in (
+                (core_command, "conformance_check.py"),
+                (monitor_command, "source_chain_artifact_lint.py"),
+            ):
+                with self.subTest(command=command, case="space-bearing path"):
+                    result = run_bounded(
+                        [
+                            "/usr/bin/env",
+                            f"FRAMEWORK={framework_root}",
+                            "/bin/sh",
+                            "-c",
+                            command,
+                        ],
+                        cwd=root,
+                        check=False,
+                    )
+                    self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+                    self.assertTrue((root / (script_name + ".ran")).is_file())
 
     def test_project_contract_sync_rejects_consuming_runner_even_when_rows_match(self) -> None:
         for runner in ("sh -c id", "python3 -c pass"):
@@ -4858,12 +4936,12 @@ class ProjectContractSyncTests(unittest.TestCase):
     def test_project_contract_sync_rejects_framework_verification_runner_drift(self) -> None:
         lines = project_contract_model.framework_verification_command_lines(
             "$FRAMEWORK",
-            runner="uv run python -B",
+            runner="uv run python -E -S -B",
         )
 
         errors = project_contract_sync.framework_verification_command_errors(
             lines,
-            expected_runner="container exec verification-runtime uv run python -B",
+            expected_runner="container exec verification-runtime uv run python -E -S -B",
         )
 
         self.assertTrue(
@@ -4874,16 +4952,19 @@ class ProjectContractSyncTests(unittest.TestCase):
     def test_project_contract_sync_rejects_verification_reference_fallback_and_extra_command_drift(self) -> None:
         lines = project_contract_model.framework_verification_command_lines(
             "$FRAMEWORK",
-            runner="uv run python -B",
+            runner="uv run python -E -S -B",
         )
         wrong_reference = [
-            line.replace("$FRAMEWORK/scripts/conformance_check.py", "/other/scripts/conformance_check.py")
+            line.replace(
+                "${FRAMEWORK:?FRAMEWORK is required}/scripts/conformance_check.py",
+                "/other/scripts/conformance_check.py",
+            )
             for line in lines
         ]
         wrong_fallback = [
             line.replace(
-                "uv run python -B $FRAMEWORK/scripts/check_prereqs.py",
-                "python3 -B $FRAMEWORK/scripts/check_prereqs.py",
+                'uv run python -E -S -B -- "${FRAMEWORK:?FRAMEWORK is required}/scripts/check_prereqs.py"',
+                'python3 -E -S -B -- "${FRAMEWORK:?FRAMEWORK is required}/scripts/check_prereqs.py"',
             )
             for line in lines
         ]
@@ -4896,7 +4977,7 @@ class ProjectContractSyncTests(unittest.TestCase):
             with self.subTest(drifted=drifted):
                 errors = project_contract_sync.framework_verification_command_errors(
                     drifted,
-                    expected_runner="uv run python -B",
+                    expected_runner="uv run python -E -S -B",
                 )
                 self.assertTrue(any("does not exactly match" in error for error in errors), errors)
 
@@ -7270,7 +7351,10 @@ class ProjectContractSyncTests(unittest.TestCase):
             for name, content in outputs.items():
                 (root / name).write_text(content, encoding="utf-8")
             contract = (root / "AGENT_PROJECT.md").read_text(encoding="utf-8")
-            contract = contract.replace("$FRAMEWORK/scripts/conformance_check.py", "scripts/conformance_check.py")
+            contract = contract.replace(
+                '"${FRAMEWORK:?FRAMEWORK is required}/scripts/conformance_check.py"',
+                "scripts/conformance_check.py",
+            )
             (root / "AGENT_PROJECT.md").write_text(contract, encoding="utf-8")
 
             result = run_sync(root)
@@ -8427,8 +8511,8 @@ class ProjectContractSyncTests(unittest.TestCase):
                 "command framework reference",
                 expected_command,
                 expected_command.replace(
-                    "$FRAMEWORK/scripts/source_chain_artifact_lint.py",
-                    "$OTHER_FRAMEWORK/scripts/source_chain_artifact_lint.py",
+                    "${FRAMEWORK:?FRAMEWORK is required}/scripts/source_chain_artifact_lint.py",
+                    "${OTHER_FRAMEWORK:?OTHER_FRAMEWORK is required}/scripts/source_chain_artifact_lint.py",
                     1,
                 ),
                 "strict monitor command",

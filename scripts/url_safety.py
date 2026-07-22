@@ -2,13 +2,23 @@
 
 from __future__ import annotations
 
+import http.client
 import ipaddress
+import math
 import socket
+import ssl
 import threading
-from urllib.error import URLError
-from urllib.error import HTTPError
+import time
+import unicodedata
+from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin, urlsplit
-from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
+from urllib.request import (
+    HTTPRedirectHandler,
+    HTTPSHandler,
+    ProxyHandler,
+    Request,
+    build_opener,
+)
 
 
 LOCAL_HOSTNAMES = {"localhost"}
@@ -16,6 +26,286 @@ LOCAL_USE_HOSTNAMES = {"home.arpa", "internal", "lan", "local"}
 LOCAL_USE_SUFFIXES = tuple(f".{name}" for name in LOCAL_USE_HOSTNAMES)
 ALLOWED_EXTERNAL_SCHEMES = {"https"}
 SAFE_URLOPEN_LOCK = threading.Lock()
+_RESOLVER_SLOT = threading.BoundedSemaphore(1)
+
+
+class _NetworkDeadline:
+    """One monotonic deadline shared by resolution, opening, and body reads."""
+
+    def __init__(self, seconds: float, *, clock=time.monotonic) -> None:  # type: ignore[no-untyped-def]
+        duration = float(seconds)
+        if not math.isfinite(duration) or duration <= 0:
+            raise ValueError("timeout must be a positive finite number")
+        self.duration = duration
+        self._clock = clock
+        self._expires_at = clock() + duration
+        self._lock = threading.Lock()
+        self._sockets: set[socket.socket] = set()
+        self._expired = False
+        self._cancelled = False
+        self._timer = threading.Timer(duration, self._expire)
+        self._timer.daemon = True
+        self._timer.start()
+
+    def error(self) -> TimeoutError:
+        return TimeoutError(
+            f"total network deadline exceeded after {self.duration:g}s"
+        )
+
+    def _expire(self) -> None:
+        with self._lock:
+            if self._cancelled or self._expired:
+                return
+            self._expired = True
+            sockets = tuple(self._sockets)
+        for attached in sockets:
+            try:
+                attached.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            try:
+                attached.close()
+            except OSError:
+                pass
+
+    def expired(self) -> bool:
+        if self._clock() >= self._expires_at:
+            self._expire()
+        with self._lock:
+            return self._expired
+
+    def remaining(self) -> float:
+        remaining = self._expires_at - self._clock()
+        if remaining <= 0:
+            self._expire()
+            raise self.error()
+        with self._lock:
+            if self._expired:
+                raise self.error()
+        return remaining
+
+    def attach(self, attached: socket.socket) -> socket.socket:
+        try:
+            remaining = self.remaining()
+        except Exception:
+            attached.close()
+            raise
+        with self._lock:
+            if self._expired or self._cancelled:
+                attached.close()
+                raise self.error()
+            self._sockets.add(attached)
+        try:
+            attached.settimeout(remaining)
+        except Exception:
+            self.detach(attached)
+            raise
+        return attached
+
+    def detach(self, attached: socket.socket) -> None:
+        with self._lock:
+            self._sockets.discard(attached)
+
+    def cancel(self) -> None:
+        with self._lock:
+            self._cancelled = True
+            self._sockets.clear()
+        self._timer.cancel()
+
+
+class _DeadlineResponse:
+    """Delegate an HTTP response while enforcing its opener's total deadline."""
+
+    def __init__(self, response, deadline: _NetworkDeadline) -> None:  # type: ignore[no-untyped-def]
+        self._response = response
+        self._deadline = deadline
+
+    def __getattr__(self, name: str):  # type: ignore[no-untyped-def]
+        return getattr(self._response, name)
+
+    def __enter__(self):  # type: ignore[no-untyped-def]
+        self._deadline.remaining()
+        return self
+
+    def __exit__(self, exc_type, exc, traceback) -> bool:  # type: ignore[no-untyped-def]
+        self.close()
+        return False
+
+    def close(self) -> None:
+        try:
+            self._response.close()
+        finally:
+            self._deadline.cancel()
+
+    def _read(self, method: str, *args, **kwargs):  # type: ignore[no-untyped-def]
+        self._deadline.remaining()
+        try:
+            result = getattr(self._response, method)(*args, **kwargs)
+        except Exception as exc:
+            if self._deadline.expired():
+                raise self._deadline.error() from exc
+            raise
+        self._deadline.remaining()
+        return result
+
+    def read(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        return self._read("read", *args, **kwargs)
+
+    def read1(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        return self._read("read1", *args, **kwargs)
+
+    def readinto(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        return self._read("readinto", *args, **kwargs)
+
+    def readinto1(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        return self._read("readinto1", *args, **kwargs)
+
+    def readline(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        return self._read("readline", *args, **kwargs)
+
+    def readlines(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        return self._read("readlines", *args, **kwargs)
+
+    def peek(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        return self._read("peek", *args, **kwargs)
+
+    def __iter__(self):  # type: ignore[no-untyped-def]
+        return self
+
+    def __next__(self):  # type: ignore[no-untyped-def]
+        line = self.readline()
+        if line:
+            return line
+        raise StopIteration
+
+
+def _resolve_with_deadline(
+    resolver,  # type: ignore[no-untyped-def]
+    arguments: tuple[object, ...],
+    deadline: _NetworkDeadline,
+) -> list[tuple]:
+    result: list[list[tuple]] = []
+    failure: list[Exception] = []
+    resolver_slot = _RESOLVER_SLOT
+
+    def resolve() -> None:
+        try:
+            result.append(resolver(*arguments))
+        except Exception as exc:
+            failure.append(exc)
+        finally:
+            resolver_slot.release()
+
+    if not resolver_slot.acquire(timeout=deadline.remaining()):
+        deadline._expire()
+        raise deadline.error()
+    try:
+        worker = threading.Thread(target=resolve, daemon=True)
+        worker.start()
+    except Exception:
+        resolver_slot.release()
+        raise
+    worker.join(deadline.remaining())
+    if worker.is_alive():
+        deadline._expire()
+        raise deadline.error()
+    deadline.remaining()
+    if failure:
+        raise failure[0]
+    if not result:
+        raise RuntimeError("hostname resolver exited without a result")
+    return result[0]
+
+
+def _deadline_create_connection(
+    address: tuple[str, int],
+    _timeout: object,
+    source_address: tuple[str, int] | None,
+    *,
+    deadline: _NetworkDeadline,
+) -> socket.socket:
+    host, port = address
+    last_error: OSError | None = None
+    records = socket.getaddrinfo(host, port, 0, socket.SOCK_STREAM)
+    for family, socktype, proto, _canonical_name, sockaddr in records:
+        candidate: socket.socket | None = None
+        try:
+            candidate = socket.socket(family, socktype, proto)
+            deadline.attach(candidate)
+            if source_address:
+                candidate.bind(source_address)
+            candidate.connect(sockaddr)
+            deadline.remaining()
+            return candidate
+        except OSError as exc:
+            last_error = exc
+            if candidate is not None:
+                deadline.detach(candidate)
+                candidate.close()
+            if deadline.expired():
+                raise deadline.error() from exc
+    if last_error is not None:
+        raise last_error
+    raise OSError("getaddrinfo returned an empty address list")
+
+
+class _DeadlineHTTPSConnection(http.client.HTTPSConnection):
+    _context: ssl.SSLContext
+    _tunnel_host: str | None
+
+    def __init__(self, host, port=None, *, deadline: _NetworkDeadline, **kwargs):  # type: ignore[no-untyped-def]
+        self._deadline = deadline
+        kwargs["timeout"] = deadline.remaining()
+        super().__init__(host, port, **kwargs)
+        self._create_connection = lambda address, timeout, source_address: (
+            _deadline_create_connection(
+                address,
+                timeout,
+                source_address,
+                deadline=self._deadline,
+            )
+        )
+
+    def connect(self) -> None:
+        http.client.HTTPConnection.connect(self)
+        if self.sock is None:
+            raise OSError("HTTPS connection did not create a socket")
+        raw_socket = self.sock
+        server_hostname = self._tunnel_host or self.host
+        try:
+            wrapped_socket = self._context.wrap_socket(
+                raw_socket,
+                server_hostname=server_hostname,
+                do_handshake_on_connect=False,
+            )
+            self._deadline.detach(raw_socket)
+            self.sock = wrapped_socket
+            self._deadline.attach(wrapped_socket)
+            wrapped_socket.do_handshake()
+            self._deadline.remaining()
+        except Exception as exc:
+            if self._deadline.expired():
+                raise self._deadline.error() from exc
+            raise
+
+
+class _DeadlineHTTPSHandler(HTTPSHandler):
+    _context: ssl.SSLContext
+
+    def __init__(self, deadline: _NetworkDeadline) -> None:
+        super().__init__()
+        self._deadline = deadline
+
+    def https_open(self, request):  # type: ignore[no-untyped-def]
+        def connection(host, port=None, **kwargs):  # type: ignore[no-untyped-def]
+            return _DeadlineHTTPSConnection(
+                host,
+                port,
+                deadline=self._deadline,
+                **kwargs,
+            )
+
+        return self.do_open(connection, request, context=self._context)
 
 
 def _legacy_ipv4_part(part: str) -> int | None:
@@ -85,7 +375,14 @@ def non_public_address_reason(address_text: str, *, resolved: bool) -> str | Non
         address = ipaddress.ip_address(address_text)
     except ValueError:
         return None
-    if address.is_global:
+    if address.is_multicast:
+        if resolved:
+            return f"external URL resolves to multicast address: {address}"
+        return f"external URL points to multicast address: {address}"
+    site_local_ipv6 = (
+        isinstance(address, ipaddress.IPv6Address) and address.is_site_local
+    )
+    if address.is_global and not site_local_ipv6:
         return None
     if resolved:
         return f"external URL resolves to non-public address: {address}"
@@ -124,6 +421,11 @@ def safe_urlsplit(url: str):
 
 
 def blocked_external_url_reason(url: str, *, resolve_hostname: bool = False) -> str | None:
+    if any(
+        unicodedata.category(character) in {"Cc", "Cf", "Cs", "Zl", "Zp"}
+        for character in url
+    ):
+        return "external URL contains control or format characters"
     parsed, parse_error = safe_urlsplit(url)
     if parse_error:
         return parse_error
@@ -178,9 +480,15 @@ def safe_urlopen(request: Request, *, timeout: float, max_redirects: int = 5):
         raise ValueError(blocked)
     if max_redirects < 0:
         raise ValueError("max_redirects must be non-negative")
-    with SAFE_URLOPEN_LOCK:
+    deadline = _NetworkDeadline(timeout)
+    acquired = SAFE_URLOPEN_LOCK.acquire(timeout=deadline.remaining())
+    if not acquired:
+        deadline.cancel()
+        raise deadline.error()
+    succeeded = False
+    try:
         original_getaddrinfo = socket.getaddrinfo
-        cache: dict[tuple[str, int | str | None], list[tuple]] = {}
+        cache: dict[tuple[object, ...], list[tuple]] = {}
 
         def guarded_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):  # type: ignore[no-untyped-def]
             hostname = str(host).rstrip(".").casefold()
@@ -192,9 +500,13 @@ def safe_urlopen(request: Request, *, timeout: float, max_redirects: int = 5):
             literal_reason = non_public_address_reason(hostname, resolved=False)
             if literal_reason:
                 raise OSError(literal_reason)
-            cache_key = (hostname, port)
+            cache_key = (hostname, port, family, type, proto, flags)
             if cache_key not in cache:
-                records = original_getaddrinfo(host, port, family, type, proto, flags)
+                records = _resolve_with_deadline(
+                    original_getaddrinfo,
+                    (host, port, family, type, proto, flags),
+                    deadline,
+                )
                 issues = resolved_address_issues_from_records(records)
                 if issues:
                     raise OSError("; ".join(issues))
@@ -210,7 +522,11 @@ def safe_urlopen(request: Request, *, timeout: float, max_redirects: int = 5):
         # Process-level proxies resolve or fetch outside this guarded resolver.
         # This bounded primitive therefore uses a direct connection; a
         # proxy-backed acquisition needs its own explicit transport review.
-        opener = build_opener(ProxyHandler({}), redirect_handler)
+        opener = build_opener(
+            ProxyHandler({}),
+            redirect_handler,
+            _DeadlineHTTPSHandler(deadline),
+        )
         try:
             socket.getaddrinfo = guarded_getaddrinfo  # type: ignore[assignment]
             parsed, parse_error = safe_urlsplit(request.full_url)
@@ -223,10 +539,23 @@ def safe_urlopen(request: Request, *, timeout: float, max_redirects: int = 5):
                 guarded_getaddrinfo(parsed.hostname, parsed.port or default_port, type=socket.SOCK_STREAM)
             except OSError as exc:
                 raise ValueError(str(exc)) from exc
-            return opener.open(request, timeout=timeout)
+            response = opener.open(request, timeout=deadline.remaining())
+            deadline.remaining()
+            succeeded = True
+            return _DeadlineResponse(response, deadline)
         except URLError as exc:
+            if deadline.expired():
+                raise deadline.error() from exc
             if isinstance(exc.reason, OSError) and str(exc.reason):
                 raise ValueError(str(exc.reason)) from exc
             raise
+        except Exception as exc:
+            if deadline.expired():
+                raise deadline.error() from exc
+            raise
         finally:
             socket.getaddrinfo = original_getaddrinfo  # type: ignore[assignment]
+    finally:
+        SAFE_URLOPEN_LOCK.release()
+        if not succeeded:
+            deadline.cancel()

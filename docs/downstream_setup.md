@@ -11,10 +11,10 @@ Use this chapter for orientation. The executable setup procedure remains
 3. The agent inspects the target project before asking setup questions.
 4. The agent writes a temporary answers JSON outside both repositories.
 5. Through the intended execution boundary, the agent runs
-   `<candidate-python> -B <framework-checkout-on-diagnostic-host>/scripts/check_prereqs.py`;
-   only its exact executing interpreter is qualified.
+   `<candidate-python> -E -S -B -- "<framework-checkout-on-diagnostic-host>/scripts/check_prereqs.py"`;
+   only its exact compatible CPython interpreter and startup flags are qualified.
 6. The agent resolves the checkout inside that retained runner and runs
-   `<runner> <framework-checkout-as-visible-to-runner>/scripts/project_bootstrap.py --dry-run`.
+   `<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/project_bootstrap.py" --dry-run`.
 7. After reviewing the complete rendered plan, the agent reruns the same command
    with `--approve-write-plan-sha256 <write_plan_sha256>`. The plan digest is
    required even when the informational warning list is empty and changes with
@@ -104,8 +104,8 @@ Typical generated files are:
 Retained input materializes project facts such as paths and commands. Keep
 secrets out, minimize unnecessary sensitive material while retaining required
 project facts, and review the file before tracking, sharing, or publishing the
-downstream repository. Public
-framework export ignores do not sanitize downstream repositories. The current
+downstream repository. Ignore rules in the framework checkout do not sanitize
+downstream repositories. The current
 instance receipt carries the retained contract effective date and its
 `contract_root` field locates nested authority and input; it is not a
 refresh-history log.

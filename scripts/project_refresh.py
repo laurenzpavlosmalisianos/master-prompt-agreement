@@ -10,6 +10,76 @@ transaction mechanics to their existing owners.
 
 from __future__ import annotations
 
+import _imp as _bootstrap_imp
+import sys as _bootstrap_sys
+
+
+def _require_python_startup_flags(label: str) -> None:
+    """Reject an entrypoint before it can load repository-local modules."""
+
+    if _bootstrap_sys.implementation.name != "cpython":
+        raise RuntimeError(f"{label} requires CPython")
+    required = (
+        ("-E", "ignore_environment"),
+        ("-S", "no_site"),
+        ("-B", "dont_write_bytecode"),
+    )
+    missing = [flag for flag, name in required if not getattr(_bootstrap_sys.flags, name)]
+    if missing:
+        raise RuntimeError(
+            f"{label} requires CPython startup flags -E -S -B before loading "
+            f"repository-local modules; missing active flags: {' '.join(missing)}"
+        )
+
+
+def _load_trusted_import_boundary(entrypoint: str) -> str:
+    """Load the shared boundary owner by exact regular-file source."""
+
+    if not _bootstrap_imp.is_frozen("os"):
+        raise RuntimeError("project refresh requires CPython's frozen os module")
+    import os as bootstrap_os
+    scripts_root = bootstrap_os.path.dirname(bootstrap_os.path.realpath(entrypoint))
+    source_path = bootstrap_os.path.join(scripts_root, "python_import_boundary.py")
+    close_on_exec = getattr(bootstrap_os, "O_CLOEXEC", 0)
+    no_follow = getattr(bootstrap_os, "O_NOFOLLOW", 0)
+    if not close_on_exec or not no_follow:
+        raise RuntimeError("project refresh requires O_CLOEXEC and O_NOFOLLOW")
+    flags = bootstrap_os.O_RDONLY | close_on_exec | no_follow
+    descriptor = bootstrap_os.open(source_path, flags)
+    try:
+        metadata = bootstrap_os.fstat(descriptor)
+        if metadata.st_mode & 0o170000 != 0o100000 or metadata.st_nlink != 1:
+            raise RuntimeError("project refresh import boundary is not a regular file")
+        chunks: list[bytes] = []
+        remaining = 65_537
+        while remaining:
+            chunk = bootstrap_os.read(descriptor, remaining)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+    finally:
+        bootstrap_os.close(descriptor)
+    source = b"".join(chunks)
+    if not source or len(source) > 65_536 or len(source) != metadata.st_size:
+        raise RuntimeError("project refresh import boundary source is invalid")
+    module = type(_bootstrap_sys)("python_import_boundary")
+    module.__file__ = source_path
+    _bootstrap_sys.modules["python_import_boundary"] = module
+    exec(compile(source, source_path, "exec"), module.__dict__)
+    return scripts_root
+
+
+if __name__ == "__main__":
+    _require_python_startup_flags("project refresh")
+    _bootstrap_scripts_root = _load_trusted_import_boundary(__file__)
+    import python_import_boundary as _python_import_boundary
+
+    _python_import_boundary.establish_import_boundary(
+        scripts_root=_bootstrap_scripts_root,
+        label="project refresh",
+    )
+
 import argparse
 from dataclasses import dataclass
 import difflib
@@ -879,6 +949,10 @@ def render_candidate_input(
     framework_reference: str,
     framework_revision_policy: str,
 ) -> tuple[dict[str, object] | None, list[str]]:
+    try:
+        policy = contract_model.project_layout_policy(project_kind)
+    except ValueError as exc:
+        return None, [str(exc)]
     project_root = project_root.expanduser().resolve(strict=False)
     _status, recovery_errors = _transaction_blocker(project_root)
     if recovery_errors:
@@ -902,7 +976,7 @@ def render_candidate_input(
         ]
     recorded_runtime = current.retained_input.get("runtime")
     if (
-        project_kind == "downstream"
+        policy.runtime_wrappers_allowed
         and runtime != recorded_runtime
         and runtime_wrappers is None
     ):
@@ -912,10 +986,10 @@ def render_candidate_input(
             "--clear-runtime-wrappers for an empty set"
         ]
     selected_runtime_wrappers: tuple[str, ...]
-    if project_kind == "framework-authoring":
+    if not policy.runtime_wrappers_allowed:
         if runtime_wrappers not in {None, ()}:
             return None, [
-                "framework-authoring candidate creation does not support runtime wrappers"
+                f"{policy.kind} candidate creation does not support runtime wrappers"
             ]
         selected_runtime_wrappers = ()
     elif runtime_wrappers is None:
@@ -1155,10 +1229,15 @@ def _target_for_input(
     revision_policy = retained_input.get("framework_revision_policy")
     if not isinstance(answers, dict):
         errors.append("target project input answers must be an object")
-    if project_kind == "downstream" and not isinstance(runtime, str):
-        errors.append("target downstream project input runtime must be a string")
-    if project_kind == "framework-authoring" and runtime is not None:
-        errors.append("target framework-authoring project input runtime must be null")
+    try:
+        policy = contract_model.project_layout_policy(project_kind)
+    except ValueError as exc:
+        policy = None
+        errors.append(str(exc))
+    if policy is not None and policy.runtime_required and not isinstance(runtime, str):
+        errors.append(f"target {policy.kind} project input runtime must be a string")
+    if policy is not None and policy.runtime_forbidden and runtime is not None:
+        errors.append(f"target {policy.kind} project input runtime must be null")
     if not isinstance(runtime_wrappers, list) or any(
         not isinstance(item, str) for item in runtime_wrappers
     ):
@@ -1172,7 +1251,7 @@ def _target_for_input(
     if errors:
         return {}, errors, [], []
     assert isinstance(answers, dict)
-    assert project_kind in {"downstream", "framework-authoring"}
+    assert isinstance(project_kind, str) and policy is not None
     assert isinstance(contract_root_ref, str)
     assert isinstance(framework_reference, str)
     assert isinstance(revision_policy, str)
@@ -1188,7 +1267,7 @@ def _target_for_input(
     )
     if graph_errors:
         return {}, graph_errors, [], []
-    if project_kind == "framework-authoring":
+    if policy.require_framework_root_target or policy.require_nested_contract_root:
         actual_contract_root = (
             project_root
             if contract_root_ref == "."
@@ -1200,7 +1279,7 @@ def _target_for_input(
                 actual_contract_root,
                 contract_root_ref,
                 FRAMEWORK_ROOT,
-                "framework-authoring",
+                str(project_kind),
             )
         )
         if errors:
@@ -1292,7 +1371,7 @@ def _target_for_input(
                 runtime_wrappers,
                 FRAMEWORK_ROOT,
             )
-            if project_kind == "downstream" and isinstance(runtime, str)
+            if policy.runtime_wrappers_allowed and isinstance(runtime, str)
             else {}
         ),
         rendered_outputs=rendered,
@@ -1391,7 +1470,8 @@ def build_plan(
     project_kind = target_input.get("project_kind")
     assert isinstance(answers, dict)
     assert isinstance(runtime_wrappers, list)
-    assert project_kind in {"downstream", "framework-authoring"}
+    assert isinstance(project_kind, str)
+    contract_model.project_layout_policy(project_kind)
     target_managed, target_immutable, target_mutable = (
         project_bootstrap.project_instance_file_sets(
             answers=answers,
@@ -2273,7 +2353,7 @@ def _validate_plan(payload: object) -> list[str]:
     active_profiles = payload.get("active_profiles")
     if target_answers is not None and isinstance(target_input, dict):
         project_kind = target_input.get("project_kind")
-        if project_kind in {"downstream", "framework-authoring"}:
+        if project_kind in contract_model.PROJECT_KINDS:
             expected_profiles = project_bootstrap.active_project_profiles(
                 target_answers,
                 project_kind=str(project_kind),
@@ -4008,12 +4088,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     candidate_parser.add_argument(
         "--project-kind",
-        choices=("downstream", "framework-authoring"),
+        choices=sorted(contract_model.PROJECT_KINDS),
         default="downstream",
-        help=(
-            "Project role to record. Downstream requires --runtime; framework-authoring "
-            "forbids runtime and wrapper selection."
-        ),
+        help="Registered project layout. The product command supports downstream projects.",
     )
     candidate_parser.add_argument(
         "--contract-root",
@@ -4026,8 +4103,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--runtime",
         choices=sorted(project_bootstrap.ENTRYPOINT_TEMPLATES),
         help=(
-            "Downstream runtime family to record; required for downstream and forbidden "
-            "for framework-authoring."
+            "Downstream runtime family to record."
         ),
     )
     wrapper_group = candidate_parser.add_mutually_exclusive_group()
@@ -4039,7 +4115,7 @@ def build_parser() -> argparse.ArgumentParser:
             "For a downstream candidate, replace the complete runtime-wrapper "
             "selection with one registry-owned ID; repeat for the exact target set, "
             "or omit to retain the verified current runtime family and wrapper-ID "
-            "selection. Framework-authoring candidates must omit both wrapper flags."
+            "selection."
         ),
     )
     wrapper_group.add_argument(
@@ -4047,8 +4123,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "For a downstream candidate, explicitly replace the runtime-wrapper "
-            "selection with the empty set. Framework-authoring candidates must omit "
-            "both wrapper flags."
+            "selection with the empty set."
         ),
     )
     candidate_parser.add_argument(
@@ -4360,30 +4435,31 @@ def _run_command(argv: list[str] | None = None) -> int:
             return EXIT_RECOVERY_REQUIRED
     if args.command == "candidate":
         runtime = args.runtime
-        if args.project_kind == "downstream" and runtime is None:
+        policy = contract_model.project_layout_policy(args.project_kind)
+        if policy.runtime_required and runtime is None:
             _print(
                 {
                     "status": "invalid-candidate-input",
-                    "errors": ["downstream candidate creation requires --runtime"],
+                    "errors": [f"{policy.kind} candidate creation requires --runtime"],
                 }
             )
             return EXIT_INVOCATION
-        if args.project_kind == "framework-authoring" and runtime is not None:
+        if policy.runtime_forbidden and runtime is not None:
             _print(
                 {
                     "status": "invalid-candidate-input",
-                    "errors": ["framework-authoring candidate creation must omit --runtime"],
+                    "errors": [f"{policy.kind} candidate creation must omit --runtime"],
                 }
             )
             return EXIT_INVOCATION
-        if args.project_kind == "framework-authoring" and (
+        if not policy.runtime_wrappers_allowed and (
             args.runtime_wrapper is not None or args.clear_runtime_wrappers
         ):
             _print(
                 {
                     "status": "invalid-candidate-input",
                     "errors": [
-                        "framework-authoring candidate creation must omit runtime-wrapper selection flags"
+                        f"{policy.kind} candidate creation must omit runtime-wrapper selection flags"
                     ],
                 }
             )

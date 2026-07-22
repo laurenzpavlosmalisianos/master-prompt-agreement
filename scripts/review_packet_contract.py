@@ -22,7 +22,11 @@ import os
 from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
 import stat
+import sys
 from typing import Any
+
+import resource_cleanup
+import safe_paths
 
 
 VALIDATOR_CONTRACT_ID = "mpa-bounded-review-packet-v4"
@@ -62,6 +66,11 @@ MAX_MANIFEST_BYTES = 1024 * 1024
 MAX_ITEM_BYTES = 25 * 1024 * 1024
 MAX_PACKET_BYTES = 50 * 1024 * 1024
 MAX_EVIDENCE_BYTES = 50 * 1024 * 1024
+MAX_JSON_NESTING_DEPTH = 256
+MAX_JSON_NODES = 100_000
+MAX_BUNDLE_ENTRIES = 20_000
+MAX_BUNDLE_DEPTH = 64
+MAX_BUNDLE_DIAGNOSTICS = 256
 ACTIVE_STAGES = {"packet_ready", "approved", "invoked", "returned", "validated", "closed"}
 INVOCATION_STATUSES = {"started", "returned", "failed"}
 TERMINAL_INVOCATION_STATUSES = {"returned", "failed"}
@@ -508,16 +517,136 @@ def _reject_nonfinite(token: str) -> None:
     raise ValueError(f"non-finite JSON number is forbidden: {token}")
 
 
+def _enforce_json_shape_limits(text: str) -> None:
+    """Bound parser recursion and aggregate JSON node work before decoding."""
+
+    depth = 0
+    nodes = 0
+    in_string = False
+    escaped = False
+    in_primitive = False
+    for index, character in enumerate(text):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                in_string = False
+            continue
+        if character == '"':
+            nodes += 1
+            in_string = True
+            in_primitive = False
+        elif character in "[{":
+            nodes += 1
+            depth += 1
+            in_primitive = False
+            if depth > MAX_JSON_NESTING_DEPTH:
+                raise json.JSONDecodeError(
+                    "JSON nesting exceeds the supported parser depth",
+                    text,
+                    index,
+                )
+        elif character in "]}":
+            depth = max(0, depth - 1)
+            in_primitive = False
+        elif character in " \t\r\n,:":
+            in_primitive = False
+        elif not in_primitive:
+            nodes += 1
+            in_primitive = True
+        if nodes > MAX_JSON_NODES:
+            raise json.JSONDecodeError(
+                "JSON node count exceeds the supported parser limit",
+                text,
+                index,
+            )
+
+
 def parse_manifest_bytes(raw: bytes) -> Any:
     text = raw.decode("utf-8")
-    return json.loads(
-        text,
-        object_pairs_hook=_duplicate_guard,
-        parse_constant=_reject_nonfinite,
+    _enforce_json_shape_limits(text)
+    try:
+        return json.loads(
+            text,
+            object_pairs_hook=_duplicate_guard,
+            parse_constant=_reject_nonfinite,
+        )
+    except RecursionError as exc:
+        raise json.JSONDecodeError(
+            "JSON nesting exceeds the supported parser depth",
+            text,
+            0,
+        ) from exc
+
+
+def _os_error_name(exc: OSError) -> str:
+    return (
+        errno.errorcode.get(exc.errno, "OSERROR")
+        if isinstance(exc.errno, int)
+        else "OSERROR"
     )
 
 
-def _read_fd_snapshot(fd: int, *, maximum: int, label: str) -> tuple[bytes | None, str | None]:
+def _bundle_descriptor_capability_error() -> str | None:
+    required_flags = ("O_DIRECTORY", "O_NOFOLLOW", "O_NONBLOCK")
+    missing_flags = [
+        name
+        for name in required_flags
+        if not isinstance(getattr(os, name, None), int)
+        or getattr(os, name) == 0
+    ]
+    if missing_flags:
+        return (
+            "descriptor-safe lifecycle-bundle inspection requires platform "
+            "flags: " + ", ".join(missing_flags)
+        )
+    if not safe_paths.OPEN_SUPPORTS_DIR_FD:
+        return (
+            "descriptor-safe lifecycle-bundle inspection requires os.open "
+            "dir_fd support"
+        )
+    if os.scandir not in getattr(os, "supports_fd", set()):
+        return (
+            "descriptor-safe lifecycle-bundle inspection requires os.scandir "
+            "file-descriptor support"
+        )
+    if (
+        os.stat not in getattr(os, "supports_dir_fd", set())
+        or os.stat not in getattr(os, "supports_follow_symlinks", set())
+    ):
+        return (
+            "descriptor-safe lifecycle-bundle inspection requires os.stat "
+            "dir_fd and no-follow support"
+        )
+    return None
+
+
+def _bundle_directory_flags() -> int:
+    return (
+        os.O_RDONLY
+        | os.O_DIRECTORY
+        | os.O_NOFOLLOW
+        | getattr(os, "O_CLOEXEC", 0)
+    )
+
+
+def _bundle_file_flags() -> int:
+    return (
+        os.O_RDONLY
+        | os.O_NOFOLLOW
+        | os.O_NONBLOCK
+        | getattr(os, "O_CLOEXEC", 0)
+    )
+
+
+def _read_fd_snapshot(
+    fd: int,
+    *,
+    maximum: int,
+    label: str,
+) -> tuple[bytes | None, str | None]:
     try:
         before = os.fstat(fd)
         if not stat.S_ISREG(before.st_mode):
@@ -537,7 +666,7 @@ def _read_fd_snapshot(fd: int, *, maximum: int, label: str) -> tuple[bytes | Non
         raw = b"".join(chunks)
         after = os.fstat(fd)
     except OSError as exc:
-        return None, f"cannot read {label}: {exc}"
+        return None, f"cannot read {label}: OS error {_os_error_name(exc)}"
     stable_fields = (
         "st_dev", "st_ino", "st_size", "st_mtime_ns", "st_ctime_ns", "st_nlink"
     )
@@ -550,6 +679,138 @@ def _read_fd_snapshot(fd: int, *, maximum: int, label: str) -> tuple[bytes | Non
     return raw, None
 
 
+@dataclass(frozen=True, slots=True)
+class _BoundBundleFile:
+    descriptor: int
+    metadata: tuple[int, ...]
+    raw: bytes
+    label: str
+
+
+def _read_bound_bundle_file(
+    root_descriptor: int,
+    locator: str,
+    *,
+    maximum: int,
+    label: str,
+    retained: resource_cleanup.OwnedFileDescriptors,
+) -> tuple[_BoundBundleFile | None, str | None]:
+    """Read a file below one caller-bound root and retain its identity fd."""
+
+    if not safe_locator(locator):
+        return None, f"{label} has an unsafe locator"
+    parts = PurePosixPath(locator).parts
+    traversed = resource_cleanup.OwnedFileDescriptors()
+    bindings: list[tuple[int, str, int, tuple[int, ...]]] = []
+    try:
+        current_descriptor = root_descriptor
+        for component in parts[:-1]:
+            try:
+                named = os.stat(
+                    component,
+                    dir_fd=current_descriptor,
+                    follow_symlinks=False,
+                )
+            except FileNotFoundError:
+                return None, f"{label} is missing"
+            if not stat.S_ISDIR(named.st_mode):
+                return None, f"{label} uses a non-directory path component"
+            child_descriptor = os.open(
+                component,
+                _bundle_directory_flags(),
+                dir_fd=current_descriptor,
+            )
+            traversed.adopt(
+                child_descriptor,
+                f"{label} traversed directory",
+            )
+            opened = os.fstat(child_descriptor)
+            opened_metadata = safe_paths.stable_file_metadata(opened)
+            if (
+                not stat.S_ISDIR(opened.st_mode)
+                or opened_metadata
+                != safe_paths.stable_file_metadata(named)
+            ):
+                return None, f"{label} changed while its path was opened"
+            bindings.append(
+                (
+                    current_descriptor,
+                    component,
+                    child_descriptor,
+                    opened_metadata,
+                )
+            )
+            current_descriptor = child_descriptor
+
+        try:
+            named_before = os.stat(
+                parts[-1],
+                dir_fd=current_descriptor,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            return None, f"{label} is missing"
+        file_descriptor = os.open(
+            parts[-1],
+            _bundle_file_flags(),
+            dir_fd=current_descriptor,
+        )
+        retained.adopt(file_descriptor, label)
+        opened_before = os.fstat(file_descriptor)
+        opened_metadata = safe_paths.stable_file_metadata(opened_before)
+        if opened_metadata != safe_paths.stable_file_metadata(named_before):
+            return None, f"{label} changed before it was read"
+        raw, read_error = _read_fd_snapshot(
+            file_descriptor,
+            maximum=maximum,
+            label=label,
+        )
+        if read_error is not None or raw is None:
+            return None, read_error or f"cannot read {label}"
+        opened_after = os.fstat(file_descriptor)
+        named_after = os.stat(
+            parts[-1],
+            dir_fd=current_descriptor,
+            follow_symlinks=False,
+        )
+        after_metadata = safe_paths.stable_file_metadata(opened_after)
+        if (
+            after_metadata != opened_metadata
+            or safe_paths.stable_file_metadata(named_after) != after_metadata
+        ):
+            return None, f"{label} changed while its pathname was read"
+
+        for parent, component, child, expected in reversed(bindings):
+            named_directory = os.stat(
+                component,
+                dir_fd=parent,
+                follow_symlinks=False,
+            )
+            bound_directory = os.fstat(child)
+            if (
+                not stat.S_ISDIR(named_directory.st_mode)
+                or not stat.S_ISDIR(bound_directory.st_mode)
+                or safe_paths.stable_file_metadata(named_directory) != expected
+                or safe_paths.stable_file_metadata(bound_directory) != expected
+            ):
+                return None, f"{label} path changed while it was read"
+        return (
+            _BoundBundleFile(
+                descriptor=file_descriptor,
+                metadata=after_metadata,
+                raw=raw,
+                label=label,
+            ),
+            None,
+        )
+    except FileNotFoundError:
+        return None, f"{label} is missing"
+    except OSError as exc:
+        return None, f"cannot open {label}: OS error {_os_error_name(exc)}"
+    finally:
+        traversed.cleanup(primary=sys.exception())
+
+
 def read_bundle_file(
     bundle_root: Path,
     locator: str,
@@ -557,65 +818,47 @@ def read_bundle_file(
     maximum: int,
     label: str,
 ) -> tuple[bytes | None, str | None]:
-    """Read one bundle-relative regular file through no-follow descriptors."""
+    """Read one file through a retained, no-follow bundle-root descriptor."""
 
     if not safe_locator(locator):
         return None, f"{label} has an unsafe locator"
-    parts = PurePosixPath(locator).parts
-    if os.open in os.supports_dir_fd and hasattr(os, "O_DIRECTORY"):
-        opened: list[int] = []
-        try:
-            directory_flags = os.O_RDONLY | os.O_DIRECTORY
-            if hasattr(os, "O_CLOEXEC"):
-                directory_flags |= os.O_CLOEXEC
-            if hasattr(os, "O_NOFOLLOW"):
-                directory_flags |= os.O_NOFOLLOW
-            current_fd = os.open(bundle_root, directory_flags)
-            opened.append(current_fd)
-            for component in parts[:-1]:
-                current_fd = os.open(component, directory_flags, dir_fd=current_fd)
-                opened.append(current_fd)
-            file_flags = os.O_RDONLY
-            if hasattr(os, "O_CLOEXEC"):
-                file_flags |= os.O_CLOEXEC
-            if hasattr(os, "O_NOFOLLOW"):
-                file_flags |= os.O_NOFOLLOW
-            file_fd = os.open(parts[-1], file_flags, dir_fd=current_fd)
-            opened.append(file_fd)
-            return _read_fd_snapshot(file_fd, maximum=maximum, label=label)
-        except OSError as exc:
-            if exc.errno == errno.ENOENT:
-                return None, f"{label} is missing"
-            return None, f"cannot open {label}: {exc}"
-        finally:
-            for fd in reversed(opened):
-                try:
-                    os.close(fd)
-                except OSError:
-                    pass
-
-    candidate = bundle_root / locator
-    current = bundle_root
-    for component in parts:
-        current = current / component
-        if current.is_symlink():
-            return None, f"{label} uses a symlink component"
+    capability_error = _bundle_descriptor_capability_error()
+    if capability_error is not None:
+        return None, f"{label} cannot be inspected safely: {capability_error}"
     try:
-        root_resolved = bundle_root.resolve(strict=True)
-        candidate_resolved = candidate.resolve(strict=True)
-        candidate_resolved.relative_to(root_resolved)
-        flags = os.O_RDONLY
-        if hasattr(os, "O_NOFOLLOW"):
-            flags |= os.O_NOFOLLOW
-        fd = os.open(candidate_resolved, flags)
-    except (OSError, ValueError) as exc:
-        if isinstance(exc, OSError) and exc.errno == errno.ENOENT:
-            return None, f"{label} is missing"
-        return None, f"cannot open {label}: {exc}"
-    try:
-        return _read_fd_snapshot(fd, maximum=maximum, label=label)
-    finally:
-        os.close(fd)
+        with safe_paths.open_output_directory(
+            bundle_root,
+            create_missing=False,
+        ) as root_binding:
+            retained = resource_cleanup.OwnedFileDescriptors()
+            try:
+                bound, read_error = _read_bound_bundle_file(
+                    root_binding.descriptor,
+                    locator,
+                    maximum=maximum,
+                    label=label,
+                    retained=retained,
+                )
+                if read_error is not None or bound is None:
+                    return None, read_error or f"cannot read {label}"
+                root_binding.require_unchanged_chain(
+                    description=f"{label} bundle root"
+                )
+                if (
+                    safe_paths.stable_file_metadata(os.fstat(bound.descriptor))
+                    != bound.metadata
+                ):
+                    return None, f"{label} changed before validation completed"
+                return bound.raw, None
+            finally:
+                retained.cleanup(primary=sys.exception())
+    except (OSError, RuntimeError, ValueError) as exc:
+        suffix = (
+            f": OS error {_os_error_name(exc)}"
+            if isinstance(exc, OSError)
+            else ""
+        )
+        return None, f"cannot inspect {label} safely{suffix}"
 
 
 def load_manifest_file(path: Path) -> tuple[Any | None, bytes | None, list[str]]:
@@ -840,95 +1083,488 @@ def _supporting_artifact(
     )
 
 
+def _safe_bundle_component(name: str) -> bool:
+    return bool(SAFE_COMPONENT_RE.fullmatch(name)) and CONTROL_RE.search(name) is None
+
+
+def _bundle_component_display(name: str) -> str:
+    if _safe_bundle_component(name):
+        return name
+    return json.dumps(name, ensure_ascii=True)
+
+
+def _bundle_locator_display(parts: tuple[str, ...]) -> str:
+    return "/".join(_bundle_component_display(part) for part in parts)
+
+
+def _fresh_bundle_directory_names(
+    directory_descriptor: int,
+    *,
+    maximum: int,
+) -> tuple[tuple[str, ...], bool]:
+    """Return a bounded name set from a fresh descriptor for the same directory."""
+
+    owned = resource_cleanup.OwnedFileDescriptors()
+    try:
+        scan_descriptor = os.open(
+            ".",
+            _bundle_directory_flags(),
+            dir_fd=directory_descriptor,
+        )
+        owned.adopt(scan_descriptor, "review-packet bundle directory scan")
+        if (
+            safe_paths.stable_file_metadata(os.fstat(scan_descriptor))
+            != safe_paths.stable_file_metadata(os.fstat(directory_descriptor))
+        ):
+            raise ValueError(
+                "review-packet lifecycle bundle directory changed before enumeration"
+            )
+        names: list[str] = []
+        exceeded = False
+        with os.scandir(scan_descriptor) as entries:
+            for entry in entries:
+                if len(names) >= maximum:
+                    exceeded = True
+                    break
+                names.append(entry.name)
+        return tuple(sorted(names)), exceeded
+    finally:
+        owned.cleanup(primary=sys.exception())
+
+
+@dataclass(frozen=True, slots=True)
+class _BundleDirectoryRecord:
+    descriptor: int
+    parent_descriptor: int | None
+    name: str | None
+    locator_parts: tuple[str, ...]
+    metadata: tuple[int, ...]
+    names: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _BundleFileNameRecord:
+    parent_descriptor: int
+    name: str
+    metadata: tuple[int, ...]
+
+
+def _bundle_inventory_errors(
+    root_descriptor: int,
+    manifest_name: str,
+    allowed_locators: set[str],
+    declared_files: dict[str, _BoundBundleFile],
+    *,
+    retained: resource_cleanup.OwnedFileDescriptors,
+) -> tuple[list[str], set[str]]:
+    """Inventory one bundle without reopening any path outside its bound root."""
+
+    allowed_directories = {
+        parent.as_posix()
+        for locator in allowed_locators
+        for parent in PurePosixPath(locator).parents
+        if parent != PurePosixPath(".")
+    }
+    detail_budget = max(0, MAX_BUNDLE_DIAGNOSTICS - 1)
+    details: list[str] = []
+    omitted_diagnostics = 0
+    entry_limit_exceeded = False
+    depth_limit_exceeded = False
+    visited = 0
+    present_locators: set[str] = set()
+    regular_metadata: dict[str, tuple[int, ...]] = {}
+    file_names: dict[str, _BundleFileNameRecord] = {}
+    directories: list[_BundleDirectoryRecord] = []
+
+    def record(message: str) -> None:
+        nonlocal omitted_diagnostics
+        if len(details) < detail_budget:
+            details.append(message)
+        else:
+            omitted_diagnostics += 1
+
+    def visit(
+        directory_descriptor: int,
+        locator_parts: tuple[str, ...],
+        depth: int,
+        *,
+        parent_descriptor: int | None,
+        name: str | None,
+    ) -> None:
+        nonlocal entry_limit_exceeded, depth_limit_exceeded, visited
+        directory_before = os.fstat(directory_descriptor)
+        if not stat.S_ISDIR(directory_before.st_mode):
+            record(
+                "review-packet lifecycle bundle bound a non-directory during inventory"
+            )
+            return
+        before_metadata = safe_paths.stable_file_metadata(directory_before)
+        remaining = max(0, MAX_BUNDLE_ENTRIES - visited)
+        names, exceeded = _fresh_bundle_directory_names(
+            directory_descriptor,
+            maximum=remaining,
+        )
+        directories.append(
+            _BundleDirectoryRecord(
+                descriptor=directory_descriptor,
+                parent_descriptor=parent_descriptor,
+                name=name,
+                locator_parts=locator_parts,
+                metadata=before_metadata,
+                names=names,
+            )
+        )
+        if exceeded:
+            entry_limit_exceeded = True
+            return
+        visited += len(names)
+
+        for entry_name in names:
+            relative_parts = (*locator_parts, entry_name)
+            relative = "/".join(relative_parts)
+            display = _bundle_locator_display(relative_parts)
+            present_locators.add(relative)
+            child_depth = depth + 1
+            if child_depth > MAX_BUNDLE_DEPTH:
+                depth_limit_exceeded = True
+                continue
+            if not _safe_bundle_component(entry_name):
+                record(
+                    "review-packet lifecycle bundle contains an unsafe entry "
+                    f"name: {display}"
+                )
+                continue
+            try:
+                named_before = os.stat(
+                    entry_name,
+                    dir_fd=directory_descriptor,
+                    follow_symlinks=False,
+                )
+            except OSError as exc:
+                record(
+                    "review-packet lifecycle bundle entry changed before "
+                    f"inspection: {display} (OS error {_os_error_name(exc)})"
+                )
+                continue
+            named_metadata = safe_paths.stable_file_metadata(named_before)
+            if stat.S_ISLNK(named_before.st_mode):
+                record(
+                    "review-packet lifecycle bundle contains a symlink: "
+                    f"{display}"
+                )
+                continue
+            if stat.S_ISDIR(named_before.st_mode):
+                if relative not in allowed_directories:
+                    record(
+                        "review-packet lifecycle bundle contains an undeclared "
+                        f"directory: {display}"
+                    )
+                try:
+                    child_descriptor = os.open(
+                        entry_name,
+                        _bundle_directory_flags(),
+                        dir_fd=directory_descriptor,
+                    )
+                    retained.adopt(
+                        child_descriptor,
+                        f"review-packet lifecycle bundle directory {display}",
+                    )
+                    child_metadata = os.fstat(child_descriptor)
+                except OSError as exc:
+                    record(
+                        "review-packet lifecycle bundle directory changed "
+                        f"before inspection: {display} "
+                        f"(OS error {_os_error_name(exc)})"
+                    )
+                    continue
+                if (
+                    not stat.S_ISDIR(child_metadata.st_mode)
+                    or safe_paths.stable_file_metadata(child_metadata)
+                    != named_metadata
+                ):
+                    record(
+                        "review-packet lifecycle bundle directory changed "
+                        f"before inspection: {display}"
+                    )
+                    continue
+                visit(
+                    child_descriptor,
+                    relative_parts,
+                    child_depth,
+                    parent_descriptor=directory_descriptor,
+                    name=entry_name,
+                )
+                continue
+            if stat.S_ISREG(named_before.st_mode):
+                regular_metadata[relative] = named_metadata
+                file_names[relative] = _BundleFileNameRecord(
+                    parent_descriptor=directory_descriptor,
+                    name=entry_name,
+                    metadata=named_metadata,
+                )
+                if not locator_parts and relative == manifest_name:
+                    continue
+                if relative not in allowed_locators:
+                    record(
+                        "review-packet lifecycle bundle contains an unlisted "
+                        f"file: {display}"
+                    )
+                continue
+            if stat.S_ISFIFO(named_before.st_mode):
+                kind = "FIFO"
+            elif stat.S_ISSOCK(named_before.st_mode):
+                kind = "socket"
+            elif stat.S_ISCHR(named_before.st_mode):
+                kind = "character-device"
+            elif stat.S_ISBLK(named_before.st_mode):
+                kind = "block-device"
+            else:
+                kind = "special-filesystem"
+            record(
+                "review-packet lifecycle bundle contains an unsupported "
+                f"{kind} entry: {display}"
+            )
+
+    visit(
+        root_descriptor,
+        (),
+        0,
+        parent_descriptor=None,
+        name=None,
+    )
+
+    for directory in reversed(directories):
+        display = _bundle_locator_display(directory.locator_parts) or "."
+        try:
+            current_names, exceeded = _fresh_bundle_directory_names(
+                directory.descriptor,
+                maximum=len(directory.names),
+            )
+            current_metadata = safe_paths.stable_file_metadata(
+                os.fstat(directory.descriptor)
+            )
+            if exceeded or current_names != directory.names:
+                record(
+                    "review-packet lifecycle bundle directory entries changed "
+                    f"while inventoried: {display}"
+                )
+            if current_metadata != directory.metadata:
+                record(
+                    "review-packet lifecycle bundle directory changed while "
+                    f"inventoried: {display}"
+                )
+            if directory.parent_descriptor is not None and directory.name is not None:
+                named_after = os.stat(
+                    directory.name,
+                    dir_fd=directory.parent_descriptor,
+                    follow_symlinks=False,
+                )
+                if (
+                    not stat.S_ISDIR(named_after.st_mode)
+                    or safe_paths.stable_file_metadata(named_after)
+                    != current_metadata
+                ):
+                    record(
+                        "review-packet lifecycle bundle directory name changed "
+                        f"while inventoried: {display}"
+                    )
+        except OSError as exc:
+            record(
+                "review-packet lifecycle bundle directory changed while "
+                f"inventoried: {display} (OS error {_os_error_name(exc)})"
+            )
+
+    for relative, file_name in sorted(file_names.items()):
+        display = _bundle_locator_display(tuple(relative.split("/")))
+        try:
+            named_after = os.stat(
+                file_name.name,
+                dir_fd=file_name.parent_descriptor,
+                follow_symlinks=False,
+            )
+            if (
+                not stat.S_ISREG(named_after.st_mode)
+                or safe_paths.stable_file_metadata(named_after)
+                != file_name.metadata
+            ):
+                record(
+                    "review-packet lifecycle bundle file changed while "
+                    f"inventoried: {display}"
+                )
+        except OSError as exc:
+            record(
+                "review-packet lifecycle bundle file changed while "
+                f"inventoried: {display} (OS error {_os_error_name(exc)})"
+            )
+
+    for locator, declared in sorted(declared_files.items()):
+        inventoried = regular_metadata.get(locator)
+        current = safe_paths.stable_file_metadata(os.fstat(declared.descriptor))
+        if inventoried is None:
+            record(f"{declared.label} is not bound to a regular inventory entry")
+        elif inventoried != declared.metadata:
+            record(
+                f"{declared.label} changed between byte validation and inventory"
+            )
+        if current != declared.metadata:
+            record(f"{declared.label} changed before bundle validation completed")
+
+    summary: list[str] = []
+    if entry_limit_exceeded:
+        summary.append(
+            f"inventory exceeds the {MAX_BUNDLE_ENTRIES}-entry limit"
+        )
+    if depth_limit_exceeded:
+        summary.append(f"depth limit of {MAX_BUNDLE_DEPTH} was exceeded")
+    if omitted_diagnostics:
+        summary.append(
+            f"diagnostic limit of {MAX_BUNDLE_DIAGNOSTICS} was reached; "
+            f"{omitted_diagnostics} additional details were omitted"
+        )
+    if summary:
+        details.append("review-packet lifecycle bundle " + "; ".join(summary))
+    return details, present_locators
+
+
 def _bundle_errors(data: dict[str, Any], manifest_path: Path) -> list[str]:
     packet = as_dict(data.get("packet"))
     raw_items = packet.get("items")
     items = raw_items if isinstance(raw_items, list) else []
     artifacts, _artifact_errors = _artifact_maps(data)
     errors: list[str] = []
+    capability_error = _bundle_descriptor_capability_error()
+    if capability_error is not None:
+        return [
+            "review-packet lifecycle bundle cannot be inspected safely: "
+            + capability_error
+        ]
     final_cleanup_allowed = _ephemeral_cleanup_allowed(data)
     allowed_locators: set[str] = set()
     packet_locators: set[str] = set()
+    forbidden_locators: dict[str, list[str]] = {}
+    declared_files: dict[str, _BoundBundleFile] = {}
     total_packet_bytes = 0
     total_evidence_bytes = 0
-    for index, item in enumerate(items):
-        if not isinstance(item, dict) or not safe_locator(item.get("locator")):
-            continue
-        locator = str(item["locator"])
-        packet_locators.add(locator)
-        candidate = manifest_path.parent / locator
-        if final_cleanup_allowed and item.get("retention_class") == "ephemeral":
-            if candidate.exists() or candidate.is_symlink():
-                allowed_locators.add(locator)
-                errors.append(
-                    f"packet.items[{index}] ephemeral disclosed file remains "
-                    "after completed cleanup"
-                )
-            continue
-        raw, read_error = read_bundle_file(
+    try:
+        with safe_paths.open_output_directory(
             manifest_path.parent,
-            locator,
-            maximum=MAX_ITEM_BYTES,
-            label=f"packet.items[{index}] disclosed file",
-        )
-        if read_error is not None or raw is None:
-            errors.append(read_error or f"packet.items[{index}] disclosed file is missing")
-            continue
-        allowed_locators.add(locator)
-        total_packet_bytes += len(raw)
-        if item.get("byte_count") != len(raw):
-            errors.append(f"packet.items[{index}].byte_count does not match disclosed bytes")
-        if item.get("sha256") != hashlib.sha256(raw).hexdigest():
-            errors.append(f"packet.items[{index}].sha256 does not match disclosed bytes")
-    if total_packet_bytes > MAX_PACKET_BYTES:
-        errors.append("packet disclosed bytes exceed the packet-size limit")
-    for index, artifact in enumerate(artifacts):
-        locator = artifact.get("locator")
-        if not safe_locator(locator):
-            continue
-        locator = str(locator)
-        if locator in packet_locators:
-            errors.append(f"evidence_artifacts[{index}] locator collides with disclosed packet bytes")
-            continue
-        status_value = artifact.get("retention_status")
-        candidate = manifest_path.parent / locator
-        if status_value != "retained":
-            if candidate.exists() or candidate.is_symlink():
-                errors.append(
-                    f"evidence_artifacts[{index}] {status_value} artifact must not remain in the lifecycle bundle"
+            create_missing=False,
+        ) as root_binding:
+            retained = resource_cleanup.OwnedFileDescriptors()
+            try:
+                for index, item in enumerate(items):
+                    if (
+                        not isinstance(item, dict)
+                        or not safe_locator(item.get("locator"))
+                    ):
+                        continue
+                    locator = str(item["locator"])
+                    packet_locators.add(locator)
+                    allowed_locators.add(locator)
+                    label = f"packet.items[{index}] disclosed file"
+                    if (
+                        final_cleanup_allowed
+                        and item.get("retention_class") == "ephemeral"
+                    ):
+                        forbidden_locators.setdefault(locator, []).append(
+                            f"packet.items[{index}] ephemeral disclosed file remains "
+                            "after completed cleanup"
+                        )
+                        continue
+                    bound, read_error = _read_bound_bundle_file(
+                        root_binding.descriptor,
+                        locator,
+                        maximum=MAX_ITEM_BYTES,
+                        label=label,
+                        retained=retained,
+                    )
+                    if read_error is not None or bound is None:
+                        errors.append(read_error or f"{label} is missing")
+                        continue
+                    declared_files[locator] = bound
+                    total_packet_bytes += len(bound.raw)
+                    if item.get("byte_count") != len(bound.raw):
+                        errors.append(
+                            f"packet.items[{index}].byte_count does not match "
+                            "disclosed bytes"
+                        )
+                    if item.get("sha256") != hashlib.sha256(bound.raw).hexdigest():
+                        errors.append(
+                            f"packet.items[{index}].sha256 does not match "
+                            "disclosed bytes"
+                        )
+                if total_packet_bytes > MAX_PACKET_BYTES:
+                    errors.append(
+                        "packet disclosed bytes exceed the packet-size limit"
+                    )
+
+                for index, artifact in enumerate(artifacts):
+                    locator_value = artifact.get("locator")
+                    if not safe_locator(locator_value):
+                        continue
+                    locator = str(locator_value)
+                    allowed_locators.add(locator)
+                    if locator in packet_locators:
+                        errors.append(
+                            f"evidence_artifacts[{index}] locator collides with "
+                            "disclosed packet bytes"
+                        )
+                        continue
+                    status_value = artifact.get("retention_status")
+                    label = f"evidence_artifacts[{index}] retained file"
+                    if status_value != "retained":
+                        forbidden_locators.setdefault(locator, []).append(
+                            f"evidence_artifacts[{index}] {status_value} artifact "
+                            "must not remain in the lifecycle bundle"
+                        )
+                        continue
+                    bound, read_error = _read_bound_bundle_file(
+                        root_binding.descriptor,
+                        locator,
+                        maximum=MAX_ITEM_BYTES,
+                        label=label,
+                        retained=retained,
+                    )
+                    if read_error is not None or bound is None:
+                        errors.append(read_error or f"{label} is missing")
+                        continue
+                    declared_files[locator] = bound
+                    total_evidence_bytes += len(bound.raw)
+                    if artifact.get("sha256") != hashlib.sha256(bound.raw).hexdigest():
+                        errors.append(
+                            f"evidence_artifacts[{index}].sha256 does not match "
+                            "retained bytes"
+                        )
+                if total_evidence_bytes > MAX_EVIDENCE_BYTES:
+                    errors.append(
+                        "retained review evidence exceeds the evidence-size limit"
+                    )
+
+                inventory_errors, present_locators = _bundle_inventory_errors(
+                    root_binding.descriptor,
+                    manifest_path.name,
+                    allowed_locators,
+                    declared_files,
+                    retained=retained,
                 )
-            continue
-        raw, read_error = read_bundle_file(
-            manifest_path.parent,
-            locator,
-            maximum=MAX_ITEM_BYTES,
-            label=f"evidence_artifacts[{index}] retained file",
+                errors.extend(inventory_errors)
+                for locator, messages in forbidden_locators.items():
+                    if locator in present_locators:
+                        errors.extend(messages)
+                root_binding.require_unchanged_chain(
+                    description="review-packet lifecycle bundle"
+                )
+            finally:
+                retained.cleanup(primary=sys.exception())
+    except (OSError, RuntimeError, ValueError) as exc:
+        suffix = (
+            f": OS error {_os_error_name(exc)}"
+            if isinstance(exc, OSError)
+            else ""
         )
-        if read_error is not None or raw is None:
-            errors.append(read_error or f"evidence_artifacts[{index}] retained file is missing")
-            continue
-        allowed_locators.add(locator)
-        total_evidence_bytes += len(raw)
-        if artifact.get("sha256") != hashlib.sha256(raw).hexdigest():
-            errors.append(f"evidence_artifacts[{index}].sha256 does not match retained bytes")
-    if total_evidence_bytes > MAX_EVIDENCE_BYTES:
-        errors.append("retained review evidence exceeds the evidence-size limit")
-    manifest_resolved = manifest_path.resolve(strict=False)
-    for candidate in manifest_path.parent.rglob("*"):
-        if candidate.is_symlink():
-            errors.append("review-packet lifecycle bundle contains a symlink")
-            continue
-        if not candidate.is_file():
-            continue
-        if candidate.resolve(strict=False) == manifest_resolved:
-            continue
-        try:
-            relative = candidate.relative_to(manifest_path.parent).as_posix()
-        except ValueError:
-            errors.append("review-packet lifecycle bundle contains an out-of-root file")
-            continue
-        if relative not in allowed_locators:
-            errors.append(f"review-packet lifecycle bundle contains an unlisted file: {relative}")
+        errors.append(
+            "review-packet lifecycle bundle inspection failed closed" + suffix
+        )
     return errors
 
 

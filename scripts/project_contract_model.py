@@ -978,7 +978,135 @@ DEPENDENCY_POSTURES = frozenset(
     {"no-external-dependencies", "justify-external-dependencies"}
 )
 BOOTSTRAP_MODES = frozenset({"full", "minimal"})
-PROJECT_KINDS = frozenset({"downstream", "framework-authoring"})
+
+
+@dataclass(frozen=True, slots=True)
+class InstructionDirectiveRequirement:
+    """One exact ordered paragraph in a trusted instruction-surface policy."""
+
+    description: str
+    exact_normalized_paragraph: str
+
+
+@dataclass(frozen=True, slots=True)
+class InstructionSurfaceRequirement:
+    """One existing instruction surface required by a trusted layout policy."""
+
+    relative_path: str
+    description: str
+    ordered_directives: tuple[InstructionDirectiveRequirement, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectLayoutPolicy:
+    """Trusted code-only policy for one project lifecycle layout.
+
+    The public command surface registers only the downstream policy below.
+    A non-product maintainer adapter may install another policy before importing
+    lifecycle entrypoints. Retained JSON can select only an already registered
+    policy; it cannot create or alter one.
+    """
+
+    kind: str
+    manages_runtime_entrypoint: bool
+    runtime_required: bool
+    runtime_forbidden: bool
+    runtime_wrappers_allowed: bool
+    forbid_target_within_framework_root: bool = False
+    require_framework_root_target: bool = False
+    require_nested_contract_root: bool = False
+    require_non_product_contract_root: bool = False
+    retained_input_within_contract_root: bool = False
+    require_explicit_render_date: bool = False
+    emit_external_input_warnings: bool = True
+    required_framework_markers: tuple[str, ...] = ()
+    instruction_surfaces: tuple[InstructionSurfaceRequirement, ...] = ()
+    state_template_source_paths: frozenset[str] = frozenset()
+    contract_sync_command_prefix: tuple[str, ...] = ()
+
+
+_PROJECT_LAYOUT_POLICIES: dict[str, ProjectLayoutPolicy] = {}
+PROJECT_KINDS: frozenset[str] = frozenset()
+
+
+def register_project_layout_policy(policy: ProjectLayoutPolicy) -> None:
+    """Install one trusted in-process layout policy before lifecycle imports."""
+
+    global PROJECT_KINDS
+    if not re.fullmatch(r"[a-z][a-z0-9-]*", policy.kind):
+        raise ValueError("project layout policy kind must be a stable lowercase ID")
+    if policy.runtime_required and policy.runtime_forbidden:
+        raise ValueError("project layout policy cannot require and forbid runtime")
+    if policy.manages_runtime_entrypoint and policy.runtime_forbidden:
+        raise ValueError("runtime-entrypoint layout cannot forbid runtime")
+    if not policy.manages_runtime_entrypoint and policy.runtime_wrappers_allowed:
+        raise ValueError("layout without a runtime entrypoint cannot allow wrappers")
+    if any(not token for token in policy.contract_sync_command_prefix):
+        raise ValueError("project layout contract-sync prefix tokens must be non-empty")
+    for surface in policy.instruction_surfaces:
+        if not surface.relative_path or not surface.description.strip():
+            raise ValueError(
+                "project layout instruction surfaces require a path and description"
+            )
+        if not surface.ordered_directives:
+            raise ValueError(
+                "project layout instruction surfaces require ordered directives"
+            )
+        ordered_paragraphs: list[str] = []
+        for directive in surface.ordered_directives:
+            paragraph = directive.exact_normalized_paragraph
+            normalized = " ".join(paragraph.split())
+            if not directive.description.strip() or not paragraph:
+                raise ValueError(
+                    "project layout instruction directives require a description "
+                    "and exact normalized paragraph"
+                )
+            if paragraph != normalized:
+                raise ValueError(
+                    "project layout instruction directive paragraphs must be "
+                    "non-empty normalized single-line values"
+                )
+            without_contract_root = paragraph.replace("{contract_root}", "")
+            if "{" in without_contract_root or "}" in without_contract_root:
+                raise ValueError(
+                    "project layout instruction directive paragraphs may use "
+                    "only the {contract_root} placeholder"
+                )
+            ordered_paragraphs.append(paragraph)
+        if len(ordered_paragraphs) != len(set(ordered_paragraphs)):
+            raise ValueError(
+                "project layout instruction directive paragraphs must be unique "
+                "per surface"
+            )
+    existing = _PROJECT_LAYOUT_POLICIES.get(policy.kind)
+    if existing is not None:
+        if existing != policy:
+            raise ValueError(f"project layout policy already registered: {policy.kind}")
+        return
+    _PROJECT_LAYOUT_POLICIES[policy.kind] = policy
+    PROJECT_KINDS = frozenset(_PROJECT_LAYOUT_POLICIES)
+
+
+def project_layout_policy(kind: object) -> ProjectLayoutPolicy:
+    """Return one registered policy selected by validated lifecycle data."""
+
+    if not isinstance(kind, str) or kind not in _PROJECT_LAYOUT_POLICIES:
+        raise ValueError(
+            "project kind must be one of: " + ", ".join(sorted(PROJECT_KINDS))
+        )
+    return _PROJECT_LAYOUT_POLICIES[kind]
+
+
+register_project_layout_policy(
+    ProjectLayoutPolicy(
+        kind="downstream",
+        manages_runtime_entrypoint=True,
+        runtime_required=True,
+        runtime_forbidden=False,
+        runtime_wrappers_allowed=True,
+        forbid_target_within_framework_root=True,
+    )
+)
 SECURITY_POLICY_FILES = frozenset(
     {"inline in this SOW", "project SECURITY.md", "none"}
 )
@@ -1312,24 +1440,32 @@ def runner_executable_name(token: str) -> str:
 def direct_python_runner_start(tokens: list[str]) -> int | None:
     """Find a supported launcher suffix that cannot consume a script argv."""
 
-    if len(tokens) >= 4:
-        uv_name = runner_executable_name(tokens[-4])
-        python_name = runner_executable_name(tokens[-2])
+    required_flags = ["-E", "-S", "-B"]
+    if len(tokens) >= 6:
+        uv_name = runner_executable_name(tokens[-6])
+        python_name = runner_executable_name(tokens[-4])
         if (
             uv_name in UV_EXECUTABLES
-            and tokens[-3] == "run"
+            and tokens[-5] == "run"
             and python_name in UV_PYTHON_EXECUTABLES
-            and tokens[-1] == "-B"
+            and tokens[-3:] == required_flags
+        ):
+            return len(tokens) - 6
+    if len(tokens) >= 5:
+        launcher_name = runner_executable_name(tokens[-5])
+        if (
+            launcher_name in PY_LAUNCHER_EXECUTABLES
+            and tokens[-4] == "-3"
+            and tokens[-3:] == required_flags
+        ):
+            return len(tokens) - 5
+    if len(tokens) >= 4:
+        python_name = runner_executable_name(tokens[-4])
+        if (
+            PYTHON_RUNNER_EXECUTABLE_RE.fullmatch(python_name)
+            and tokens[-3:] == required_flags
         ):
             return len(tokens) - 4
-    if len(tokens) >= 3:
-        launcher_name = runner_executable_name(tokens[-3])
-        if launcher_name in PY_LAUNCHER_EXECUTABLES and tokens[-2:] == ["-3", "-B"]:
-            return len(tokens) - 3
-    if len(tokens) >= 2:
-        python_name = runner_executable_name(tokens[-2])
-        if PYTHON_RUNNER_EXECUTABLE_RE.fullmatch(python_name) and tokens[-1] == "-B":
-            return len(tokens) - 2
     return None
 
 
@@ -1391,7 +1527,8 @@ def framework_verification_runner_errors(value: object, label: str) -> list[str]
     if leaf_start is None:
         return [
             f"{label} must end exactly with a supported non-consuming Python runner: "
-            "uv run python -B, python[version] -B, or py -3 -B"
+            "uv run python -E -S -B, python[version] -E -S -B, or "
+            "py -3 -E -S -B"
         ]
     wrapper_tokens = tokens[:leaf_start]
     if wrapper_tokens:
@@ -1544,9 +1681,10 @@ DEPENDENCY_RULE_SUFFIX = (
     " (governs adding new dependencies, not already-approved project dependencies)"
 )
 PYTHON_LANGUAGE_POLICY = (
-    "Python work uses the command form recorded in this SOW. `uv run python -B` is normal only "
+    "Python work uses the command form recorded in this SOW. `uv run python -E -S -B` is normal only "
     "when `uv` is already approved and available for this project; when the SOW and project "
-    "language rules do not require a stricter runner, direct `python3 -B` or `py -3 -B` is "
+    "language rules do not require a stricter runner, direct `python3 -E -S -B` or "
+    "`py -3 -E -S -B` is "
     "acceptable for stdlib-only scripts after the project prerequisite check reports a supported "
     "interpreter and no errors. Any `uv` command that may create or update environments, download "
     "Python, resolve dependencies, or install packages is a state-changing step. Python source, "
@@ -2535,14 +2673,14 @@ def source_monitor_artifact_lint_command(
 
     if framework_reference == "{{FRAMEWORK_ROOT}}":
         script = (
-            f"{{{{FRAMEWORK_ROOT}}}}/{SOURCE_MONITOR_ARTIFACT_LINT_RELATIVE_PATH}"
+            f'"{{{{FRAMEWORK_ROOT}}}}/{SOURCE_MONITOR_ARTIFACT_LINT_RELATIVE_PATH}"'
         )
     else:
-        script = safe_paths.framework_reference_path(
+        script = safe_paths.shell_framework_path_token(
             framework_reference,
             SOURCE_MONITOR_ARTIFACT_LINT_RELATIVE_PATH,
         )
-    return f"{runner} {script} {SOURCE_MONITOR_ARTIFACT_LINT_ARGUMENTS}"
+    return f"{runner} -- {script} {SOURCE_MONITOR_ARTIFACT_LINT_ARGUMENTS}"
 
 
 def state_template_source_path(filename: str) -> str:
@@ -3109,15 +3247,15 @@ def framework_verification_command_lines(
             "{{FRAMEWORK_ROOT}}",
             FRAMEWORK_REFERENCE_TEMPLATE_PLACEHOLDER,
         }:
-            return f"{reference}/{relative}"
-        return safe_paths.framework_reference_path(reference, relative)
+            return f'"{reference}/{relative}"'
+        return safe_paths.shell_framework_path_token(reference, relative)
 
     return [
         f"- Framework reference: {reference}",
         f"- Framework Verification Runner: {configured_runner}",
         "- Run from the project root; the routine gate calls the framework-owned aggregate checker through the framework reference. Use its named child checks only for setup or diagnosis.",
-        f"- Core conformance: {configured_runner} {script_reference('scripts/conformance_check.py')} --profile core-project --root .{layout_args}",
-        f"- Runner fallback: do not silently replace the configured runner. If it is unavailable, stop and resolve the project runner requirement; when available, its prerequisite command is {configured_runner} {script_reference('scripts/check_prereqs.py')}.",
+        f"- Core conformance: {configured_runner} -- {script_reference('scripts/conformance_check.py')} --profile core-project --root .{layout_args}",
+        f"- Runner fallback: do not silently replace the configured runner. If it is unavailable, stop and resolve the project runner requirement; when available, its prerequisite command is {configured_runner} -- {script_reference('scripts/check_prereqs.py')}.",
     ]
 
 
@@ -3969,7 +4107,7 @@ def generated_asset_errors(root: Path = REPO_ROOT) -> list[str]:
         if actual != expected:
             errors.append(
                 f"generated project-contract asset is stale: {relative}; run "
-                "`uv run python -B scripts/project_contract_model.py --write`"
+                "`uv run python -E -S -B -- \"scripts/project_contract_model.py\" --write`"
             )
     return errors
 

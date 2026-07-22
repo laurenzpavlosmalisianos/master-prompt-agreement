@@ -41,8 +41,8 @@ Normal agent work should load the smallest useful packet:
   ambiguous
 - one or more Practice Guides only when the task needs that domain quality bar
 
-The full MSA remains available for ambiguity, canonical wording, and framework
-maintenance. It is not the normal always-on prompt.
+The full MSA remains available for ambiguity, canonical wording, and reviewed
+framework changes. It is not the normal always-on prompt.
 
 ## One Owner Per Fact
 
@@ -103,8 +103,8 @@ an end-to-end workflow.
 
 Downstream project state is project-local by default. Durable framework
 improvements flow through sanitized feedback candidates, source evidence,
-maintainer review, and deterministic checks when applicable.
+semantic review, proportional evaluation, and applicable deterministic checks.
 
 Project names, local paths, logs, transcripts, identities, secrets, proprietary
-details, and one-off local context must not be copied into public framework
+details, and one-off local context must not be copied into framework product
 guidance.

@@ -2,6 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; base-uri 'none'; connect-src 'none'; form-action 'none'; frame-src 'none'; img-src 'self'; manifest-src 'none'; media-src 'none'; object-src 'none'; script-src 'self'; style-src 'self'; worker-src 'none'"
+    >
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta
       name="description"
@@ -9,10 +13,11 @@
     >
     <title>Master Prompt Agreement Interactive Guide</title>
     <link rel="stylesheet" href="styles.css">
-    <script defer src="app.js"></script>
+    <script defer src="generated/app.js"></script>
   </head>
   <body>
     <a class="skip-link" href="#content">Skip to content</a>
+
     <header class="site-header">
       <nav aria-label="Documentation">
         <a href="../README.md">Docs index</a>
@@ -35,7 +40,7 @@
           <summary>Contents</summary>
           <nav class="toc-nav" aria-label="Section links">
             <a href="#source-boundary">Source boundary</a>
-            <a href="#runtime-loop-section">Runtime and refresh routes</a>
+            <a href="#runtime-loop-section">Runtime and lifecycle routes</a>
             <a href="#visual-model">Visual model</a>
             <a href="#canonical-surfaces">Canonical surfaces</a>
             <a href="#quality-gates">Quality gates</a>
@@ -45,91 +50,697 @@
       </aside>
 
       <main id="content">
-      <section id="source-boundary" class="notice" aria-labelledby="source-boundary-title">
-        <h2 id="source-boundary-title">Source-Of-Truth Boundary</h2>
-        <p>
-          This page illustrates concepts for humans. Agents should rely on the
-          canonical markdown files, task orders, practice guides, runtime files,
-          and deterministic checks linked from this guide.
-        </p>
-        <noscript>
+        <section
+          id="source-boundary"
+          class="notice"
+          aria-labelledby="source-boundary-title"
+        >
+          <h2 id="source-boundary-title">Source-of-truth boundary</h2>
           <p>
-            JavaScript is disabled. Use the links in the header to read the
-            canonical markdown documentation.
+            This page illustrates concepts for humans. Agents should rely on the
+            canonical Markdown, task orders, practice guides, runtime files, and
+            deterministic checks linked from this guide.
           </p>
-        </noscript>
-      </section>
+          <noscript>
+            <p>
+              JavaScript is disabled. The guide content remains present; diagram
+              focus controls remain inert, and every framework-map panel is shown
+              as ordinary document content. Use the canonical links for operative
+              guidance.
+            </p>
+          </noscript>
+        </section>
 
-      <section id="runtime-loop-section" class="panel" aria-labelledby="runtime-loop-title">
-        <div class="section-heading">
-          <p class="eyebrow">Architecture</p>
-          <h2 id="runtime-loop-title">Runtime And Lifecycle Routes</h2>
-        </div>
-        <h3>Ordinary task route</h3>
-        <ol id="runtime-loop" class="runtime-loop" aria-label="Ordinary runtime stages"></ol>
-        <h3>Existing-instance lifecycle routes</h3>
-        <p>
-          Instances with a verified complete current-format identity pair and
-          intact recorded preimage may enter reviewed refresh planning; a
-          successful apply must then reach exact-current acceptance. Closed
-          transaction controls instead permit only exact-ID recovery, while a
-          verified approved plan may permit a bounded post-success restore.
-          Ordinary project work does not enter any of these routes.
-        </p>
-        <ol id="refresh-loop" class="runtime-loop" aria-label="Existing-instance lifecycle stages"></ol>
-      </section>
-
-      <section id="visual-model" class="panel" aria-labelledby="visual-model-title">
-        <div class="section-heading">
-          <p class="eyebrow">Interactive Diagram</p>
-          <h2 id="visual-model-title">Framework Movement</h2>
-        </div>
-        <div class="visual-grid">
-          <div id="architecture-diagram" class="diagram-shell"></div>
-          <div>
-            <div
-              id="diagram-controls"
-              class="diagram-controls"
-              role="group"
-              aria-label="Diagram focus controls"
-            ></div>
-            <p id="diagram-caption" class="diagram-caption" aria-live="polite"></p>
-          </div>
-        </div>
-      </section>
-
-      <section id="canonical-surfaces" class="panel split" aria-labelledby="file-map-title">
-        <div>
+        <section
+          id="runtime-loop-section"
+          class="panel"
+          aria-labelledby="runtime-loop-title"
+        >
           <div class="section-heading">
-            <p class="eyebrow">Framework Map</p>
-            <h2 id="file-map-title">Canonical Surfaces</h2>
+            <p class="eyebrow">Architecture</p>
+            <h2 id="runtime-loop-title">Runtime and lifecycle routes</h2>
           </div>
-          <p>
-            Use the controls to inspect where a concept lives. Each item links
-            back to markdown or framework files that remain authoritative.
+
+          <h3>Ordinary task route</h3>
+          <ol class="runtime-loop" aria-label="Ordinary runtime stages">
+            <li class="runtime-card">
+              <h4>Root context</h4>
+              <p>
+                Resolve platform limits, the user task, the selected framework
+                checkout, and the governed project root without loading generated
+                project authority.
+              </p>
+            </li>
+            <li class="runtime-card">
+              <h4>Recovery gate</h4>
+              <p>
+                For an existing project, read the selected charter and then check
+                the governed project root for the closed journal, lock, and
+                recovery-temp control set before generated authority or state; any
+                control stops ordinary work.
+              </p>
+            </li>
+            <li class="runtime-card">
+              <h4>Project contract</h4>
+              <p>
+                Only after the recovery gate is clear, load
+                <code>AGENT_PROJECT.md</code> or the configured generated contract.
+                Consult the SOW when routed for canonical or omitted terms, full
+                task-specific checklists or acceptance terms, ambiguity, or
+                contract revision.
+              </p>
+            </li>
+            <li class="runtime-card">
+              <h4>Runtime packet</h4>
+              <p>
+                Interpret the user request under the project contract, then check
+                state headers and load only task-relevant records. Add only
+                task-conditioned guidance and evidence.
+              </p>
+            </li>
+            <li class="runtime-card">
+              <h4>Specialist guidance</h4>
+              <p>
+                Use a runtime task module for a known workflow or the full Task
+                Order when needed; add only relevant Practice Guides.
+              </p>
+            </li>
+            <li class="runtime-card">
+              <h4>Evidence and verification</h4>
+              <p>
+                Inspect files, diffs, logs, sources, and generated output before
+                claims; run checks where objective invariants can be tested.
+              </p>
+            </li>
+            <li class="runtime-card">
+              <h4>Learning</h4>
+              <p>
+                Treat source, review, and feedback output as candidate evidence.
+                Route reusable framework candidates through report-only semantic
+                audit, then route only accepted candidates through Framework
+                Improvement; keep project-local changes on their project route.
+              </p>
+            </li>
+          </ol>
+
+          <h3 class="subsection-title">Existing-instance lifecycle routes</h3>
+          <p class="section-intro">
+            Instances with a verified complete current-format identity pair and
+            intact recorded preimage may enter reviewed refresh planning; a
+            successful apply must then reach exact-current acceptance. Closed
+            transaction controls instead permit only exact-ID recovery, while a
+            verified approved plan may permit a bounded post-success restore.
+            Ordinary project work does not enter any of these routes.
           </p>
-        </div>
-        <div class="map-shell">
-          <div class="tabs" role="tablist" aria-label="Framework surface groups"></div>
-          <div id="surface-panel" class="surface-panel" role="tabpanel" tabindex="0"></div>
-        </div>
-      </section>
+          <ol class="runtime-loop runtime-loop--compact" aria-label="Existing-instance lifecycle stages">
+            <li class="runtime-card">
+              <h4>Plan and backout basis</h4>
+              <p>
+                Inspect without writing and create one canonical plan. The plan
+                selects either the normal verified exact-preimage bundle or, only
+                where permitted, the explicit no-post-apply-backout exception;
+                mutable-state retirement requires the bundle.
+              </p>
+            </li>
+            <li class="runtime-card">
+              <h4>Approval and acceptance</h4>
+              <p>
+                Approve the exact plan digest and every required action or warning,
+                apply once, verify every active profile, and inspect for
+                exact-current acceptance.
+              </p>
+            </li>
+            <li class="runtime-card">
+              <h4>Restore or recover</h4>
+              <p>
+                Post-success restore exists only for the verified-bundle branch
+                while the live postimage still matches. Interrupted transactions
+                instead enter the separate closed-control route and permit only
+                the reported exact-ID recovery action.
+              </p>
+            </li>
+          </ol>
+        </section>
 
-      <section id="quality-gates" class="panel" aria-labelledby="quality-title">
-        <div class="section-heading">
-          <p class="eyebrow">Quality Gates</p>
-          <h2 id="quality-title">Verification Does Not Replace Judgment</h2>
-        </div>
-        <div id="quality-grid" class="quality-grid"></div>
-      </section>
+        <section id="visual-model" class="panel" aria-labelledby="visual-model-title">
+          <div class="section-heading">
+            <p class="eyebrow">Interactive diagram</p>
+            <h2 id="visual-model-title">Framework movement</h2>
+          </div>
 
-      <section id="reader-path-section" class="panel" aria-labelledby="reader-path-title">
-        <div class="section-heading">
-          <p class="eyebrow">Reader Path</p>
-          <h2 id="reader-path-title">Where To Go Next</h2>
-        </div>
-        <div id="reader-path" class="reader-path"></div>
-      </section>
+          <div class="visual-grid">
+            <div id="architecture-diagram" class="diagram-shell">
+              <svg
+                viewBox="0 0 1020 550"
+                width="1020"
+                height="550"
+                role="img"
+                aria-labelledby="diagram-title diagram-desc"
+              >
+                <title id="diagram-title">Master Prompt Agreement framework movement diagram</title>
+                <desc id="diagram-desc">
+                  The user task, selected framework checkout, and governed project
+                  root lead to a transaction-control gate before generated project
+                  authority. Ordinary work creates evidence for verification.
+                  Reusable framework candidates receive semantic audit before an
+                  accepted improvement returns to framework context.
+                </desc>
+                <defs>
+                  <marker
+                    id="arrowhead"
+                    class="diagram-arrow-marker"
+                    viewBox="0 0 10 10"
+                    refX="9"
+                    refY="5"
+                    markerWidth="8"
+                    markerHeight="8"
+                    orient="auto-start-reverse"
+                  >
+                    <path d="M 0 0 L 10 5 L 0 10 z"></path>
+                  </marker>
+                  <marker
+                    id="arrowhead-active"
+                    class="diagram-arrow-marker diagram-arrow-marker--active"
+                    viewBox="0 0 10 10"
+                    refX="9"
+                    refY="5"
+                    markerWidth="8"
+                    markerHeight="8"
+                    orient="auto-start-reverse"
+                  >
+                    <path d="M 0 0 L 10 5 L 0 10 z"></path>
+                  </marker>
+                </defs>
+
+                <g aria-hidden="true">
+                  <path
+                    class="diagram-edge active"
+                    data-from="context"
+                    data-to="recovery"
+                    d="M 180 140 L 220 140"
+                    marker-end="url(#arrowhead)"
+                  ></path>
+                  <text class="diagram-label" x="184" y="124">root</text>
+                  <path
+                    class="diagram-edge"
+                    data-from="recovery"
+                    data-to="authority"
+                    d="M 385 140 L 425 140"
+                    marker-end="url(#arrowhead)"
+                  ></path>
+                  <text class="diagram-label" x="389" y="124">clear</text>
+                  <path
+                    class="diagram-edge"
+                    data-from="authority"
+                    data-to="packet"
+                    d="M 590 140 L 630 140"
+                    marker-end="url(#arrowhead)"
+                  ></path>
+                  <text class="diagram-label" x="593" y="124">terms</text>
+                  <path
+                    class="diagram-edge"
+                    data-from="packet"
+                    data-to="work"
+                    d="M 805 140 L 845 140"
+                    marker-end="url(#arrowhead)"
+                  ></path>
+                  <text class="diagram-label" x="810" y="124">load</text>
+                  <path
+                    class="diagram-edge"
+                    data-from="work"
+                    data-to="verification"
+                    d="M 922 210 C 922 248 742 260 535 285"
+                    marker-end="url(#arrowhead)"
+                  ></path>
+                  <text class="diagram-label" x="765" y="246">evidence</text>
+                  <path
+                    class="diagram-edge"
+                    data-from="verification"
+                    data-to="learning"
+                    d="M 660 365 L 710 365"
+                    marker-end="url(#arrowhead)"
+                  ></path>
+                  <text class="diagram-label" x="667" y="349">route</text>
+                  <path
+                    class="diagram-edge active"
+                    data-from="learning"
+                    data-to="context"
+                    d="M 855 470 C 650 535 180 535 100 210"
+                    marker-end="url(#arrowhead)"
+                  ></path>
+                  <text class="diagram-label" x="401" y="520">retained change</text>
+                </g>
+
+                <g class="diagram-node active" data-node-id="context" aria-hidden="true">
+                  <rect x="20" y="70" width="160" height="140" rx="10"></rect>
+                  <text x="36" y="104">
+                    <tspan>Root context</tspan>
+                    <tspan x="36" dy="1.8em">user task</tspan>
+                    <tspan x="36" dy="1.5em">selected ref</tspan>
+                    <tspan x="36" dy="1.5em">project root</tspan>
+                  </text>
+                </g>
+                <g class="diagram-node" data-node-id="recovery" aria-hidden="true">
+                  <rect x="220" y="70" width="165" height="140" rx="10"></rect>
+                  <text x="236" y="104">
+                    <tspan>Recovery gate</tspan>
+                    <tspan x="236" dy="1.8em">read charter</tspan>
+                    <tspan x="236" dy="1.5em">root controls</tspan>
+                    <tspan x="236" dy="1.5em">stop or recover</tspan>
+                  </text>
+                </g>
+                <g class="diagram-node" data-node-id="authority" aria-hidden="true">
+                  <rect x="425" y="70" width="165" height="140" rx="10"></rect>
+                  <text x="441" y="104">
+                    <tspan>Project contract</tspan>
+                    <tspan x="441" dy="1.8em">AGENT_PROJECT.md</tspan>
+                    <tspan x="441" dy="1.5em">SOW when needed</tspan>
+                  </text>
+                </g>
+                <g class="diagram-node" data-node-id="packet" aria-hidden="true">
+                  <rect x="630" y="70" width="175" height="140" rx="10"></rect>
+                  <text x="646" y="104">
+                    <tspan>Runtime packet</tspan>
+                    <tspan x="646" dy="1.8em">charter + contract</tspan>
+                    <tspan x="646" dy="1.5em">relevant state</tspan>
+                    <tspan x="646" dy="1.5em">task route</tspan>
+                  </text>
+                </g>
+                <g class="diagram-node" data-node-id="work" aria-hidden="true">
+                  <rect x="845" y="70" width="155" height="140" rx="10"></rect>
+                  <text x="861" y="104">
+                    <tspan>Agent work</tspan>
+                    <tspan x="861" dy="1.8em">inspect</tspan>
+                    <tspan x="861" dy="1.5em">implement</tspan>
+                    <tspan x="861" dy="1.5em">report</tspan>
+                  </text>
+                </g>
+                <g class="diagram-node" data-node-id="verification" aria-hidden="true">
+                  <rect x="410" y="285" width="250" height="170" rx="10"></rect>
+                  <text x="426" y="319">
+                    <tspan>Verification</tspan>
+                    <tspan x="426" dy="1.8em">checks + review</tspan>
+                    <tspan x="426" dy="1.5em">plan basis</tspan>
+                    <tspan x="426" dy="1.5em">apply + exact-current</tspan>
+                    <tspan x="426" dy="1.5em">recovery: exact ID</tspan>
+                  </text>
+                </g>
+                <g class="diagram-node" data-node-id="learning" aria-hidden="true">
+                  <rect x="710" y="270" width="290" height="200" rx="10"></rect>
+                  <text x="726" y="304">
+                    <tspan>Learning</tspan>
+                    <tspan x="726" dy="1.8em">candidate evidence</tspan>
+                    <tspan x="726" dy="1.5em">semantic audit</tspan>
+                    <tspan x="726" dy="1.5em">accepted improvement</tspan>
+                    <tspan x="726" dy="1.5em">verified disposition</tspan>
+                  </text>
+                </g>
+              </svg>
+            </div>
+
+            <div class="diagram-sidebar">
+              <div
+                id="diagram-controls"
+                class="diagram-controls"
+                role="group"
+                aria-label="Diagram focus controls"
+                aria-hidden="true"
+              >
+                <button
+                  class="diagram-button"
+                  type="button"
+                  disabled
+                  data-node-id="context"
+                  aria-pressed="true"
+                  aria-describedby="diagram-note-context"
+                >Root context</button>
+                <button
+                  class="diagram-button"
+                  type="button"
+                  disabled
+                  data-node-id="recovery"
+                  aria-pressed="false"
+                  aria-describedby="diagram-note-recovery"
+                >Recovery gate</button>
+                <button
+                  class="diagram-button"
+                  type="button"
+                  disabled
+                  data-node-id="authority"
+                  aria-pressed="false"
+                  aria-describedby="diagram-note-authority"
+                >Project contract</button>
+                <button
+                  class="diagram-button"
+                  type="button"
+                  disabled
+                  data-node-id="packet"
+                  aria-pressed="false"
+                  aria-describedby="diagram-note-packet"
+                >Runtime packet</button>
+                <button
+                  class="diagram-button"
+                  type="button"
+                  disabled
+                  data-node-id="work"
+                  aria-pressed="false"
+                  aria-describedby="diagram-note-work"
+                >Agent work</button>
+                <button
+                  class="diagram-button"
+                  type="button"
+                  disabled
+                  data-node-id="verification"
+                  aria-pressed="false"
+                  aria-describedby="diagram-note-verification"
+                >Verification</button>
+                <button
+                  class="diagram-button"
+                  type="button"
+                  disabled
+                  data-node-id="learning"
+                  aria-pressed="false"
+                  aria-describedby="diagram-note-learning"
+                >Learning</button>
+              </div>
+
+              <p id="diagram-caption" class="diagram-caption" aria-live="polite">
+                Resolve the user task, selected local framework checkout, and
+                exact governed project root without loading generated project
+                authority.
+              </p>
+
+              <div class="visually-hidden">
+                <span id="diagram-note-context">
+                  Resolve the user task, selected local framework checkout, and
+                  exact governed project root without loading generated project
+                  authority.
+                </span>
+                <span id="diagram-note-recovery">
+                  Read the selected charter, then check the governed project root
+                  for the closed journal, lock, and recovery-temp control set; any
+                  control blocks generated authority and ordinary work.
+                </span>
+                <span id="diagram-note-authority">
+                  When the recovery gate is clear, load the generated project
+                  contract; consult the SOW only when the contract routes there.
+                </span>
+                <span id="diagram-note-packet">
+                  Interpret the user request under the contract, then load only
+                  state and guidance relevant to the task.
+                </span>
+                <span id="diagram-note-work">
+                  Agent work remains bounded by authority, scope, and evidence.
+                </span>
+                <span id="diagram-note-verification">
+                  Verification combines deterministic checks with expert judgment.
+                  Refresh planning, exact-current acceptance, restore, and exact-ID
+                  recovery remain separate controlled routes.
+                </span>
+                <span id="diagram-note-learning">
+                  Reusable framework candidates first receive report-only semantic
+                  audit; only accepted candidates enter Framework Improvement.
+                  Project-local changes remain on their project route.
+                </span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section
+          id="canonical-surfaces"
+          class="panel split"
+          aria-labelledby="file-map-title"
+        >
+          <div>
+            <div class="section-heading">
+              <p class="eyebrow">Framework map</p>
+              <h2 id="file-map-title">Canonical surfaces</h2>
+            </div>
+            <p>
+              Use the tabs to inspect where a concept lives. Each item links to
+              Markdown or framework files that remain authoritative.
+            </p>
+          </div>
+
+          <div class="map-shell">
+            <nav id="surface-tabs" class="tabs" aria-label="Framework surface groups">
+              <a
+                id="tab-authority"
+                class="tab"
+                href="#panel-authority"
+                data-panel-id="panel-authority"
+              >Authority</a>
+              <a
+                id="tab-workflow"
+                class="tab"
+                href="#panel-workflow"
+                data-panel-id="panel-workflow"
+              >Workflow</a>
+              <a
+                id="tab-quality"
+                class="tab"
+                href="#panel-quality"
+                data-panel-id="panel-quality"
+              >Quality</a>
+              <a
+                id="tab-state"
+                class="tab"
+                href="#panel-state"
+                data-panel-id="panel-state"
+              >State</a>
+              <a
+                id="tab-lifecycle"
+                class="tab"
+                href="#panel-lifecycle"
+                data-panel-id="panel-lifecycle"
+              >Lifecycle</a>
+            </nav>
+
+            <section
+              id="panel-authority"
+              class="surface-panel"
+            >
+              <h3>Authority</h3>
+              <p>Canonical rule, project scope, and runtime projection surfaces.</p>
+              <div class="surface-list">
+                <a class="surface-link" href="../../master_service_agreement.md">
+                  Master Service Agreement
+                  <span>Universal doctrine and precedence.</span>
+                </a>
+                <a class="surface-link" href="../../statement_of_work_template.md">
+                  Statement of Work Template
+                  <span>Downstream project contract shape.</span>
+                </a>
+                <a class="surface-link" href="../../runtime/operative_charter.md">
+                  Operative Charter
+                  <span>Compact always-on runtime layer.</span>
+                </a>
+              </div>
+            </section>
+
+            <section
+              id="panel-workflow"
+              class="surface-panel"
+            >
+              <h3>Workflow</h3>
+              <p>Procedures for recurring work shapes.</p>
+              <div class="surface-list">
+                <a class="surface-link" href="../../task_orders/README.md">
+                  Task Order Index
+                  <span>Workflow selection and sequence.</span>
+                </a>
+                <a class="surface-link" href="../../runtime/workflow_catalog.json">
+                  Workflow Catalog
+                  <span>Machine-readable workflow metadata.</span>
+                </a>
+                <a
+                  class="surface-link"
+                  href="../../task_orders/README.md#task-orders-vs-runtime-task-modules"
+                >
+                  Task Modules
+                  <span>Compact views for known workflows.</span>
+                </a>
+              </div>
+            </section>
+
+            <section
+              id="panel-quality"
+              class="surface-panel"
+            >
+              <h3>Quality</h3>
+              <p>Specialist standards and verification boundaries.</p>
+              <div class="surface-list">
+                <a
+                  class="surface-link"
+                  href="../../task_orders/README.md#task-orders-vs-practice-guides"
+                >
+                  Practice Guides
+                  <span>Domain quality standards.</span>
+                </a>
+                <a class="surface-link" href="../verification_and_quality.md">
+                  Verification and Quality
+                  <span>Deterministic checks and semantic review.</span>
+                </a>
+                <a class="surface-link" href="../../runtime/framework_quality_contract.json">
+                  Framework Quality Contract
+                  <span>
+                    Registry for repeated mistake classes, guard classifications,
+                    and owning surfaces.
+                  </span>
+                </a>
+                <a class="surface-link" href="../../task_orders/framework_semantic_audit.md">
+                  Framework Semantic Audit Task Order
+                  <span>
+                    Report-only ownership, boundary, lifecycle, and semantic review
+                    for reusable candidates.
+                  </span>
+                </a>
+                <a class="surface-link" href="../../task_orders/framework_improvement.md">
+                  Framework Improvement Task Order
+                  <span>
+                    Proportional evaluation, authorized effect, verification, and
+                    disposition for accepted candidates.
+                  </span>
+                </a>
+              </div>
+            </section>
+
+            <section
+              id="panel-state"
+              class="surface-panel"
+            >
+              <h3>State</h3>
+              <p>Downstream project state templates and feedback surfaces.</p>
+              <div class="surface-list">
+                <a class="surface-link" href="../repository_taxonomy.md#template-boundaries">
+                  Project State Templates
+                  <span>Templates for active state, decisions, feedback, and source packs.</span>
+                </a>
+                <a class="surface-link" href="../source_and_feedback.md">
+                  Source and Feedback
+                  <span>Source review and sanitized learning flow.</span>
+                </a>
+                <a class="surface-link" href="../repository_taxonomy.md">
+                  Repository Taxonomy
+                  <span>Where each kind of file belongs.</span>
+                </a>
+              </div>
+            </section>
+
+            <section
+              id="panel-lifecycle"
+              class="surface-panel"
+            >
+              <h3>Lifecycle</h3>
+              <p>Canonical setup, refresh, recovery, and managed-runtime surfaces.</p>
+              <div class="surface-list">
+                <a class="surface-link" href="../../GETTING_STARTED.md">
+                  Getting Started
+                  <span>Initial generated-project setup only.</span>
+                </a>
+                <a class="surface-link" href="../../UPDATING.md">
+                  Updating a Generated Project
+                  <span>
+                    Operator orientation for inspection, plan-bound backout basis,
+                    approval, apply, backout, and recovery.
+                  </span>
+                </a>
+                <a class="surface-link" href="../../task_orders/framework_refresh.md">
+                  Framework Refresh Task Order
+                  <span>
+                    Authoritative recovery gate, verified refresh sequence,
+                    exact-current acceptance, and restore contract.
+                  </span>
+                </a>
+                <a class="surface-link" href="../../integrations/registry.json">
+                  Integration Registry
+                  <span>
+                    Registered entrypoints and optional wrapper outputs managed by
+                    the selected project instance.
+                  </span>
+                </a>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section id="quality-gates" class="panel" aria-labelledby="quality-title">
+          <div class="section-heading">
+            <p class="eyebrow">Quality gates</p>
+            <h2 id="quality-title">Verification does not replace judgment</h2>
+          </div>
+          <div class="quality-grid">
+            <article class="quality-card">
+              <h3>Scripts</h3>
+              <strong>Objective check</strong>
+              <p>
+                Check schema, generated output, links, state, routing, rendering, and
+                configured file-size ceilings.
+              </p>
+            </article>
+            <article class="quality-card warning">
+              <h3>Semantic review</h3>
+              <strong>Requires judgment</strong>
+              <p>
+                Decide semantic fit, ownership, source abstraction, and
+                architectural coherence; proportional improvement evaluates
+                incremental output value.
+              </p>
+            </article>
+            <article class="quality-card warning">
+              <h3>Reviewer lanes</h3>
+              <strong>Requires judgment</strong>
+              <p>
+                Challenge narrow evidence packets without granting authority to
+                reviewer output.
+              </p>
+            </article>
+            <article class="quality-card">
+              <h3>Project boundaries</h3>
+              <strong>Objective check</strong>
+              <p>
+                Check that generated files match declared paths, registered
+                integrations, project identity, and state-record contracts.
+              </p>
+            </article>
+          </div>
+        </section>
+
+        <section
+          id="reader-path-section"
+          class="panel"
+          aria-labelledby="reader-path-title"
+        >
+          <div class="section-heading">
+            <p class="eyebrow">Reader path</p>
+            <h2 id="reader-path-title">Where to go next</h2>
+          </div>
+          <div class="reader-path">
+            <a class="reader-card" href="../concepts.md">
+              <h3>First read</h3>
+              <span>Understand authority, runtime packets, and the state model.</span>
+            </a>
+            <a class="reader-card" href="../downstream_setup.md">
+              <h3>Set up a project</h3>
+              <span>Orient before using GETTING_STARTED.md and task_orders/init.md.</span>
+            </a>
+            <a class="reader-card" href="../../UPDATING.md">
+              <h3>Inspect or refresh an instance</h3>
+              <span>
+                Classify existing state, plan against a verified current-format
+                pair, require exact-current acceptance, and keep recovery separate.
+              </span>
+            </a>
+            <a class="reader-card" href="../../CONFORMANCE.md">
+              <h3>Verify an installation</h3>
+              <span>
+                Select the applicable conformance profile and run its documented
+                checks from the governed project root.
+              </span>
+            </a>
+          </div>
+        </section>
       </main>
     </div>
   </body>

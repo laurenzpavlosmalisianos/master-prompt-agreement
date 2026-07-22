@@ -102,7 +102,11 @@ def _input_placement_errors(
     except ValueError:
         return ["retained project input must stay inside the project root"]
 
-    if payload.get("project_kind") != "framework-authoring":
+    try:
+        policy = contract_model.project_layout_policy(payload.get("project_kind"))
+    except ValueError:
+        return []
+    if not policy.retained_input_within_contract_root:
         return []
     contract_root_ref = payload.get("contract_root")
     if not isinstance(contract_root_ref, str):
@@ -114,7 +118,7 @@ def _input_placement_errors(
     )
     if not safe_paths.path_within_root(input_path, contract_root):
         return [
-            "framework-authoring retained project input must be inside the selected contract root"
+            f"{policy.kind} retained project input must be inside the selected contract root"
         ]
     return []
 
@@ -180,7 +184,10 @@ def validate_project_input_structure(
         errors.append(f"project input is missing keys: {', '.join(missing)}")
 
     project_kind = payload.get("project_kind")
-    if project_kind not in contract_model.PROJECT_KINDS:
+    try:
+        policy = contract_model.project_layout_policy(project_kind)
+    except ValueError:
+        policy = None
         errors.append(
             "project input project_kind must be one of: "
             + ", ".join(sorted(contract_model.PROJECT_KINDS))
@@ -189,12 +196,14 @@ def validate_project_input_structure(
     errors.extend(_contract_root_errors(payload.get("contract_root"), project_root))
 
     runtime = payload.get("runtime")
-    if project_kind == "framework-authoring":
+    if policy is not None and policy.runtime_forbidden:
         if runtime is not None:
-            errors.append("framework-authoring project input runtime must be null")
-    elif project_kind == "downstream":
+            errors.append(f"{policy.kind} project input runtime must be null")
+    elif policy is not None and policy.runtime_required:
         if not isinstance(runtime, str) or not runtime:
-            errors.append("downstream project input runtime must be a non-empty string")
+            errors.append(
+                f"{policy.kind} project input runtime must be a non-empty string"
+            )
     elif runtime is not None and not isinstance(runtime, str):
         errors.append("project input runtime must be a string or null")
 
@@ -211,9 +220,13 @@ def validate_project_input_structure(
             errors.append("project input runtime_wrappers must be sorted")
         if len(runtime_wrappers) != len(set(runtime_wrappers)):
             errors.append("project input runtime_wrappers must not contain duplicates")
-        if project_kind == "framework-authoring" and runtime_wrappers:
+        if (
+            policy is not None
+            and not policy.runtime_wrappers_allowed
+            and runtime_wrappers
+        ):
             errors.append(
-                "framework-authoring project input runtime_wrappers must be empty"
+                f"{policy.kind} project input runtime_wrappers must be empty"
             )
 
     framework_reference = payload.get("framework_reference")
@@ -278,14 +291,18 @@ def selected_project_input_errors(
         return ["project input must be a JSON object"]
     if schema_version_preflight_error(payload) is not None:
         return []
-    if payload.get("project_kind") != "downstream":
+    try:
+        policy = contract_model.project_layout_policy(payload.get("project_kind"))
+    except ValueError:
+        return []
+    if not policy.manages_runtime_entrypoint:
         return []
     root = repo_root or REPO_ROOT
     runtime = payload.get("runtime")
     runtimes = integration_registry.family_names(root)
     if runtime not in runtimes:
         return [
-            "downstream project input runtime must be one of: "
+            f"{policy.kind} project input runtime must be one of: "
             + ", ".join(runtimes)
         ]
     wrappers = payload.get("runtime_wrappers")

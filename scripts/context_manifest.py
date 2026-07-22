@@ -279,7 +279,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--full-task-order",
         dest="full_task_order",
         action="store_true",
-        help="Explicitly require the canonical full Task Order in addition to the compact module.",
+        help="Explicitly select the canonical full Task Order instead of the compact module.",
     )
     parser.add_argument(
         "--path",
@@ -507,7 +507,7 @@ def _module_loading_mode(
     if explicit_full or matched:
         return (
             "full_task_order",
-            "load the compact runtime module and its canonical full Task Order",
+            "load the canonical full Task Order instead of the compact runtime module",
         )
     if unresolved:
         return (
@@ -638,7 +638,7 @@ def main() -> int:
         "standard_of_care": standard_of_care,
         "task_module": (
             {"name": task_module, "path": TASK_MODULE_PATHS[task_module]}
-            if task_module
+            if task_module and task_module_loading["mode"] == "compact_module"
             else None
         ),
         "task_order": (

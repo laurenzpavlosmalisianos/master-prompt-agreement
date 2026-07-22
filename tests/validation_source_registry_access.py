@@ -20,6 +20,26 @@ import source_registry_access_audit  # noqa: E402
 
 
 class SourceRegistryAccessTests(unittest.TestCase):
+    def test_source_registry_access_has_no_private_reference_default(self) -> None:
+        args = source_registry_access_audit.build_parser().parse_args([])
+        self.assertIsNone(args.reference_dir)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            private_refs = root / "private" / "references"
+            private_refs.mkdir(parents=True)
+            (private_refs / "private.md").write_text(
+                "https://private.example.invalid/source\n",
+                encoding="utf-8",
+            )
+            (root / "SOURCE_PACKS.md").write_text(
+                "https://example.com/public\n",
+                encoding="utf-8",
+            )
+
+            snapshots = source_registry_access_audit.registry_snapshots(root, ())
+
+        self.assertEqual(["SOURCE_PACKS.md"], [item.path.name for item in snapshots])
+
     def test_source_registry_access_audit_collects_monitor_and_strips_backticks(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -146,6 +166,45 @@ class SourceRegistryAccessTests(unittest.TestCase):
         self.assertEqual("https://example.com/final", result.final_url)
         response.__enter__.return_value.read.assert_called_once_with(32)
 
+    def test_source_registry_text_output_escapes_every_untrusted_field(self) -> None:
+        result = source_registry_access_audit.FetchResult(
+            False,
+            None,
+            "https://example.com/\u202efinal",
+            "text/plain\x9b31m",
+            "Grüße failure\x1b]52;c;payload\x07\nforged",
+        )
+        row = source_registry_access_audit.AuditRow(
+            "https://example.com/\x1b]52;c;payload\x07",
+            (
+                source_registry_access_audit.UrlRef(
+                    "fixture/source-registry/source\nforged.md",
+                    7,
+                    True,
+                ),
+            ),
+            result,
+            result,
+            "disallow\u2028forged",
+        )
+        with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            source_registry_access_audit.print_text(
+                [row],
+                1,
+                ("rejected\tinput\u202e",),
+            )
+
+        rendered = stdout.getvalue()
+        self.assertIn(r"input_error: rejected\x09input\u202e", rendered)
+        self.assertIn(r"\x1b]52;c;payload\x07", rendered)
+        self.assertIn(r"source\x0aforged.md:7", rendered)
+        self.assertIn(r"\u202efinal", rendered)
+        self.assertIn(r"\x9b31m", rendered)
+        self.assertIn(r"\u2028forged", rendered)
+        self.assertIn("Grüße", rendered)
+        for forbidden in ("\x00", "\x07", "\x1b", "\x7f", "\x9b", "\u2028", "\u202e"):
+            self.assertNotIn(forbidden, rendered)
+
     def test_source_registry_access_audit_does_not_report_an_unsafe_redirect_target(self) -> None:
         headers = HTTPMessage()
         headers["Location"] = "http://localhost/private?token=secret"
@@ -208,7 +267,7 @@ class SourceRegistryAccessTests(unittest.TestCase):
         for case_id in cases:
             with self.subTest(case_id=case_id), tempfile.TemporaryDirectory() as temp_dir:
                 root = Path(temp_dir)
-                references = root / "private" / "references"
+                references = root / "fixture" / "source-registry"
                 references.mkdir(parents=True)
                 registry = references / "sources.md"
                 if case_id == "invalid-utf8":
@@ -234,6 +293,8 @@ class SourceRegistryAccessTests(unittest.TestCase):
                         "source_registry_access_audit.py",
                         "--root",
                         str(root),
+                        "--reference-dir",
+                        "fixture/source-registry",
                         "--check-robots",
                     ]),
                     mock.patch.object(
