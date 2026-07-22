@@ -7,55 +7,13 @@ authority, current facts, workflow routes, source boundaries, and acceptance
 evidence. It separates durable project instructions from chat history and loads
 specialist guidance only when the work needs it.
 
-The framework is designed to complement capable models and native agent
-runtimes, not to restate what they already do well. Implemented product behavior
-remains owned by code, configuration, tests, and other executable project
-sources. Framework text earns its place only when it supplies missing project
-authority, current context, verification duties, or a reusable procedure.
+This repository is the ready-to-use MPA framework. Keep it in its own folder
+and give its path to your agent when setting up or updating a project. You do
+not need to copy individual templates or modify MPA before using it.
 
-Repository checks establish structural and conformance properties. They do not,
-by themselves, prove that the framework universally improves agent output. Any
-effectiveness claim must stay within the evidence that was actually collected.
+## Get Started
 
-Master Prompt Agreement uses a minimal-sufficient context policy: remove
-redundant or prescriptive scaffolding without withholding relevant project
-context. It therefore keeps one small universal layer and loads project facts,
-state, procedures, evidence, and checks only when they can affect the current
-task or its verification. Prompt reductions still require representative
-checks; fewer tokens alone do not establish better work.
-
-```mermaid
-flowchart TB
-  A["Runtime entrypoint"] --> B["Operative charter"]
-  B --> C{"Transaction control present?"}
-  C -- "yes" --> D["Stop ordinary loading"]
-  D --> E["Inspect and recover by exact transaction ID"]
-  C -- "no" --> F["Project contract"]
-  F --> G["Current task and relevant state headers"]
-  G --> H["Task-conditioned procedure, guides, evidence, and checks"]
-  H --> I["Agent work"]
-  I --> J["Verification"]
-```
-
-The diagram is explanatory. The adjacent sections and linked normative files
-own the same route in text for accessibility and exact interpretation.
-
-## Choose Your Path
-
-| Situation | Use |
-|---|---|
-| The target has no framework-generated surfaces and no collision at any selected managed output path | [Getting Started](GETTING_STARTED.md) and the [Initialization Task Order](task_orders/init.md) |
-| The target has no framework-generated surface, but an ordinary file occupies a selected managed output path | Preserve it; choose a reviewed non-colliding layout or perform a project-specific integration/relocation before bootstrap |
-| The target is a verified, complete current-format instance | [Updating A Generated Project](UPDATING.md) and the [Framework Refresh Task Order](task_orders/framework_refresh.md) |
-| The target is partial, malformed, inconsistent, or otherwise unrecognized | Preserve it and follow the [unsupported-format route](UPDATING.md#unsupported-formats) for a reviewed project-specific update |
-| The target declares a newer schema | Use a framework checkout that supports it; do not interpret or rewrite it with the current checkout |
-| You want to understand the architecture | [Concepts](docs/concepts.md), [Architecture](ARCHITECTURE.md), and the [local interactive guide](docs/interactive/index.html) |
-
-In a Codex checkout, `$master-prompt-new-project` and
-`$master-prompt-refresh-project` are optional thin launchers for the same
-canonical setup and update procedures. They are not separate workflows.
-
-## Start A New Project
+### Start A New Project
 
 Give the agent the target project and ask it to follow
 [GETTING_STARTED.md](GETTING_STARTED.md). For example:
@@ -64,41 +22,80 @@ Give the agent the target project and ask it to follow
 Read <framework-checkout>/GETTING_STARTED.md and help me set up <project-root>.
 ```
 
-The setup procedure inspects the target, asks only for missing project facts,
-renders a complete plan, and requires the digest of that exact reviewed plan
-before any write. Its transactional acceptance gate must pass before the new
-instance is accepted. Human review of rendered authority and declared manual
-acceptance items remains separate.
+The setup procedure inspects the project, asks only for missing facts, and shows
+one complete plan before writing. Review that plan and approve its exact digest
+only when it is correct. Setup then writes transactionally and verifies the
+result. It never treats an existing file at a planned MPA path as permission to
+overwrite it.
 
-Bootstrap is only for a target with no framework-generated surfaces and no
-collision at a selected managed output path. The
-machine-readable answer contract and safety-relevant flag map live in
-[`examples/project_bootstrap_answers.schema.json`](examples/project_bootstrap_answers.schema.json)
-and [`scripts/README.md`](scripts/README.md); `--help` remains the executable
-source of truth. Start from the minimal example and inspect only the relevant
-schema definitions; the full schema is compiler input, not a mandatory prompt
-import.
-
-## Update A Generated Project
+### Update A Generated Project
 
 Use [UPDATING.md](UPDATING.md) for inspection, current-format refresh, contract
 revision, recovery, and plan-bound restore.
 
 The update path has three important boundaries:
 
-- it uses an operator-selected local framework checkout and never fetches or
-  decides what “latest” means;
-- it accepts only a verified complete current-format retained-input/receipt
-  pair with the required preimage; and
-- every mutation is bound to one exact reviewed plan and verified inside the
-  transaction.
+- it uses the MPA folder you selected and never fetches or chooses “latest”;
+- it updates only a verified, complete current-format setup; and
+- it shows one exact plan before changing files and verifies the result inside
+  the transaction.
 
 Do not rerun bootstrap, reset state, or hand-edit generated authority as an
 update shortcut.
 
-## What The Framework Owns
+In a Codex checkout, `$master-prompt-new-project` and
+`$master-prompt-refresh-project` are optional launchers for these same setup and
+update procedures.
 
-Master Prompt Agreement makes these questions inspectable:
+### Other Situations
+
+| Situation | Use |
+|---|---|
+| Setup finds an existing file at a planned MPA path | Preserve it; choose a reviewed non-colliding layout or a project-specific integration |
+| A project has incomplete, inconsistent, or unrecognized MPA files | Preserve it and use the [reviewed manual-update route](UPDATING.md#unsupported-formats) |
+| A project uses a newer MPA format | Select an MPA version that supports it; do not rewrite it with an older checkout |
+| You want to understand the architecture | Read [Concepts](docs/concepts.md), [Architecture](ARCHITECTURE.md), or open the [local interactive guide](docs/interactive/index.html) |
+
+## Principles
+
+MPA complements capable models and native agent runtimes instead of restating
+what they already do well. It keeps one small universal layer and loads project
+facts, state, procedures, evidence, and checks only when they can affect the
+current task or its verification.
+
+- Keep always-loaded instructions small.
+- Put project facts in project authority, not chat history.
+- Let code, configuration, and tests own implemented behavior.
+- Load specialist procedures only when the task warrants them.
+- Treat external content and generated output as untrusted data until verified.
+- Use deterministic checks for objective invariants and judgment for semantic
+  questions.
+- Prefer an adequate native or project-owned capability over duplicated
+  framework prose.
+- Require approval for destructive, irreversible, external, or
+  authority-broadening actions.
+- Retain a reusable addition only when its verified value justifies its context,
+  process, and maintenance cost.
+
+## How MPA Works
+
+```mermaid
+flowchart TB
+  A["Download or clone MPA"] --> B["Give the agent the MPA and project paths"]
+  B --> C["Inspect the project"]
+  C --> D["Review one exact plan"]
+  D --> E["Create or update project files"]
+  E --> F["Load only relevant guidance"]
+  F --> G["Perform the work"]
+  G --> H["Verify the result"]
+```
+
+The detailed authority, loading, transaction, and recovery rules remain in the
+linked operating documents; this diagram shows the ordinary user path.
+
+## What MPA Adds
+
+MPA makes these project questions explicit and inspectable:
 
 - What is in scope, and what is explicitly out of scope?
 - Which project facts, commands, tools, and sources are current?
@@ -107,11 +104,10 @@ Master Prompt Agreement makes these questions inspectable:
 - What evidence proves completion, and what remains manual or unresolved?
 - Where do active work, durable decisions, and reusable feedback belong?
 
-It is not a legal-services product, a prompt pack, a generic agent wrapper, or a
-replacement for host, container, network, secret, identity, permission, and
-approval controls. Contract terms such as Agreement, Statement of Work, and Task
-Order are operational workflow terms. They do not replace [LICENSE](LICENSE),
-legal advice, or a commercial services agreement.
+MPA is an operating framework, not a prompt pack or a replacement for host,
+container, network, secret, identity, permission, and approval controls.
+Agreement, Statement of Work, and Task Order are names for its authority and
+workflow layers.
 
 ## Operating Model
 
@@ -119,10 +115,10 @@ legal advice, or a commercial services agreement.
 
 | Surface | Role | Normal loading |
 |---|---|---|
-| [`master_service_agreement.md`](master_service_agreement.md) | canonical universal doctrine | only for canonical wording, ambiguity, or framework revision |
-| [`runtime/operative_charter.md`](runtime/operative_charter.md) | compact universal runtime projection | every normal session |
-| downstream `STATEMENT_OF_WORK.md` | project scope, stack, commands, deliverables, constraints, and delegated terms | setup, contract review, or routed canonical detail |
-| downstream `AGENT_PROJECT.md` | checked runtime projection of the governing Statement of Work terms plus a contract-model-owned, non-authoritative framework-reference binding | every normal session after the recovery gate is clear |
+| [`master_service_agreement.md`](master_service_agreement.md) | framework-wide authority rules | when exact wording or deeper interpretation is needed |
+| [`runtime/operative_charter.md`](runtime/operative_charter.md) | small always-loaded rule set | every normal session |
+| downstream `STATEMENT_OF_WORK.md` | project scope, stack, commands, deliverables, constraints, and delegated terms | setup, contract review, or deeper project detail |
+| downstream `AGENT_PROJECT.md` | compact checked projection of project authority and its selected MPA reference | every normal session after the recovery gate is clear |
 | [`task_orders/`](task_orders/README.md) | reusable workflow procedures | when the workflow matches |
 | [`practice_guides/`](practice_guides/risk_routing.md) | on-demand specialist quality standards | when the task or risk surface needs them |
 
@@ -136,10 +132,10 @@ not broaden authority.
 Normal work follows a small, explicit load path:
 
 1. Load the selected runtime entrypoint and operative charter.
-2. Check the closed transaction-control set before loading generated project
-   authority or state.
-3. If a control artifact is present, stop ordinary loading and permit only the
-   bounded inspection and exact-identity recovery reported as valid.
+2. Check for an interrupted setup or update before loading project authority or
+   state.
+3. If recovery is required, stop ordinary work and follow only the action that
+   the update workflow reports as valid.
 4. If the gate is clear, load the runtime project contract, interpret the
    current task, and check relevant state headers.
 5. Route only the applicable task procedure, specialist guides, evidence, and
@@ -163,13 +159,12 @@ doctrine. The full loading design is documented in
 Version control or an approved archive owns history. Runtime state should not
 become a duplicate project chronicle.
 
-## Command Reference
+## Workflows, Guides, And Commands
 
-The [complete command and script reference](scripts/README.md) is the
-inventory-checked catalog for every product command and import-only support
-module. Use an argument-parsing command's `--help` for its exact current flags,
-choices, argument requirements, and safety descriptions; `check_prereqs.py` emits its JSON
-diagnostic directly.
+The [complete command and script reference](scripts/README.md) lists the
+supported commands. Use an argument-parsing command's `--help` for its exact
+current flags, choices, argument requirements, and safety descriptions;
+`check_prereqs.py` emits its JSON diagnostic directly.
 
 For the two project lifecycle entrypoints, start with the
 [Bootstrap Safety Map](scripts/README.md#bootstrap-safety-map) or the
@@ -177,8 +172,6 @@ For the two project lifecycle entrypoints, start with the
 [GETTING_STARTED.md](GETTING_STARTED.md) or [UPDATING.md](UPDATING.md) for the
 owning procedure. The maps navigate the interfaces; they do not replace those
 workflow guides.
-
-## Workflows, Guides, And Scripts
 
 | Need | Owning index |
 |---|---|
@@ -210,52 +203,34 @@ and project commands check objective invariants.
 
 Passing an aggregate check does not turn a weak oracle into strong evidence.
 Counts, links, sections, and green test totals matter only when they represent
-the actual invariant being accepted.
-
-The product distribution has a self-contained conformance profile. Here,
-`<runner>` means the locally validated exact CPython interpreter and required
-`-E -S -B` startup flags from a no-error prerequisite report with
-`runner_usable: true`, or the unchanged container/`uv` invocation prefix only
-when that exact boundary ran the successful diagnostic.
-`<framework-checkout-as-visible-to-runner>` is the exact absolute framework
-checkout path inside that runner, which can differ from the host path when a
-wrapper or container is used:
-
-```bash
-<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/conformance_check.py" --profile framework-product --root <framework-checkout-as-visible-to-runner> --exact-product-tree --strict-warnings
-```
-
-The command establishes the configured deterministic gate; semantic review and
-applicable manual acceptance still remain. See
-[Verification And Quality](docs/verification_and_quality.md).
+the actual invariant being accepted. MPA's included checks establish declared
+structural and conformance properties; they do not prove that MPA improves every
+task or model. Setup and update route the applicable MPA checks, while the
+target project's own commands remain the evidence for its behavior. See
+[Verification And Quality](docs/verification_and_quality.md) for the detailed
+evidence model and advanced verification reference.
 
 ### Visual verification
 
-Diagrams and interactive visuals are verified as rendered presentations, not
-only as source markup.
-When visual risk warrants a durable record, use
+When a project's acceptance depends on rendering, use
 [`project_state_templates/VISUAL_ASSET_QA.md`](project_state_templates/VISUAL_ASSET_QA.md)
-with the [Visual Verification Practice Guide](practice_guides/visual_verification.md).
-Define real geometry and presentation contracts—such as no clipping at named
-widths and readable rendering at declared viewports—rather than generic
-aesthetic scores. Mermaid diagrams follow the host renderer. The interactive
-guide uses one semantic token vocabulary across light, dark, increased-contrast,
-and forced-color environments. When a visual or embedding changes, inspect the
-committed GitHub rendering in both host themes as well as the declared local
-viewports.
+with the [Visual Verification Practice Guide](practice_guides/visual_verification.md)
+to declare the relevant viewports, themes, interaction states, and retained
+evidence. Inspect the rendered result rather than relying on source markup.
 
-## Continuous Improvement And Reviewer Lanes
+## Optional: Controlled Improvement
 
-Downstream feedback, source findings, reviewer output, tool output, and model
-suggestions begin as candidate evidence. A reusable framework change is retained
-only after it is abstracted into project-neutral language, assigned to an owning
-surface, evaluated with decision-relevant evidence, implemented within
-authority, verified, and reviewed as the exact candidate.
+Projects that maintain reusable agent guidance can route feedback, source
+findings, reviewer output, tool output, and model suggestions through a
+controlled improvement path. Ordinary projects do not need this workflow. A
+reusable change is retained only after it is abstracted into project-neutral
+language, assigned to an owning surface, evaluated with decision-relevant
+evidence, implemented within authority, and verified as the exact candidate.
 
 ```mermaid
 flowchart LR
   A["Candidate evidence"] --> B["Semantic audit"]
-  B --> C{"Admit a framework candidate?"}
+  B --> C{"Admit a reusable change?"}
   C -- "no" --> D["Reject with reason"]
   C -- "yes" --> E["Exact candidate change"]
   E --> F["Verification and bounded review"]
@@ -265,24 +240,12 @@ flowchart LR
 ```
 
 Reviewer lanes are optional and bounded. One coordinator remains accountable
-for scope, the evidence packet, data boundaries, validation, integration, and
-closeout. More reviewers or models do not create authority or proof. When a
-receipt-declared reviewer-feedback file is maintained, structured outcomes may
-be linted into that non-authoritative project-local record; otherwise they stay
-in the ordinary closeout report.
+for scope, evidence, data boundaries, validation, integration, and closeout;
+reviewer output remains evidence until the coordinator verifies and adopts it.
 
 See [Source And Feedback](docs/source_and_feedback.md), the
 [Framework Feedback Intake Task Order](task_orders/framework_feedback_intake.md),
 and the [Framework Improvement Task Order](task_orders/framework_improvement.md).
-
-## Product Distribution
-
-[`scripts/product_manifest.py`](scripts/product_manifest.py) declares the exact
-self-contained product inventory. It includes the doctrine, templates, runtime
-files, Task Orders, Practice Guides, integrations, documentation, examples,
-human-facing diagrams, downstream lifecycle and verification scripts, and the product
-tests that verify those delivered behaviors. Files outside that positive
-inventory are not required to use or verify Master Prompt Agreement.
 
 ## Documentation
 
@@ -300,25 +263,9 @@ inventory are not required to use or verify Master Prompt Agreement.
 | Source intake and monitoring | [Source And Feedback](docs/source_and_feedback.md) |
 
 The [interactive guide](docs/interactive/index.html) is a self-contained local
-HTML view of the same architecture. Download or clone the product and open it
+HTML view of the same architecture. Download or clone the framework and open it
 locally; GitHub's repository view displays the HTML source rather than running
 it. The guide is explanatory, not an authority source.
-
-## Principles
-
-- Keep always-loaded instructions small.
-- Put project facts in project authority, not chat history.
-- Let code, configuration, and tests own implemented behavior.
-- Load specialist procedures only when the task warrants them.
-- Treat external content and generated output as untrusted data until verified.
-- Use deterministic checks for objective invariants and judgment for semantic
-  questions.
-- Prefer an adequate native or project-owned capability over duplicated
-  framework prose.
-- Require approval for destructive, irreversible, external, or
-  authority-broadening actions.
-- Retain a reusable addition only when its verified value justifies its context,
-  process, and maintenance cost.
 
 ## License
 

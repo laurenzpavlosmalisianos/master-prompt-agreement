@@ -1,7 +1,7 @@
 {
   "documentation_consistency": {
     "docs": {
-      "README.md": ["GETTING_STARTED.md", "task_orders/README.md", "runtime/workflow_catalog.json", "UPDATING.md", "task_orders/framework_refresh.md", "<framework-checkout-as-visible-to-runner>"],
+      "README.md": ["GETTING_STARTED.md", "task_orders/README.md", "runtime/workflow_catalog.json", "UPDATING.md"],
       "UPDATING.md": ["task_orders/framework_refresh.md", "scripts/project_refresh.py"],
       "runtime/load_order.md": ["task_orders/README.md", "runtime/workflow_catalog.json"],
       "task_orders/README.md": ["runtime/workflow_catalog.json", "Task Orders vs Runtime Task Modules"]
@@ -37,7 +37,7 @@
     ]
   },
   "setup_docs": {
-    "README.md": ["runner_usable: true", "<framework-checkout-as-visible-to-runner>", "no collision at any selected managed output path", "full schema is compiler input"],
+    "README.md": ["ready-to-use MPA framework", "give its path to your agent", "complete plan before writing", "existing file at a planned MPA path"],
     "scripts/README.md": ["--runtime-wrapper <id>", "preview --project-root <root> --plan <file>", "--clear-runtime-wrappers", "ACCEPT-SELECTED-FRAMEWORK-CHANGE", "REVISE-RUNTIME-WRAPPERS", "RETIRE-MUTABLE-####", "RETIRE-IMMUTABLE-####", "POSIX rwx modes", "runner_usable", "<framework-checkout-as-visible-to-runner>", "exact tested CPython interpreter", "Treat the full schema as compiler input", "no selected managed output collides", "task_orders/framework_refresh.md"],
     "GETTING_STARTED.md": ["runtime/operative_charter.md", "task_orders/init.md", "scripts/check_prereqs.py", "scripts/project_bootstrap.py", "project_bootstrap_answers.schema.json", "scripts/project_contract_sync.py", "scripts/conformance_check.py", "PROJECT_INPUT.json", "PROJECT_INSTANCE.json", ".mpa-bootstrap-recovery.json", ".mpa-bootstrap.lock", ".mpa-bootstrap-recovery.tmp", "--framework-revision-policy", "--profile core-project", "--dry-run", "--approve-write-plan-sha256", "write_plan_sha256", "warnings_sha256", "--strict-warnings", "runner_usable", "<framework-checkout-on-diagnostic-host>", "<framework-checkout-as-visible-to-runner>", "exact tested interpreter", "full schema is compiler input", "every selected managed output path is free", "RETIRE-MUTABLE-####", "RETIRE-IMMUTABLE-####", "UPDATING.md", "task_orders/framework_refresh.md"],
     "docs/downstream_setup.md": ["<framework-checkout-on-diagnostic-host>", "<framework-checkout-as-visible-to-runner>", "only its exact compatible CPython interpreter and startup flags are qualified", "targeted schema lookup", "no selected managed output path collides"],
