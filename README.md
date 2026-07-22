@@ -228,7 +228,7 @@ language, assigned to an owning surface, evaluated with decision-relevant
 evidence, implemented within authority, and verified as the exact candidate.
 
 ```mermaid
-flowchart LR
+flowchart TB
   A["Candidate evidence"] --> B["Semantic audit"]
   B --> C{"Admit a reusable change?"}
   C -- "no" --> D["Reject with reason"]
@@ -237,6 +237,9 @@ flowchart LR
   F --> G{"Acceptance evidence passes?"}
   G -- "no" --> H["Revise, revert, or contain"]
   G -- "yes" --> I["Retain in the owning surface"]
+  H --> J["Record the disposition"]
+  I --> J
+  J --> K["Route the next authorized step"]
 ```
 
 Reviewer lanes are optional and bounded. One coordinator remains accountable
