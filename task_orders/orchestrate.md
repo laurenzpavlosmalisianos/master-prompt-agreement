@@ -136,7 +136,7 @@ items as candidates in the final report. The handoff includes:
 - Reload bundle: the exact files the sub-agent must load before acting.
 - Current step status: what is done and what remains.
 - Files modified: what changed in the active slice.
-- Step identifier, ownership boundary, expected output schema, verifier gate, checkpoint or resume rule, and integration owner when the workflow is long, parallel, or safety-sensitive.
+- Step identifier, ownership boundary, expected output schema, verifier gate, checkpoint or resume rule, and integration owner when the workflow is long, parallel, or safety-sensitive. When repository or acquired-source identity matters, the rule binds the active acquisition transport, exact materialized revision or snapshot digest, only project-required selector or reference assertions, and relationships among differing produced, hosted, reviewed, and integrated immutable revisions; when live context may be lost, it also binds the expected candidate/source identity, completed phases and evidence locators, and last observed remote lifecycle status. Verify identity through its owning transport; on drift, stop or explicitly supersede the candidate.
 - Open items: unresolved issues for the next step.
 - Context for next step: what the sub-agent needs to know now.
 - Durable decisions: identify separately. Record an adopted decision in
@@ -166,7 +166,7 @@ Load only on named triggers:
 <!-- mpa-orchestration-contract: orchestration-sow-conflict-winner-v1 -->
 <!-- mpa-orchestration-contract: orchestration-procedural-modules-v1 -->
 
-The handoff must state the authority rule: platform/runtime instructions and the exact current User task govern the present step; the MSA, SOW, projected governing terms in the project contract, and non-delegable duties constrain and interpret that scope; selected Task Orders and Practice Guides provide procedures only; summaries and handoff prose are context only. The sub-agent reloads the files from disk before acting. If a governing term in AGENT_PROJECT.md conflicts with STATEMENT_OF_WORK.md, the SOW governs interpretation; report the drift, stop relying on the conflicting term, and never hand-edit the generated file. Its model-owned framework-reference binding is non-authoritative lifecycle data. An otherwise verified complete current-format retained-input/receipt pair with an intact recorded preimage may use candidate-input refresh; invalid managed-file preimage requires a separately reviewed manual correction. Task Orders and Practice Guides are procedures and do not override higher authority.
+The handoff must state the authority rule: platform/runtime instructions and the exact current User task govern the present step; the MSA, SOW, projected governing terms in the project contract, and non-delegable duties constrain and interpret that scope; selected Task Orders and Practice Guides provide procedures only; summaries, handoff prose, and resume evidence are non-authoritative context. The sub-agent reloads the files from disk before acting; on resume, it revalidates the bound candidate/source identity, governing authority, and live mutable state against current authoritative sources before relying on the handoff. If a governing term in AGENT_PROJECT.md conflicts with STATEMENT_OF_WORK.md, the SOW governs interpretation; report the drift, stop relying on the conflicting term, and never hand-edit the generated file. Its model-owned framework-reference binding is non-authoritative lifecycle data. An otherwise verified complete current-format retained-input/receipt pair with an intact recorded preimage may use candidate-input refresh; invalid managed-file preimage requires a separately reviewed manual correction. Task Orders and Practice Guides are procedures and do not override higher authority.
 
 3. Execute Each Step
 
@@ -177,13 +177,20 @@ For each step in the sequence:
 3.3. On completion, the sub-agent returns a structured report with conclusion, material claims, evidence cited for each claim, checks performed, unverified assumptions, risks found, recommended disposition, confidence, scope limits, proposed actions, and proposed TODO.md or DECISIONS.md updates when needed. Source-policy reviews cite source references; code reviews cite file paths and line references where possible; privacy or egress reviews name the exact data class and egress path.
 3.4. The Agent reloads primary evidence for material claims, validates or labels unresolved claims as hypotheses, and preserves the raw report at its evidence location when needed. When state-file maintenance is authorized and relevant, the coordinator updates TODO.md and DECISIONS.md only with validated open work or adopted decisions before proceeding to the next step; otherwise the coordinator carries those items as candidates in the final report.
 
+A verification phase result is reusable only while its bound candidate,
+material inputs, tools, environment, predecessor results, completion status,
+and evidence locator remain unchanged; otherwise restart at the earliest
+invalidated phase and complete the full required lane. After an authorized
+durable repository mutation, bind any subsequent verifier to the immutable
+revision established by authoritative repository readback.
+
 Gate rule: If any step fails its acceptance criteria or verifier gate, the workflow stops. The Agent reports the failure and the remaining steps. The User decides whether to fix and continue or abort.
 
 4. Parallel Steps
 
 When steps are independent and do not require sequential handoff, the Agent may launch worker agents in parallel only with User approval or explicit named-workflow authorization. The Agent must confirm independence before parallelizing. When in doubt, run sequentially.
 
-Before launching parallel or fresh-agent fan-out, state the maximum workers, total agent/session limit, time or cost ceiling, write ownership, integration owner, verifier gate, and abort or backout path.
+Before launching parallel or fresh-agent fan-out, state the maximum workers, total agent/session limit, time or cost ceiling, write ownership, integration owner, verifier gate, and abort or backout path. Descendants require separate authority from the exact User task, SOW, or a named workflow that explicitly grants descendant creation; selecting a workflow or launching a worker does not suffice. For descendants, the same envelope also binds maximum depth, cumulative subtree workers and sessions, aggregate time or cost ceilings, parent lineage and validation, coordinator acceptance, and downward stop, cancel, timeout, abort, and teardown propagation. Each child receives a separate parent-to-child handoff narrowed to scope, data, tools, effects, and write ownership. If the runtime cannot verify cumulative limits or teardown propagation, require coordinator-owned fan-out or prohibit descendants.
 
 In parallel mode, workers return structured reports or write per-worker artifacts. When state-file maintenance is authorized and relevant, only the coordinator updates TODO.md and DECISIONS.md. This write-ownership rule does not itself grant state-file authority.
 

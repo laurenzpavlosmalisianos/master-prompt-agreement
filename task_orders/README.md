@@ -2,7 +2,7 @@
 
 Task Orders are reusable workflow procedures for defined operations. Some are one-time per target project, such as setup; others recur during maintenance. If the applicable procedure is unclear, start here, choose the matching workflow, and then load only that Task Order.
 
-The machine-readable twin of this file is `runtime/workflow_catalog.json`.
+Structured workflow metadata, transitions, and runtime-module bindings are owned by `runtime/workflow_catalog.json`. The Catalog below is a non-authoritative human orientation index; each linked Task Order owns its complete procedure.
 
 ## Task Orders vs Practice Guides
 
@@ -34,75 +34,32 @@ Select one procedure at a time. If a full-order condition appears after a compac
 
 Not every Task Order needs a runtime task module.
 
-## Quick Selection
-
-- `init.md` when a project with no framework-generated surface and no selected
-  managed-output collision needs its first current-format framework instance
-  and receipt-listed initial acceptance.
-- `framework_refresh.md` when an existing generated instance must be inspected
-  or classified; when a closed transaction-control state needs inspection-gated
-  exact-ID recovery; when a verified complete current-format identity pair with
-  an intact recorded preimage needs a framework refresh, contract revision, or
-  runtime transition; or when an approved
-  plan/bundle and matching live postimage support post-success restore.
-- `compliance.md` when an established project needs an independent drift audit,
-  such as after a milestone or dormant interval.
-- `ideate.md` when the problem is still open and multiple approaches must be explored.
-- `evaluate.md` when an external idea, design, or pattern must be judged against project standards.
-- `framework_feedback_intake.md` when downstream project feedback or reviewer-lane observations should be sanitized, abstracted, and decided before any framework change.
-- `framework_semantic_audit.md` when maintained framework surfaces need semantic quality, ownership, and public-boundary review.
-- `framework_improvement.md` when an accepted framework candidate needs a
-  native-capability admission check, proportional evaluation, authorized
-  implementation, non-degradation verification, and a ready-for-act,
-  retain/revise/revert, needs-evidence, or no-action disposition.
-- `knowledge_transfer.md` when the user wants to learn, understand a session/change, or verify their own understanding.
-- `plan.md` when a downstream or project-local approach is chosen and execution
-  needs ordered slices. A shared or reusable framework candidate uses
-  `framework_semantic_audit.md` and `framework_improvement.md` instead.
-- `source_update.md` when current authoritative or project-approved external
-  sources may change the correct implementation and the task needs an observe
-  report, proposal, or approved act-mode update.
-- `backout.md` when a change, update, migration, deployment, or generated patch
-  must be safely unwound and no active framework-refresh bundle route owns it.
-- `incident_response.md` when suspected compromise, secret exposure, destructive regression, corrupted state, or data loss requires evidence-preserving response.
-- `review.md` when a change or narrow evidence bundle needs adversarial review.
-- `audit.md` when a subsystem or project needs broader systematic verification.
-- `pull_request.md` when an external PR should be assessed as an untrusted proposal before any authorized adoption, response, or reimplementation.
-- `automation.md` when recurring scheduled work needs a standing automation order.
-- `orchestrate.md` when multiple Task Orders must be chained through fresh-agent handoffs.
-- `independent_assessment.md` when independent advice is needed but there is not yet a dispute.
-- `arbitrate.md` when there is an actual unresolved technical dispute.
-- `commit.md` when approved changes should be committed with cross-session continuity.
-- `insights.md` when the User requests a retrospective, the project contract
-  names a retrospective checkpoint, or material recurring evidence requires a
-  concrete framework decision. Ordinary completion alone is not a trigger.
-
 ## Catalog
 
-| Task Order | Use When | Common Next Step | Runtime Module |
-|---|---|---|---|
-| `init` | Create and accept the first current-format framework instance when no framework-generated surfaces exist and no selected managed-output collision exists. | normal work; later independent `compliance` audit | none |
-| `framework_refresh` | Inspect or classify an existing generated instance; use a verified complete current-format identity pair with an intact recorded preimage for refresh planning or revision, exact-current for post-apply acceptance, closed transaction-control evidence for exact-ID recovery, and an approved plan/bundle plus matching live postimage for post-success restore. | normal work; later independent `compliance` audit | none |
-| `compliance` | Independently audit whether an established framework setup, runtime split, and state remain sound. | fix drift or continue normal work | none |
-| `ideate` | The problem is still open and multiple plausible solution paths must be explored. | ownership classification, then separately authorized `plan` for downstream/project-local work or `framework_semantic_audit` for a shared/reusable framework-product candidate | `ideate` |
-| `evaluate` | An external idea or design must be judged against project constraints. | Adopt/Adapt routes by ownership: authorized `plan` for downstream/project-local work, or `framework_semantic_audit` for shared/reusable framework-product work; Reject is terminal; Needs evidence pauses for evidence | none |
-| `framework_feedback_intake` | Downstream project feedback, reviewer-lane observations, or repeated agent failures must be sanitized and decided before any framework change. | `framework_semantic_audit` for transitional Promote or Adapt | none |
-| `framework_semantic_audit` | Maintained framework surfaces need report-only semantic quality, ownership, and public-boundary review before publication or reuse. | `framework_improvement` for Approve or Approve-with-edits; Reject stops; Needs-evidence pauses | none |
-| `framework_improvement` | An accepted bounded framework candidate needs a proportional engineering or claim-grade evaluation and explicit disposition. | authorization handoff for Ready-for-act; after act-mode verification, report-only `review` -> risk-matched report-only `audit` when warranted -> disposition; separately authorized `commit` only for Retain; `backout` for Revert | none |
-| `knowledge_transfer` | The user wants evidence-backed teaching, onboarding, or comprehension checks for a session, change, subsystem, or decision. | continue normal work | none |
-| `plan` | A downstream or project-local direction is chosen and execution needs dependency-ordered slices. | authorized implementation, `review`, `audit`, or `commit`; shared/reusable framework candidates route to `framework_semantic_audit` instead | `plan` |
-| `source_update` | Current authoritative or project-approved external sources should be checked and translated into an observe report, proposal, or approved downstream/project-local act-mode update. | stop after `observe` or `propose`; shared/reusable framework-product candidates use bounded `propose` -> `framework_semantic_audit` -> `framework_improvement`; after downstream/project-local `act`, use `review`, `audit`, or `commit` as applicable | none |
-| `backout` | A change, update, migration, deployment, or generated patch must be safely unwound. | approved restoration, then `review`, `audit`, and a separately authorized `commit` when retention is justified | none |
-| `incident_response` | Suspected compromise, secret exposure, destructive regression, corrupted state, or data loss requires response. | preserve evidence, perform only authorized response actions, then close or escalate | none; always load full order |
-| `review` | A change or narrow evidence slice needs adversarial review. | active framework-improvement candidate first: report-only `revise` handoff; otherwise shared/reusable framework-product finding: report-only `framework_semantic_audit` -> `framework_improvement`; ordinary downstream/project-local work: `audit` or authorized remediation | `review` |
-| `audit` | A subsystem or project needs broader systematic verification. | active framework-improvement candidate first: report-only `revise` handoff; otherwise shared/reusable framework-product finding: report-only `framework_semantic_audit` -> `framework_improvement`; ordinary downstream/project-local work: authorized remediation or `commit` | `audit` |
-| `pull_request` | An external PR should be treated as an untrusted proposal and assessed before any authorized adoption, response, or reimplementation. | authorized downstream/project-local planning, `framework_semantic_audit` for a shared/reusable framework-product candidate, an authorized response, or decline | none |
-| `automation` | Recurring scheduled work needs an explicit standing automation rule. | backend render or `compliance` | `automation` |
-| `orchestrate` | Multiple Task Orders must be chained through fresh-agent handoffs. | follow the defined sequence | none |
-| `independent_assessment` | Technical uncertainty exists without disagreement. | after coordinator validation, ownership classification routes authorized downstream/project-local work to `plan` or a shared/reusable framework candidate to `framework_semantic_audit`; `arbitrate` only if a dispute emerges | none |
-| `arbitrate` | A technical disagreement needs formal independent review or a panel recommendation. | record the branch-specific outcome and authorized follow-up work | `arbitrate` |
-| `commit` | Approved local changes should be committed for cross-session continuity. | continue normal work | none |
-| `insights` | A requested or contract-triggered retrospective, or material recurring evidence, requires a concrete durable-improvement decision. | route an accepted candidate through feedback/source intake, semantic audit, and framework improvement | none |
+| Task Order | Use When |
+|---|---|
+| [`init`](init.md) | Create and accept the first current-format framework instance when no framework-generated surfaces exist and no selected managed-output collision exists. |
+| [`framework_refresh`](framework_refresh.md) | Inspect, refresh, recover, accept, or restore an existing generated framework instance through its verified current-format lifecycle. |
+| [`compliance`](compliance.md) | Independently audit whether an established framework setup, runtime split, and state remain sound. |
+| [`ideate`](ideate.md) | The problem is open and multiple plausible solution paths must be explored. |
+| [`evaluate`](evaluate.md) | An external idea or design must be judged against project constraints. |
+| [`framework_feedback_intake`](framework_feedback_intake.md) | Downstream feedback, reviewer observations, or repeated agent failures must be sanitized and decided before any framework change. |
+| [`framework_semantic_audit`](framework_semantic_audit.md) | Maintained framework surfaces need report-only semantic quality, ownership, and public-boundary review before publication or reuse. |
+| [`framework_improvement`](framework_improvement.md) | An accepted bounded framework candidate needs proportional evaluation and explicit disposition. |
+| [`knowledge_transfer`](knowledge_transfer.md) | The User wants evidence-backed teaching, onboarding, or comprehension checks for a session, change, subsystem, or decision. |
+| [`plan`](plan.md) | A downstream or project-local direction is chosen and execution needs dependency-ordered slices. |
+| [`source_update`](source_update.md) | Current authoritative or project-approved external sources should be checked and translated into an observation, proposal, or approved downstream update. |
+| [`backout`](backout.md) | A change, update, migration, deployment, or generated patch must be safely unwound. |
+| [`incident_response`](incident_response.md) | Suspected compromise, secret exposure, destructive regression, corrupted state, or data loss requires response. |
+| [`review`](review.md) | A change or narrow evidence slice needs adversarial review. |
+| [`audit`](audit.md) | A subsystem or project needs broader systematic verification. |
+| [`pull_request`](pull_request.md) | An external pull request must be treated as untrusted and assessed before any authorized response, adoption, or reimplementation. |
+| [`automation`](automation.md) | Recurring scheduled work needs an explicit standing automation rule. |
+| [`orchestrate`](orchestrate.md) | Multiple Task Orders must be chained through fresh-agent handoffs. |
+| [`independent_assessment`](independent_assessment.md) | Technical uncertainty exists without disagreement. |
+| [`arbitrate`](arbitrate.md) | A technical disagreement needs formal independent review or a panel recommendation. |
+| [`commit`](commit.md) | Approved local changes should be committed for cross-session continuity. |
+| [`insights`](insights.md) | A requested or triggered retrospective, or material recurring evidence, requires a concrete durable-improvement decision. |
 
 ## Common Sequences
 

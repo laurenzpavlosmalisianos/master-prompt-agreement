@@ -6,11 +6,14 @@ Consult `STATEMENT_OF_WORK.md`, `TODO.md`, `DECISIONS.md`, or `PRECEDENTS.md` wh
 
 <!-- mpa-common-precondition -->
 <!-- mpa-obligation: REVIEW-evidence-scope -->
+<!-- mpa-obligation: REVIEW-dependent-aggregate-binding -->
+<!-- mpa-obligation: REVIEW-dependent-union-review -->
 <!-- mpa-obligation: REVIEW-schema-and-open-probes -->
 <!-- mpa-obligation: REVIEW-remediation-gated -->
 <!-- mpa-obligation: REVIEW-multi-agent-validated -->
 
 1. Choose the smallest justified Evidence Scope.
+   For a dependent change set, bind the immutable base identity, immutable member identities, declared member order and dependency relationships, final aggregate revision or snapshot, and complete base-to-candidate diff or an unambiguous digest of that evidence; rebind after any change to a bound identity, member order, dependency relationship, or aggregate. Review the aggregate and project-required intermediate states; component approvals do not approve the union.
 2. Map changed invariants and direct consumers before widening.
 3. Read the evidence in that scope before widening.
 4. Keep a compact coverage manifest: reviewed surfaces, evidence, checks, exclusions, findings, open probes, and validation status.
@@ -32,6 +35,7 @@ Checks:
 - remediation and state edits stay inside approved scope
 - framework-product findings and active framework-improvement reviews remain report-only and follow their owning routes
 - Evidence Scope is the smallest sufficient slice
+- dependent change-set review is rebound to the current aggregate and covers required intermediate states; component approvals are not union approval
 - coverage manifest records reviewed surfaces, evidence, checks, exclusions, findings, and validation status
 - unchanged consumers were checked when shared behavior changed
 - multi-agent outputs were coordinator-validated before adoption

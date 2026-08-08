@@ -232,6 +232,78 @@ class SafeIoIntegrationTests(unittest.TestCase):
                     errors,
                 )
 
+    def test_runtime_entrypoints_bind_the_compact_sow_conflict_clause(self) -> None:
+        contract_root_ref = "contracts/project"
+        registry = integration_registry.load_registry(REPO_ROOT)
+        for family in integration_registry.family_names(REPO_ROOT):
+            template_path = registry["families"][family]["entrypoint"]["path"]
+            template = (REPO_ROOT / template_path).read_text(encoding="utf-8")
+            self.assertEqual(
+                1,
+                template.count(
+                    integration_registry.PROJECT_CONTRACT_CONFLICT_CLAUSE_TOKEN
+                ),
+            )
+            output, rendered = project_bootstrap.render_entrypoint(
+                family,
+                "$FRAMEWORK",
+                contract_root_ref=contract_root_ref,
+            )
+            conflict_clause = (
+                integration_registry.render_project_contract_conflict_clause(
+                    "$FRAMEWORK",
+                    contract_root_ref,
+                )
+            )
+            self.assertEqual(1, rendered.count(conflict_clause))
+
+            without_clause = rendered.replace(conflict_clause + "\n", "", 1)
+            mutations = {
+                "deleted": without_clause,
+                "moved-after-state-marker": without_clause.replace(
+                    integration_registry.STATE_LOADING_MARKER,
+                    integration_registry.STATE_LOADING_MARKER
+                    + "\n"
+                    + conflict_clause,
+                    1,
+                ),
+                "wrong-contract-root": rendered.replace(
+                    conflict_clause,
+                    conflict_clause.replace(
+                        f"{contract_root_ref}/STATEMENT_OF_WORK.md",
+                        "STATEMENT_OF_WORK.md",
+                        1,
+                    ),
+                    1,
+                ),
+                "wrong-refresh-reference": rendered.replace(
+                    conflict_clause,
+                    conflict_clause.replace(
+                        "$FRAMEWORK/task_orders/framework_refresh.md",
+                        "$FRAMEWORK/task_orders/refresh.md",
+                        1,
+                    ),
+                    1,
+                ),
+            }
+            for mutation, candidate in mutations.items():
+                with self.subTest(family=family, mutation=mutation):
+                    reference, errors = (
+                        integration_registry.entrypoint_authority_load_references(
+                            output,
+                            candidate,
+                            contract_root_ref=contract_root_ref,
+                        )
+                    )
+                    self.assertIsNone(reference)
+                    self.assertTrue(
+                        any(
+                            "exact rendered SOW-conflict clause" in error
+                            for error in errors
+                        ),
+                        errors,
+                    )
+
     def test_recovery_guard_uses_the_transaction_writer_closed_control_set(
         self,
     ) -> None:
@@ -567,6 +639,113 @@ class SafeIoIntegrationTests(unittest.TestCase):
         self.assertIn("$FRAMEWORK/task_orders/framework_refresh.md", rendered)
         self.assertNotIn("{{", rendered)
         self.assertNotIn("}}", rendered)
+
+    def test_codex_lifecycle_skills_load_task_orders_before_operator_guides(
+        self,
+    ) -> None:
+        registry = integration_registry.load_registry(REPO_ROOT)
+        rendered = integration_registry.render_wrapper_outputs(
+            "codex",
+            ["project_init", "project_refresh"],
+            ".",
+            ".",
+            REPO_ROOT,
+        )
+        fixtures = {
+            "project_init": (
+                "task_orders/init.md",
+                "GETTING_STARTED.md",
+                "only when the User asks for setup explanation, manual command "
+                "guidance, or troubleshooting",
+                "first current-format setup",
+            ),
+            "project_refresh": (
+                "task_orders/framework_refresh.md",
+                "UPDATING.md",
+                "only when the User asks for update explanation, manual command "
+                "guidance, or troubleshooting",
+                "existing generated instance",
+            ),
+        }
+        for wrapper_id, (
+            task_order,
+            operator_guide,
+            conditional_phrase,
+            lifecycle_phrase,
+        ) in fixtures.items():
+            output = registry["families"]["codex"]["wrappers"][wrapper_id][
+                "repo_output"
+            ]
+            text = rendered[output]
+            lines = text.splitlines()
+            active = integration_registry._active_line_indexes(lines)
+            active_lines = [lines[index] for index in sorted(active)]
+            task_line = next(
+                line
+                for line in active_lines
+                if task_order in line and line.startswith(("2. Read `", "3. Read `"))
+            )
+            guide_line = next(
+                line
+                for line in active_lines
+                if operator_guide in line and line.startswith(("3. Consult `", "4. Consult `"))
+            )
+            with self.subTest(wrapper=wrapper_id):
+                self.assertLess(text.index(task_line), text.index(guide_line))
+                self.assertIn("workflow source of truth", task_line)
+                self.assertIn(conditional_phrase, guide_line)
+                self.assertIn(
+                    "informative orientation, not the workflow owner",
+                    guide_line,
+                )
+                self.assertIn(lifecycle_phrase, text)
+                config = registry["families"]["codex"]["wrappers"][wrapper_id]
+                self.assertEqual(
+                    [],
+                    integration_registry.wrapper_lifecycle_errors(
+                        text,
+                        output=output,
+                        lifecycle=config["lifecycle"],
+                        authority_precondition=config["authority_precondition"],
+                    ),
+                )
+                mutations = {
+                    "before-task-order": text.replace(
+                        task_line + "\n" + guide_line,
+                        guide_line + "\n" + task_line,
+                        1,
+                    ),
+                    "read": text.replace(
+                        guide_line,
+                        guide_line.replace("Consult `", "Read `", 1),
+                        1,
+                    ),
+                    "follow": text.replace(
+                        guide_line,
+                        guide_line.replace("Consult `", "Follow `", 1),
+                        1,
+                    ),
+                    "unconditional": text.replace(
+                        guide_line,
+                        guide_line.replace(f" {conditional_phrase}", "", 1),
+                        1,
+                    ),
+                }
+                for mutation, candidate in mutations.items():
+                    with self.subTest(wrapper=wrapper_id, mutation=mutation):
+                        self.assertTrue(
+                            any(
+                                "conditional numbered Consult" in error
+                                for error in integration_registry.wrapper_lifecycle_errors(
+                                    candidate,
+                                    output=output,
+                                    lifecycle=config["lifecycle"],
+                                    authority_precondition=config[
+                                        "authority_precondition"
+                                    ],
+                                )
+                            )
+                        )
 
     def test_refresh_skill_surfaces_load_charter_then_check_recovery(self) -> None:
         paths = (

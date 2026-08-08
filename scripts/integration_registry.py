@@ -37,6 +37,17 @@ STATE_LOADING_MARKER = "<!-- mpa-entrypoint-contract: entrypoint-state-gated-loa
 ROUTING_AFTER_STATE_MARKER = (
     "<!-- mpa-entrypoint-contract: entrypoint-routing-after-state-v1 -->"
 )
+PROJECT_CONTRACT_CONFLICT_CLAUSE_TOKEN = (
+    "{{MPA_PROJECT_CONTRACT_CONFLICT_CLAUSE}}"
+)
+PROJECT_CONTRACT_CONFLICT_CLAUSE_TEMPLATE = (
+    "Consult `STATEMENT_OF_WORK.md` only to interpret or revise its terms, "
+    "resolve ambiguity, or resolve a conflict. If a generated governing term "
+    "conflicts with the SOW, the SOW governs: stop relying on the conflicting "
+    "term, never hand-edit managed projections, and route correction through "
+    "`{{FRAMEWORK_ROOT}}/task_orders/framework_refresh.md` or a separately "
+    "reviewed manual correction."
+)
 WRAPPER_AUTHORITY_PRECONDITION_ID = "entrypoint-recovery-project-contract-v1"
 WRAPPER_AUTHORITY_PRECONDITION_MARKER = (
     "<!-- mpa-wrapper-contract: entrypoint-recovery-project-contract-v1 -->"
@@ -83,6 +94,7 @@ class WrapperLifecycleSpec:
 
     authority_precondition: str | None
     required_route_references: tuple[str, ...]
+    conditional_orientation_reference: str | None
     reads_generated_project_authority: bool
 
 
@@ -90,19 +102,19 @@ WRAPPER_LIFECYCLE_SPECS = {
     WRAPPER_AUTHORITY_CONSUMER_LIFECYCLE: WrapperLifecycleSpec(
         authority_precondition=WRAPPER_AUTHORITY_PRECONDITION_ID,
         required_route_references=(),
+        conditional_orientation_reference=None,
         reads_generated_project_authority=True,
     ),
     WRAPPER_PROJECT_INIT_LIFECYCLE: WrapperLifecycleSpec(
         authority_precondition=None,
-        required_route_references=("GETTING_STARTED.md", "task_orders/init.md"),
+        required_route_references=("task_orders/init.md",),
+        conditional_orientation_reference="GETTING_STARTED.md",
         reads_generated_project_authority=False,
     ),
     WRAPPER_PROJECT_REFRESH_LIFECYCLE: WrapperLifecycleSpec(
         authority_precondition=None,
-        required_route_references=(
-            "UPDATING.md",
-            "task_orders/framework_refresh.md",
-        ),
+        required_route_references=("task_orders/framework_refresh.md",),
+        conditional_orientation_reference="UPDATING.md",
         reads_generated_project_authority=False,
     ),
 }
@@ -158,6 +170,19 @@ def render_project_file_references(text: str, contract_root_ref: str) -> str:
     )
 
 
+def render_project_contract_conflict_clause(
+    framework_ref: str,
+    contract_root_ref: str,
+) -> str:
+    """Render the canonical project-contract conflict rule."""
+
+    rendered = safe_paths.render_framework_reference_tokens(
+        PROJECT_CONTRACT_CONFLICT_CLAUSE_TEMPLATE,
+        framework_ref,
+    )
+    return render_project_file_references(rendered, contract_root_ref)
+
+
 def render_template_text(
     text: str,
     framework_ref: str,
@@ -167,7 +192,11 @@ def render_template_text(
 ) -> str:
     """Render the shared tokens supported by integration templates."""
 
-    rendered = safe_paths.render_framework_reference_tokens(text, framework_ref)
+    rendered = text.replace(
+        PROJECT_CONTRACT_CONFLICT_CLAUSE_TOKEN,
+        PROJECT_CONTRACT_CONFLICT_CLAUSE_TEMPLATE,
+    )
+    rendered = safe_paths.render_framework_reference_tokens(rendered, framework_ref)
     rendered = render_project_file_references(rendered, contract_root_ref)
     if "{{" in rendered or "}}" in rendered:
         raise ValueError(f"unresolved template placeholder in {template_label}")
@@ -411,11 +440,19 @@ def wrapper_lifecycle_errors(
     active_indexes = _active_line_indexes(lines)
     active_lines = [lines[index] for index in sorted(active_indexes)]
     for route_lifecycle, route_spec in WRAPPER_LIFECYCLE_SPECS.items():
-        if not route_spec.required_route_references:
+        route_references = (
+            *route_spec.required_route_references,
+            *(
+                (route_spec.conditional_orientation_reference,)
+                if route_spec.conditional_orientation_reference is not None
+                else ()
+            ),
+        )
+        if not route_references:
             continue
         present_routes = [
             reference
-            for reference in route_spec.required_route_references
+            for reference in route_references
             if any(reference in line for line in active_lines)
         ]
         if present_routes and lifecycle != route_lifecycle:
@@ -447,6 +484,39 @@ def wrapper_lifecycle_errors(
             errors.append(
                 f"{output} wrapper lifecycle {lifecycle!r} requires one active "
                 f"route reference to {reference}"
+            )
+
+    orientation_reference = spec.conditional_orientation_reference
+    if orientation_reference is not None:
+        task_load_indexes = [
+            index
+            for index in sorted(active_indexes)
+            if any(
+                reference in lines[index]
+                for reference in spec.required_route_references
+            )
+            and re.match(r"^\d+\. Read `", lines[index]) is not None
+        ]
+        orientation_indexes = [
+            index
+            for index in sorted(active_indexes)
+            if orientation_reference in lines[index]
+        ]
+        orientation_is_conditional_consult = (
+            len(orientation_indexes) == 1
+            and re.match(r"^\d+\. Consult `", lines[orientation_indexes[0]])
+            is not None
+            and " only when " in lines[orientation_indexes[0]]
+        )
+        if (
+            len(task_load_indexes) != 1
+            or not orientation_is_conditional_consult
+            or orientation_indexes[0] <= task_load_indexes[0]
+        ):
+            errors.append(
+                f"{output} wrapper lifecycle {lifecycle!r} must reference "
+                f"{orientation_reference} exactly once as a conditional numbered "
+                "Consult after its Task Order load"
             )
 
     if spec.authority_precondition == WRAPPER_AUTHORITY_PRECONDITION_ID:
@@ -1303,6 +1373,7 @@ def _project_authority_load_errors(
     contract_index: int,
     state_index: int,
     contract_root_ref: str,
+    framework_reference: str | None,
 ) -> list[str]:
     cursor, errors = _owned_block_cursor(
         output,
@@ -1313,7 +1384,7 @@ def _project_authority_load_errors(
         state_index,
         spec.project_block_open,
         spec.project_block_close,
-        required_body_lines=1,
+        required_body_lines=2,
     )
     expected_contract = (
         "AGENT_PROJECT.md"
@@ -1347,6 +1418,32 @@ def _project_authority_load_errors(
             f"{len(candidates)} active project-contract directive candidates; "
             "expected exactly the marker-owned directive"
         )
+    if framework_reference is not None and not safe_paths.framework_reference_errors(
+        framework_reference
+    ):
+        expected_conflict_clause = render_project_contract_conflict_clause(
+            framework_reference,
+            contract_root_ref,
+        )
+        conflict_clause_indexes = [
+            index
+            for index, line in enumerate(lines)
+            if index in active_indexes and line == expected_conflict_clause
+        ]
+        next_active_index = next(
+            (
+                index
+                for index in range(cursor + 1, state_index)
+                if index in active_indexes
+            ),
+            None,
+        )
+        if conflict_clause_indexes != [next_active_index]:
+            errors.append(
+                f"{output} project-contract authority-load block must contain the "
+                "exact rendered SOW-conflict clause once, immediately after the "
+                "project-contract load directive"
+            )
     return errors
 
 
@@ -1497,6 +1594,7 @@ def entrypoint_authority_load_references(
             contract_index,
             state_index,
             contract_root_ref,
+            framework_reference,
         )
     )
 

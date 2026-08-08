@@ -44,6 +44,7 @@ Prefer project policy and current official documentation over generated tests, e
 3. Check oracle and assertion quality.
 
 - Each material test should fail if the changed behavior is broken.
+- For concurrency, authority, locking, or replacement regressions, prove the challenged precondition exists and remains active through the protected operation, observation, and effect assertion, then release and clean up; a barrier released before the protected operation is not causal evidence.
 - Expected values must not be recomputed through the same algorithm or data path being tested.
 - Assertions should be specific enough to catch the defect without overfitting incidental implementation details.
 - Include negative cases for deny, validation, permission, parser, migration, compatibility, and error-path rules.

@@ -100,9 +100,9 @@ Codex:
   `AGENTS.md`; the separately rendered `codex/AGENTS.md` is for inspection or
   approved native packaging.
 - Install optional skills only in a Codex-scanned skill location when the workflow is frequent enough to justify native discovery. The canonical workflow remains in `task_orders/` or `practice_guides/`.
-- Invoke the `master-prompt-new-project` skill rendered from the `project-init` folder as `$master-prompt-new-project`. Do not create a second setup specification in a custom prompt or hook.
-- Use the `master-prompt-refresh-project` skill rendered from the `project-refresh` folder to inspect and classify an existing generated instance. A verified complete current-format identity pair with an intact recorded preimage is required for refresh planning or contract revision, and successful apply must reach exact-current acceptance. The exact plan selects either the normal verified-bundle basis or, only where permitted, the explicit `ACCEPT-NO-POST-APPLY-BACKOUT` basis; mutable-state retirement and post-success restore are available only on the bundle branch. Closed transaction-control evidence independently governs exact-ID recovery before authority loading. The skill routes to `UPDATING.md` and `task_orders/framework_refresh.md`, never to `task_orders/init.md`; it is not a second lifecycle specification.
-- The refresh wrapper is optional. The project entrypoint plus the canonical update guide and Task Order remain sufficient when no runtime-native wrapper is installed.
+- Invoke the `master-prompt-new-project` skill rendered from the `project-init` folder as `$master-prompt-new-project`. It loads `task_orders/init.md` as the workflow owner and consults `GETTING_STARTED.md` only when the User asks for setup explanation, manual command guidance, or troubleshooting.
+- Use the `master-prompt-refresh-project` skill rendered from the `project-refresh` folder for an existing generated instance. After its recovery gate, it loads `task_orders/framework_refresh.md` as the workflow owner and consults `UPDATING.md` only when the User asks for update explanation, manual command guidance, or troubleshooting; it never routes to `task_orders/init.md`.
+- Both lifecycle wrappers are optional launchers, not lifecycle specifications. The project entrypoint plus the canonical Task Order remain sufficient when no runtime-native wrapper is installed.
 
 Claude Code:
 

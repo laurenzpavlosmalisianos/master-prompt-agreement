@@ -8,6 +8,7 @@ Procedure
 
 1. Read `AGENT_PROJECT.md` for active constraints, commands, and deliverables. Consult `STATEMENT_OF_WORK.md` for the full Code Review Checklist or when canonical project terms are unclear.
 2. Start with the smallest Evidence Scope that can justify the task. Use this order: `patch`, `touched-files`, `commit-series`, `feature-slice`, `trust-boundary`, `repo-slice`.
+   For a `commit-series` or another dependent change set, bind the review to the immutable base identity, every member's immutable identity, the declared member order and dependency relationships, the final aggregate revision or snapshot, and the complete base-to-candidate diff or an unambiguous digest of that evidence. Review the aggregate and every intermediate state required by the project. Component approvals do not establish approval of the union. Recreate the binding and repeat the affected review whenever the base, a member, the order, a dependency relationship, or the final aggregate changes.
 3. Check whether the scope intersects a Critical Surface in the project contract. If it does, review changed lines and relevant unchanged support code line by line before relying on summaries or generated tests.
 4. Before widening, identify any changed invariant or shared behavior in scope. Ask what unchanged callers, readers, jobs, or boundaries depend on the old behavior.
 5. Read only the evidence required by the chosen scope. Widen the scope only when the defect path or changed invariant crosses file, module, or trust-boundary edges.
@@ -57,6 +58,7 @@ Acceptance Criteria
 - A coverage manifest records reviewed surfaces, evidence, checks, exclusions, and validation status.
 - Critical surfaces in scope have been reviewed line by line where the evidence permits it.
 - The chosen scope is the smallest one that can justify the findings.
+- Dependent change-set review is bound to the current aggregate and any project-required intermediate states; component approvals were not treated as approval of the union.
 - Changed invariants and unchanged consumers have been checked when relevant.
 - Same-author tests were inspected for meaningful failure modes before being used as proof.
 - Material tool output has been classified before it drives edits or findings.

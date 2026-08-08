@@ -144,7 +144,10 @@ details.
 ## Native Runtime Wrappers
 
 Runtime-native wrappers are launchers, not workflow owners. The setup wrapper
-routes to `GETTING_STARTED.md` and `task_orders/init.md`. The refresh wrapper
-routes to [`UPDATING.md`](../UPDATING.md) and
-[`task_orders/framework_refresh.md`](../task_orders/framework_refresh.md), never
-to initialization. Neither wrapper duplicates its canonical procedure.
+loads `task_orders/init.md` by default and consults `GETTING_STARTED.md` only when
+the User asks for setup explanation, manual command guidance, or troubleshooting.
+The refresh wrapper preserves its recovery
+gate, then loads [`task_orders/framework_refresh.md`](../task_orders/framework_refresh.md)
+by default and consults [`UPDATING.md`](../UPDATING.md) only when the User asks for
+update explanation, manual command guidance, or troubleshooting; it never routes to initialization. Neither wrapper duplicates
+its canonical procedure.

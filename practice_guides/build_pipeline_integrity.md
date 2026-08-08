@@ -35,6 +35,8 @@ Before making provider-specific claims, verify current official documentation fo
 - pin third-party workflow steps, reusable workflow sources, setup steps, and runner images to immutable references or an approved update policy
 - audit the source and permission expectations of workflow steps that execute code or receive tokens
 - separate untrusted-code jobs from secret-bearing jobs and publish jobs
+- classify runner-managed tool and dependency homes or caches separately from task-owned targets, logs, and temporary output; preserve managed state unless the runner or project contract requires replacement, and isolate or clean only task-owned state
+- when the exact dependency graph and required artifacts can be prepared separately, restrict normal network access to explicit preparation and run remaining build and verification phases without network by default; treat any named network-dependent check as a separately scoped exception, record the source and trust basis of reused caches, and claim offline or hermetic execution only when those properties were enforced and verified
 - check cache keys, restore scopes, workspace sharing, artifact download paths, and package-manager caches for cross-branch or cross-trust contamination
 - avoid exposing container runtime sockets, host mounts, persistent workspaces, or privileged self-hosted runners to untrusted code
 
