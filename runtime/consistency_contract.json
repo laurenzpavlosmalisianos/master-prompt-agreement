@@ -73,20 +73,30 @@
       "path": "integrations/README.md",
       "required_fragments": [
         "Generated optional skills: `codex/.agents/skills/<name>/SKILL.md`",
-        "The skill routes to `UPDATING.md` and `task_orders/framework_refresh.md`, never to `task_orders/init.md`"
+        "`task_orders/init.md`",
+        "`GETTING_STARTED.md`",
+        "`task_orders/framework_refresh.md`",
+        "`UPDATING.md`",
+        "optional launchers, not lifecycle specifications",
+        "never routes to `task_orders/init.md`"
       ],
       "forbidden_fragments": [
-        "Generated optional skills: `codex/skills/<name>/SKILL.md`"
+        "`codex/skills/<name>/SKILL.md`"
       ]
     },
     "refresh_wrapper_orientation": {
       "path": "docs/downstream_setup.md",
       "required_fragments": [
-        "The setup wrapper routes to `GETTING_STARTED.md` and `task_orders/init.md`.",
-        "The refresh wrapper routes to [`UPDATING.md`](../UPDATING.md) and [`task_orders/framework_refresh.md`](../task_orders/framework_refresh.md), never to initialization."
+        "Runtime-native wrappers",
+        "`task_orders/init.md`",
+        "`GETTING_STARTED.md`",
+        "`task_orders/framework_refresh.md`",
+        "`UPDATING.md`",
+        "launchers, not workflow owners",
+        "never routes to initialization"
       ],
       "forbidden_fragments": [
-        "Runtime-native wrappers are launchers. They should point back to `GETTING_STARTED.md` and `task_orders/init.md`"
+        "should point back"
       ]
     }
   },

@@ -17,6 +17,53 @@ import url_safety  # noqa: E402
 
 
 class UrlSafetyTests(unittest.TestCase):
+    def _assert_fixture_threads_stopped(
+        self,
+        workers: list[threading.Thread],
+    ) -> None:
+        for worker in workers:
+            worker.join(timeout=1.0)
+            self.assertFalse(
+                worker.is_alive(),
+                f"fixture worker did not stop: {worker.name}",
+            )
+
+    def test_network_deadline_cancel_joins_owned_watchdog(self) -> None:
+        timer = mock.MagicMock()
+        with mock.patch.object(
+            url_safety.threading,
+            "Timer",
+            return_value=timer,
+        ):
+            deadline = url_safety._NetworkDeadline(1.0)
+            deadline.cancel()
+
+        self.assertEqual(
+            [mock.call.start(), mock.call.cancel(), mock.call.join()],
+            timer.method_calls,
+        )
+
+        owner_timer = mock.MagicMock()
+        with (
+            mock.patch.object(
+                url_safety.threading,
+                "Timer",
+                return_value=owner_timer,
+            ),
+            mock.patch.object(
+                url_safety.threading,
+                "current_thread",
+                return_value=owner_timer,
+            ),
+        ):
+            deadline = url_safety._NetworkDeadline(1.0)
+            deadline.cancel()
+
+        self.assertEqual(
+            [mock.call.start(), mock.call.cancel()],
+            owner_timer.method_calls,
+        )
+
     def test_url_safety_rejects_private_dns_resolution_and_redirects(self) -> None:
         request = link_check.Request("https://example.com/status")
         with mock.patch.object(
@@ -206,6 +253,8 @@ class UrlSafetyTests(unittest.TestCase):
                     )
 
     def test_url_safety_enforces_total_deadline_during_headers(self) -> None:
+        writer_workers: list[threading.Thread] = []
+        self.addCleanup(self._assert_fixture_threads_stopped, writer_workers)
         public_dns = [
             (
                 url_safety.socket.AF_INET,
@@ -234,7 +283,9 @@ class UrlSafetyTests(unittest.TestCase):
                     finally:
                         server.close()
 
-                threading.Thread(target=drip, daemon=True).start()
+                worker = threading.Thread(target=drip, daemon=True)
+                writer_workers.append(worker)
+                worker.start()
                 response = url_safety.http.client.HTTPResponse(client)
                 try:
                     response.begin()
@@ -258,6 +309,8 @@ class UrlSafetyTests(unittest.TestCase):
         self.assertLess(time.monotonic() - started, 0.5)
 
     def test_url_safety_enforces_total_deadline_during_body_and_preserves_fast_body(self) -> None:
+        writer_workers: list[threading.Thread] = []
+        self.addCleanup(self._assert_fixture_threads_stopped, writer_workers)
         public_dns = [
             (
                 url_safety.socket.AF_INET,
@@ -291,7 +344,9 @@ class UrlSafetyTests(unittest.TestCase):
                     finally:
                         server.close()
 
-                threading.Thread(target=write_response, daemon=True).start()
+                worker = threading.Thread(target=write_response, daemon=True)
+                writer_workers.append(worker)
+                worker.start()
                 response = url_safety.http.client.HTTPResponse(client)
                 response.begin()
                 client.close()
@@ -329,8 +384,19 @@ class UrlSafetyTests(unittest.TestCase):
     def test_url_safety_bounds_hostname_resolution_by_total_deadline(self) -> None:
         finished = threading.Event()
         resolver_slot = threading.BoundedSemaphore(1)
+        resolver_workers: list[threading.Thread] = []
+
+        def assert_resolver_stopped() -> None:
+            self._assert_fixture_threads_stopped(resolver_workers)
+            acquired = resolver_slot.acquire(blocking=False)
+            if acquired:
+                resolver_slot.release()
+            self.assertTrue(acquired)
+
+        self.addCleanup(assert_resolver_stopped)
 
         def slow_resolution(*_args):  # type: ignore[no-untyped-def]
+            resolver_workers.append(threading.current_thread())
             try:
                 time.sleep(0.25)
                 return [
@@ -357,17 +423,27 @@ class UrlSafetyTests(unittest.TestCase):
             )
         self.assertLess(time.monotonic() - started, 0.2)
         self.assertTrue(finished.wait(1.0))
-        self.assertTrue(resolver_slot.acquire(timeout=1.0))
-        resolver_slot.release()
 
     def test_url_safety_bounds_abandoned_resolver_threads(self) -> None:
         release = threading.Event()
         first_started = threading.Event()
         resolver_slot = threading.BoundedSemaphore(1)
+        resolver_workers: list[threading.Thread] = []
         call_count = 0
+
+        def assert_resolver_stopped() -> None:
+            self._assert_fixture_threads_stopped(resolver_workers)
+            acquired = resolver_slot.acquire(blocking=False)
+            if acquired:
+                resolver_slot.release()
+            self.assertTrue(acquired)
+
+        self.addCleanup(assert_resolver_stopped)
+        self.addCleanup(release.set)
 
         def stuck_resolution(*_args):  # type: ignore[no-untyped-def]
             nonlocal call_count
+            resolver_workers.append(threading.current_thread())
             call_count += 1
             first_started.set()
             release.wait(1.0)
@@ -381,27 +457,22 @@ class UrlSafetyTests(unittest.TestCase):
                 )
             ]
 
-        try:
-            with mock.patch.object(
-                url_safety.socket,
-                "getaddrinfo",
-                side_effect=stuck_resolution,
-            ), mock.patch.object(url_safety, "_RESOLVER_SLOT", resolver_slot):
-                for _attempt in range(2):
-                    with self.assertRaisesRegex(
-                        TimeoutError,
-                        "total network deadline",
-                    ):
-                        url_safety.safe_urlopen(
-                            link_check.Request("https://example.com/status"),
-                            timeout=0.04,
-                        )
-                self.assertTrue(first_started.is_set())
-                self.assertEqual(1, call_count)
-        finally:
-            release.set()
-            self.assertTrue(resolver_slot.acquire(timeout=1.0))
-            resolver_slot.release()
+        with mock.patch.object(
+            url_safety.socket,
+            "getaddrinfo",
+            side_effect=stuck_resolution,
+        ), mock.patch.object(url_safety, "_RESOLVER_SLOT", resolver_slot):
+            for _attempt in range(2):
+                with self.assertRaisesRegex(
+                    TimeoutError,
+                    "total network deadline",
+                ):
+                    url_safety.safe_urlopen(
+                        link_check.Request("https://example.com/status"),
+                        timeout=0.04,
+                    )
+            self.assertTrue(first_started.is_set())
+            self.assertEqual(1, call_count)
 
     def test_deadline_https_connection_arms_watchdog_before_handshake(self) -> None:
         deadline = mock.MagicMock(spec=url_safety._NetworkDeadline)

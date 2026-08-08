@@ -286,6 +286,14 @@
           "risk_class": "quality",
           "summary": "Use the smallest justified evidence scope before widening."
         },
+        "REVIEW-dependent-aggregate-binding": {
+          "risk_class": "quality",
+          "summary": "Bind dependent change-set review to immutable base and member identities, declared order and dependencies, the final aggregate, and the complete diff or digest; rebind after any bound change."
+        },
+        "REVIEW-dependent-union-review": {
+          "risk_class": "quality",
+          "summary": "Review the aggregate and required intermediate states; component approvals do not approve the union."
+        },
         "REVIEW-schema-and-open-probes": {
           "risk_class": "quality",
           "summary": "Use the finding schema and route unsupported hypotheses to Open Probes."
@@ -304,6 +312,16 @@
           "status": "satisfies",
           "module_marker": "mpa-obligation: REVIEW-evidence-scope",
           "operative_anchor": "Choose the smallest justified Evidence Scope."
+        },
+        "REVIEW-dependent-aggregate-binding": {
+          "status": "satisfies",
+          "module_marker": "mpa-obligation: REVIEW-dependent-aggregate-binding",
+          "operative_anchor": "For a dependent change set, bind the immutable base identity, immutable member identities, declared member order and dependency relationships, final aggregate revision or snapshot, and complete base-to-candidate diff or an unambiguous digest of that evidence; rebind after any change to a bound identity, member order, dependency relationship, or aggregate."
+        },
+        "REVIEW-dependent-union-review": {
+          "status": "satisfies",
+          "module_marker": "mpa-obligation: REVIEW-dependent-union-review",
+          "operative_anchor": "Review the aggregate and project-required intermediate states; component approvals do not approve the union."
         },
         "REVIEW-schema-and-open-probes": {
           "status": "satisfies",

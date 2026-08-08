@@ -12,9 +12,7 @@ After loading the operative charter and before loading `AGENT_PROJECT.md`, `STAT
 <!-- mpa-entrypoint-contract: entrypoint-project-contract-authority-v1 -->
 Read `AGENT_PROJECT.md` before acting. It is the compact runtime project contract whose governing project terms are distilled from `STATEMENT_OF_WORK.md`; its model-owned framework-reference binding is non-authoritative lifecycle data.
 
-Consult `STATEMENT_OF_WORK.md` only when interpreting SOW terms, resolving ambiguity, or revising the governing project terms projected into `AGENT_PROJECT.md`.
-After compaction, restart, or handoff, reload project files from disk; summaries and memory do not override them.
-If a governing project term in `AGENT_PROJECT.md` conflicts with `STATEMENT_OF_WORK.md`, the SOW governs interpretation. Stop relying on the conflicting term and diagnose the recorded preimage. An otherwise verified complete current-format retained-input/receipt pair with an intact recorded preimage may revise retained or candidate input through an exact approved refresh plan; invalid managed-file preimage requires a separately reviewed manual correction. Never hand-edit the generated file.
+{{MPA_PROJECT_CONTRACT_CONFLICT_CLAUSE}}
 
 # Project State
 
@@ -26,13 +24,6 @@ Consult `{{FRAMEWORK_ROOT}}/master_service_agreement.md` only when interpreting 
 When the workflow is known and a compact runtime module exists, load `{{FRAMEWORK_ROOT}}/runtime/task_modules/<workflow>.md` first. If the applicable procedure is unclear, consult `{{FRAMEWORK_ROOT}}/task_orders/README.md` and load only the matching Task Order.
 Native skills or plugins may route frequent workflows, but framework instructions remain in the framework files referenced here.
 
-# Common Practice Guide Shortcuts
+# Practice Guide Routing
 
-Open Practice Guides only when the task matches. Do not import them by default into the always-on context.
-
-- SEO work: `{{FRAMEWORK_ROOT}}/practice_guides/seo.md`
-- Security audit or risky review work: `{{FRAMEWORK_ROOT}}/practice_guides/security_audit.md`
-- Prompt, agent entrypoint, tool policy, skill, automation, or long-running workflow changes: `{{FRAMEWORK_ROOT}}/practice_guides/prompt_agent_quality.md`
-- Prompt injection, untrusted content, agentic retrieval, tool/MCP/connector, or persistent-memory workflows: `{{FRAMEWORK_ROOT}}/practice_guides/prompt_injection_review.md`
-
-For other domains, use `{{FRAMEWORK_ROOT}}/practice_guides/risk_routing.md`, `{{FRAMEWORK_ROOT}}/scripts/recommend_stack.py`, or the selected Task Order to choose additional guides.
+Open Practice Guides only when the task matches. Route them from the selected Task Order; when further classification is needed, consult `{{FRAMEWORK_ROOT}}/practice_guides/risk_routing.md` or run `{{FRAMEWORK_ROOT}}/scripts/recommend_stack.py`. Do not load a guide by default.

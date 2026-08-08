@@ -111,6 +111,8 @@ class _NetworkDeadline:
             self._cancelled = True
             self._sockets.clear()
         self._timer.cancel()
+        if threading.current_thread() is not self._timer:
+            self._timer.join()
 
 
 class _DeadlineResponse:
