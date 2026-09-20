@@ -1,3 +1,53 @@
+type TabLocationResolution = Readonly<{
+  selectedIndex: number;
+  replacementFragment: string | null;
+}>;
+
+type TabLocationTarget = Readonly<{
+  panelId: string;
+}>;
+
+const resolveTabLocation = (
+  targets: readonly TabLocationTarget[],
+  currentSelectedIndex: number,
+  fragment: string,
+  fragmentTargetId: string | null,
+): TabLocationResolution => {
+  const targetIndex =
+    fragmentTargetId === null
+      ? -1
+      : targets.findIndex(
+          ({ panelId }) => fragmentTargetId === panelId,
+        );
+  if (targetIndex >= 0) {
+    const target = targets[targetIndex];
+    if (target === undefined) {
+      throw new Error("Resolved framework-map panel is unavailable");
+    }
+    const canonicalFragment = `#${target.panelId}`;
+    return {
+      selectedIndex: targetIndex,
+      replacementFragment: fragment === canonicalFragment ? null : canonicalFragment,
+    };
+  }
+
+  if (fragment !== "" && fragmentTargetId !== null) {
+    return {
+      selectedIndex: currentSelectedIndex,
+      replacementFragment: null,
+    };
+  }
+
+  const fallbackTarget = targets[0];
+  if (fallbackTarget === undefined) {
+    throw new Error("At least one framework-map panel is required");
+  }
+  return {
+    selectedIndex: 0,
+    replacementFragment: `#${fallbackTarget.panelId}`,
+  };
+};
+
 (() => {
   const normalizeText = (value: string): string => value.replace(/\s+/gu, " ").trim();
 
@@ -147,8 +197,9 @@
       throw new Error("Every framework-map control must target a distinct panel");
     }
 
-    const targetIndex = pairs.findIndex(({ panel }) => `#${panel.id}` === window.location.hash);
-    const initialIndex = targetIndex < 0 ? 0 : targetIndex;
+    const locationTargets = pairs.map(({ panel }) => ({
+      panelId: panel.id,
+    }));
 
     tabList.setAttribute("role", "tablist");
     for (const { tab, panel } of pairs) {
@@ -159,14 +210,16 @@
       panel.tabIndex = 0;
     }
 
-    const select = (selectedIndex: number, moveFocus: boolean): void => {
-      const selectedPair = pairs[selectedIndex];
+    let selectedIndex = 0;
+    const select = (nextSelectedIndex: number, moveFocus: boolean): void => {
+      const selectedPair = pairs[nextSelectedIndex];
       if (selectedPair === undefined) {
         return;
       }
 
+      selectedIndex = nextSelectedIndex;
       for (const [index, pair] of pairs.entries()) {
-        const selected = index === selectedIndex;
+        const selected = index === nextSelectedIndex;
         pair.tab.setAttribute("aria-selected", String(selected));
         pair.tab.tabIndex = selected ? 0 : -1;
         pair.panel.hidden = !selected;
@@ -176,15 +229,108 @@
       }
     };
 
-    select(initialIndex, false);
+    const fragmentTargetId = (fragment: string): string | null => {
+      if (!fragment.startsWith("#") || fragment.length === 1) {
+        return null;
+      }
+      try {
+        const targetId = decodeURIComponent(fragment.slice(1));
+        return document.getElementById(targetId) === null ? null : targetId;
+      } catch {
+        return null;
+      }
+    };
+
+    const writeFragment = (fragment: string, replace: boolean): void => {
+      if (replace && document.readyState !== "complete") {
+        // Normalize after native initial fragment navigation, without skipping the introduction.
+        const originalFragment = window.location.hash;
+        window.addEventListener("load", () => {
+          window.setTimeout(() => {
+            if (window.location.hash === originalFragment) {
+              writeFragment(fragment, true);
+            }
+          }, 0);
+        }, { once: true });
+        return;
+      }
+      try {
+        if (replace) {
+          window.history.replaceState(window.history.state, "", fragment);
+        } else {
+          window.history.pushState(null, "", fragment);
+        }
+      } catch {
+        const scrollX = window.scrollX;
+        const scrollY = window.scrollY;
+        if (replace) {
+          window.location.replace(fragment);
+        } else {
+          window.location.hash = fragment;
+        }
+        window.scrollTo(scrollX, scrollY);
+      }
+    };
+
+    const syncFromLocation = (): void => {
+      const fragment = window.location.hash;
+      const activeElement = document.activeElement;
+      const resolution = resolveTabLocation(
+        locationTargets,
+        selectedIndex,
+        fragment,
+        fragmentTargetId(fragment),
+      );
+      const moveFocus =
+        resolution.selectedIndex !== selectedIndex &&
+        pairs.some(
+          ({ tab, panel }) =>
+            tab === activeElement || panel.contains(activeElement),
+        );
+      if (
+        resolution.replacementFragment !== null &&
+        resolution.replacementFragment !== fragment
+      ) {
+        writeFragment(resolution.replacementFragment, true);
+      }
+      select(resolution.selectedIndex, moveFocus);
+    };
+
+    const activate = (nextSelectedIndex: number, moveFocus: boolean): void => {
+      const selectedPair = pairs[nextSelectedIndex];
+      if (selectedPair === undefined) {
+        return;
+      }
+      const fragment = `#${selectedPair.panel.id}`;
+      if (window.location.hash !== fragment) {
+        writeFragment(fragment, false);
+      }
+      select(nextSelectedIndex, moveFocus);
+    };
+
+    syncFromLocation();
     mapShell.classList.add("tabs-enhanced");
+    window.addEventListener("hashchange", syncFromLocation);
+    window.addEventListener("popstate", syncFromLocation);
 
     for (const [index, pair] of pairs.entries()) {
       pair.tab.addEventListener("click", (event) => {
+        if (
+          event.button !== 0 ||
+          event.altKey ||
+          event.ctrlKey ||
+          event.metaKey ||
+          event.shiftKey
+        ) {
+          return;
+        }
         event.preventDefault();
-        select(index, false);
+        activate(index, false);
       });
       pair.tab.addEventListener("keydown", (event) => {
+        if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
+          return;
+        }
         let nextIndex: number | undefined;
         switch (event.key) {
           case "ArrowLeft":
@@ -199,12 +345,15 @@
           case "End":
             nextIndex = pairs.length - 1;
             break;
+          case " ":
+            nextIndex = index;
+            break;
           default:
             return;
         }
 
         event.preventDefault();
-        select(nextIndex, true);
+        activate(nextIndex, true);
       });
     }
   };

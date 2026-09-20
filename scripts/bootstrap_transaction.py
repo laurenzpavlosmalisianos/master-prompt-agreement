@@ -12,6 +12,7 @@ from pathlib import Path
 import secrets
 import stat
 import sys
+import unicodedata
 
 import resource_cleanup
 import safe_paths
@@ -36,14 +37,17 @@ __all__ = (
 
 RECOVERY_JOURNAL_NAME = ".mpa-bootstrap-recovery.json"
 TRANSACTION_LOCK_NAME = ".mpa-bootstrap.lock"
-RECOVERY_JOURNAL_SCHEMA_VERSION = 4
+RECOVERY_JOURNAL_SCHEMA_VERSION = 5
 _RECOVERY_JOURNAL_MAX_BYTES = 1024 * 1024
 _RECOVERY_JOURNAL_MAX_OPERATIONS = 2048
 _RECOVERY_JOURNAL_MAX_CREATED_DIRECTORIES = 4096
 _RECOVERY_JOURNAL_MAX_RETIRED_DIRECTORIES = 4096
+_RECOVERY_JOURNAL_MAX_BOUND_DIRECTORIES = 4096
 _RECOVERY_JOURNAL_TEMP_NAME = ".mpa-bootstrap-recovery.tmp"
+_RECOVERY_JOURNAL_PREVIOUS_NAME = ".mpa-bootstrap-recovery.previous"
 _INITIALIZATION_SCAN_MAX_DIRECTORIES = 16384
 _INITIALIZATION_SCAN_MAX_ENTRIES = 262144
+_SPELLING_SCAN_MAX_ENTRIES = 262144
 _RECOVERY_PHASES = frozenset({"preparing", "prepared", "applying", "verified"})
 _RECOVERY_ACTIONS = frozenset({"write", "remove"})
 _RECOVERY_JOURNAL_KEYS = frozenset(
@@ -52,6 +56,7 @@ _RECOVERY_JOURNAL_KEYS = frozenset(
         "transaction_id",
         "phase",
         "applied_count",
+        "bound_directories",
         "created_directories",
         "retired_directories",
         "operations",
@@ -71,6 +76,7 @@ _RECOVERY_OPERATION_KEYS = frozenset(
 _RECOVERY_EVIDENCE_KEYS = frozenset({"sha256", "mode", "size"})
 _RECOVERY_CREATED_DIRECTORY_KEYS = frozenset({"path", "identity"})
 _RECOVERY_RETIRED_DIRECTORY_KEYS = frozenset({"path", "identity"})
+_RECOVERY_BOUND_DIRECTORY_KEYS = frozenset({"path", "identity"})
 
 _TRANSACTION_DIR_FD_FUNCTIONS = (
     ("link", os.link),
@@ -80,6 +86,10 @@ _TRANSACTION_DIR_FD_FUNCTIONS = (
     ("rmdir", os.rmdir),
     ("stat", os.stat),
     ("unlink", os.unlink),
+)
+
+_EXPECTED_DIRECTORY_IDENTITY_KEYS = frozenset(
+    {"device", "inode", "file_type"}
 )
 
 
@@ -401,6 +411,24 @@ def _remove_project_lock(root: _DirectoryBinding, descriptor: int) -> None:
     """Unlink the exact held marker while the stable root-directory lock remains."""
 
     _verify_project_lock(root, descriptor)
+    if _lstat_at(root, RECOVERY_JOURNAL_NAME) is not None:
+        raise BootstrapTransactionError(
+            "bootstrap project transaction lock cannot be removed while the "
+            "canonical recovery journal exists"
+        )
+    if _journal_temporary_metadata(root) is not None:
+        raise BootstrapTransactionError(
+            "bootstrap project transaction lock cannot be removed while a "
+            "recovery journal temporary exists"
+        )
+    if _journal_previous_metadata(root) is not None:
+        raise BootstrapTransactionError(
+            "bootstrap project transaction lock cannot be removed while a "
+            "previous recovery journal is retained"
+        )
+    transaction_artifact_errors = _initialization_transaction_artifact_errors(root)
+    if transaction_artifact_errors:
+        raise BootstrapTransactionError("; ".join(transaction_artifact_errors))
     os.unlink(TRANSACTION_LOCK_NAME, dir_fd=_binding_descriptor(root))
     os.fsync(_binding_descriptor(root))
 
@@ -454,6 +482,53 @@ def _directory_identity(metadata: os.stat_result) -> tuple[int, ...]:
     return _inode_object_identity(metadata)
 
 
+def _directory_node_identity(metadata: os.stat_result) -> tuple[int, int, int]:
+    """Return the path-stable directory identity used by reviewed plans."""
+
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        stat.S_IFMT(metadata.st_mode),
+    )
+
+
+def _validated_expected_directory_identity(
+    value: Mapping[str, object] | None,
+    *,
+    label: str,
+    allow_absent: bool,
+) -> tuple[int, int, int] | None:
+    """Validate one closed public directory-identity record."""
+
+    if value is None:
+        if allow_absent:
+            return None
+        raise ValueError(f"{label} must bind an existing directory identity")
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{label} must be a directory identity object")
+    if set(value) != _EXPECTED_DIRECTORY_IDENTITY_KEYS:
+        raise ValueError(
+            f"{label} keys must be exactly: "
+            + ", ".join(sorted(_EXPECTED_DIRECTORY_IDENTITY_KEYS))
+        )
+    device, inode, file_type = (
+        value["device"], value["inode"], value["file_type"]
+    )
+    if (
+        type(device) is not int
+        or type(inode) is not int
+        or type(file_type) is not int
+        or min(device, inode, file_type) < 0
+    ):
+        raise ValueError(
+            f"{label} must contain non-negative integer identity fields"
+        )
+    identity = (device, inode, file_type)
+    if identity[2] != stat.S_IFDIR:
+        raise ValueError(f"{label} must identify a directory")
+    return identity
+
+
 def _inode_object_identity(metadata: os.stat_result) -> tuple[int, ...]:
     """Identity fields that remain stable while one inode's payload changes."""
 
@@ -494,8 +569,14 @@ def _relative_output_parts(name: str) -> tuple[str, ...]:
 
 
 def _is_reserved_transaction_path(parts: tuple[str, ...]) -> bool:
-    return (
-        parts[0] in {TRANSACTION_LOCK_NAME, RECOVERY_JOURNAL_NAME}
+    return bool(parts) and (
+        parts[0]
+        in {
+            TRANSACTION_LOCK_NAME,
+            RECOVERY_JOURNAL_NAME,
+            _RECOVERY_JOURNAL_TEMP_NAME,
+            _RECOVERY_JOURNAL_PREVIOUS_NAME,
+        }
         or any(
             part.startswith(".mpa-bootstrap-transaction-")
             or part.startswith(".mpa-bootstrap-recovery.")
@@ -634,6 +715,15 @@ class _DirectoryBinding:
     project_relative_parts: tuple[str, ...] | None = None
 
 
+@dataclass(frozen=True)
+class _AbsentDirectoryBinding:
+    """One approved-absent directory edge under retained parent descriptors."""
+
+    parent: _DirectoryBinding
+    entry_name: str
+    relative_path: str
+
+
 @dataclass
 class _TransactionDirectory:
     parent: _DirectoryBinding
@@ -657,6 +747,7 @@ class _OutputTransactionRecord:
     staged_identity: tuple[int, ...] | None = None
     backup_name: str | None = None
     backup_identity: tuple[int, ...] | None = None
+    observed_install_identity: tuple[int, ...] | None = None
     installed_signature: tuple[int, ...] | None = None
 
 
@@ -709,6 +800,9 @@ class _RecoveryOperationView:
     target_evidence: dict[str, object] | None
     stage_evidence: dict[str, object] | None
     backup_evidence: dict[str, object] | None
+    target_quarantine_evidence: dict[str, object] | None
+    stage_quarantine_evidence: dict[str, object] | None
+    backup_quarantine_evidence: dict[str, object] | None
 
 
 class BootstrapTransactionError(ValueError):
@@ -803,6 +897,75 @@ def _validated_mode_map(
     return modes
 
 
+def _validated_max_bytes_map(
+    value: Mapping[str, int | None] | None,
+    *,
+    expected_keys: set[str],
+    label: str,
+) -> dict[str, int | None] | None:
+    """Validate an exact assertion-path map of optional positive byte bounds."""
+
+    if value is None:
+        return None
+    limits = dict(value)
+    if set(limits) != expected_keys:
+        missing = sorted(expected_keys - set(limits))
+        extra = sorted(set(limits) - expected_keys)
+        details: list[str] = []
+        if missing:
+            details.append("missing " + ", ".join(missing))
+        if extra:
+            details.append("unexpected " + ", ".join(extra))
+        raise ValueError(
+            f"{label} must exactly cover its assertion path set"
+            + (": " + "; ".join(details) if details else "")
+        )
+    for path, limit in limits.items():
+        if limit is not None and (type(limit) is not int or limit <= 0):
+            raise ValueError(
+                f"{label} value must be a positive integer or null: {path}"
+            )
+    return limits
+
+
+def _directory_entry_spelling_identity(value: str) -> str:
+    """Return the portable collision identity for one directory entry."""
+
+    return unicodedata.normalize("NFC", value).casefold()
+
+
+def _require_exact_directory_entry_spelling(
+    parent: _DirectoryBinding,
+    expected: str,
+    *,
+    description: str,
+) -> None:
+    """Reject case or Unicode aliases through the retained parent descriptor."""
+
+    expected_identity = _directory_entry_spelling_identity(expected)
+    aliases: list[str] = []
+    with os.scandir(_binding_descriptor(parent)) as entries:
+        for entry_count, entry in enumerate(entries, start=1):
+            if entry_count > _SPELLING_SCAN_MAX_ENTRIES:
+                raise BootstrapTransactionError(
+                    f"{description} exceeds its directory spelling entry limit"
+                )
+            if _directory_entry_spelling_identity(entry.name) == expected_identity:
+                aliases.append(entry.name)
+    if expected not in aliases:
+        if aliases:
+            raise BootstrapTransactionError(
+                f"{description} must use exact path spelling {expected!r}; "
+                f"found {sorted(aliases)!r}"
+            )
+        return
+    if len(aliases) > 1:
+        raise BootstrapTransactionError(
+            f"{description} has ambiguous path spellings for {expected!r}: "
+            f"{sorted(aliases)!r}"
+        )
+
+
 def _open_bound_directory(
     parent: _DirectoryBinding,
     name: str,
@@ -813,24 +976,43 @@ def _open_bound_directory(
     created_bindings: list[_DirectoryBinding],
     all_bindings: list[_DirectoryBinding],
     create_mode: int | None = None,
+    require_absent: bool = False,
 ) -> _DirectoryBinding:
     parent_descriptor = _binding_descriptor(parent)
     created = False
-    try:
-        descriptor = os.open(
-            name,
-            _transaction_directory_flags(),
-            dir_fd=parent_descriptor,
-        )
-    except FileNotFoundError:
-        if not create:
-            raise
-        os.mkdir(
-            name,
-            mode=0o755 if create_mode is None else create_mode,
-            dir_fd=parent_descriptor,
-        )
+    if require_absent and not create:
+        raise ValueError("require_absent directory opening requires create=True")
+    if require_absent:
+        try:
+            os.mkdir(
+                name,
+                mode=0o755 if create_mode is None else create_mode,
+                dir_fd=parent_descriptor,
+            )
+        except FileExistsError as exc:
+            raise BootstrapTransactionError(
+                f"approved-absent directory appeared before creation: {label}"
+            ) from exc
         created = True
+        descriptor: int | None = None
+    else:
+        try:
+            descriptor = os.open(
+                name,
+                _transaction_directory_flags(),
+                dir_fd=parent_descriptor,
+            )
+        except FileNotFoundError:
+            if not create:
+                raise
+            os.mkdir(
+                name,
+                mode=0o755 if create_mode is None else create_mode,
+                dir_fd=parent_descriptor,
+            )
+            created = True
+            descriptor = None
+    if created:
         try:
             descriptor = os.open(
                 name,
@@ -852,6 +1034,8 @@ def _open_bound_directory(
                 primary=exc,
             )
             raise
+    if descriptor is None:
+        raise AssertionError("bound directory opening did not produce a descriptor")
     metadata = os.fstat(descriptor)
     try:
         if not stat.S_ISDIR(metadata.st_mode):
@@ -960,6 +1144,176 @@ def _open_project_root_transaction(
     return current
 
 
+def _validated_expected_directory_identities(
+    value: Mapping[str, Mapping[str, object] | None] | None,
+) -> dict[tuple[str, ...], tuple[int, int, int] | None]:
+    """Validate an exact project-relative directory-identity map."""
+
+    if value is None:
+        return {}
+    if not value:
+        raise ValueError(
+            "expected_directory_identities must bind a non-empty exact "
+            "project-relative directory chain"
+        )
+    identities: dict[tuple[str, ...], tuple[int, int, int] | None] = {}
+    for raw_path, raw_identity in value.items():
+        if not isinstance(raw_path, str):
+            raise ValueError(
+                "expected_directory_identities paths must be strings"
+            )
+        if raw_path == ".":
+            parts: tuple[str, ...] = ()
+        else:
+            parts = _relative_output_parts(raw_path)
+            if _is_reserved_transaction_path(parts):
+                raise ValueError(
+                    "expected directory identity uses a reserved transaction "
+                    f"path: {raw_path}"
+                )
+        identities[parts] = _validated_expected_directory_identity(
+            raw_identity,
+            label=f"expected directory identity {raw_path}",
+            allow_absent=True,
+        )
+    ordered_parts = sorted(identities, key=lambda item: (len(item), item))
+    for index, parts in enumerate(ordered_parts):
+        if not parts and identities[parts] is None:
+            raise ValueError(
+                "expected directory identity . must bind the existing project root"
+            )
+        if len(parts) > 1 and parts[:-1] not in identities:
+            raise ValueError(
+                "expected directory identities must bind every project-relative "
+                f"parent edge before its child: {'/'.join(parts)}"
+            )
+        if index:
+            previous = ordered_parts[index - 1]
+            if len(parts) != len(previous) + 1 or parts[:-1] != previous:
+                raise ValueError(
+                    "expected directory identities must describe one exact "
+                    "project-relative prefix chain"
+                )
+        for depth in range(1, len(parts)):
+            ancestor = parts[:depth]
+            if identities.get(ancestor) is None:
+                raise ValueError(
+                    "expected directory identities must stop at the first approved "
+                    f"absence: {'/'.join(ancestor)}"
+                )
+    return identities
+
+
+def _bind_expected_directories(
+    root: _DirectoryBinding,
+    expected: Mapping[tuple[str, ...], tuple[int, int, int] | None],
+    *,
+    all_bindings: list[_DirectoryBinding],
+) -> tuple[
+    dict[tuple[str, ...], _DirectoryBinding],
+    list[_AbsentDirectoryBinding],
+]:
+    """Bind existing reviewed directories and exact approved absences."""
+
+    directory_bindings: dict[tuple[str, ...], _DirectoryBinding] = {(): root}
+    absent_bindings: list[_AbsentDirectoryBinding] = []
+    created_bindings: list[_DirectoryBinding] = []
+    for parts, expected_identity in sorted(
+        expected.items(),
+        key=lambda item: (len(item[0]), item[0]),
+    ):
+        if not parts:
+            actual_identity = _directory_node_identity(
+                os.fstat(_binding_descriptor(root))
+            )
+            if expected_identity is None:
+                raise BootstrapTransactionError(
+                    "approved contract root was expected to be absent but is the "
+                    "project root"
+                )
+            if actual_identity != expected_identity:
+                raise BootstrapTransactionError(
+                    "approved project-relative directory identity changed before "
+                    "the transaction opened"
+                )
+            continue
+        parent = root
+        missing = False
+        for depth, component in enumerate(parts, start=1):
+            key = parts[:depth]
+            existing = directory_bindings.get(key)
+            if existing is not None:
+                parent = existing
+                continue
+            try:
+                opened = _open_bound_directory(
+                    parent,
+                    component,
+                    label=(
+                        "approved project-relative directory " + "/".join(key)
+                    ),
+                    create=False,
+                    require_owner=True,
+                    created_bindings=created_bindings,
+                    all_bindings=all_bindings,
+                )
+            except FileNotFoundError:
+                if expected_identity is not None:
+                    raise BootstrapTransactionError(
+                        "approved project-relative directory disappeared before "
+                        f"the transaction opened: {'/'.join(parts)}"
+                    ) from None
+                absent_bindings.append(
+                    _AbsentDirectoryBinding(
+                        parent=parent,
+                        entry_name=component,
+                        relative_path="/".join(parts),
+                    )
+                )
+                missing = True
+                break
+            directory_bindings[key] = opened
+            parent = opened
+        if missing:
+            continue
+        actual_identity = _directory_node_identity(
+            os.fstat(_binding_descriptor(parent))
+        )
+        if expected_identity is None:
+            raise BootstrapTransactionError(
+                "approved-absent project-relative directory appeared before the "
+                f"transaction opened: {'/'.join(parts)}"
+            )
+        if actual_identity != expected_identity:
+            raise BootstrapTransactionError(
+                "approved project-relative directory identity changed before the "
+                f"transaction opened: {'/'.join(parts)}"
+            )
+    if created_bindings:
+        raise AssertionError("read-only expected-directory binding created a directory")
+    return directory_bindings, absent_bindings
+
+
+def _verify_absent_directory_bindings(
+    bindings: list[_AbsentDirectoryBinding],
+) -> None:
+    """Require every approved-absent edge to remain absent."""
+
+    for binding in bindings:
+        try:
+            os.stat(
+                binding.entry_name,
+                dir_fd=_binding_descriptor(binding.parent),
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            continue
+        raise BootstrapTransactionError(
+            "approved-absent project-relative directory appeared before "
+            f"transaction mutation: {binding.relative_path}"
+        )
+
+
 def _verify_bound_directories(bindings: list[_DirectoryBinding]) -> None:
     for binding in bindings:
         if not binding.active:
@@ -993,6 +1347,17 @@ def _verify_bound_directories(bindings: list[_DirectoryBinding]) -> None:
                 )
         finally:
             os.close(reopened)
+
+
+def _verify_transaction_context(
+    root: _DirectoryBinding,
+    lock_descriptor: int,
+    bindings: list[_DirectoryBinding],
+) -> None:
+    """Require every retained directory edge and the exact lock together."""
+
+    _verify_bound_directories(bindings)
+    _verify_project_lock(root, lock_descriptor)
 
 
 def _binding_entry_matches(binding: _DirectoryBinding) -> bool:
@@ -1055,6 +1420,7 @@ def _file_evidence_at(
     *,
     description: str,
     expected_metadata: os.stat_result | None = None,
+    max_bytes: int | None = None,
 ) -> dict[str, object] | None:
     metadata = _lstat_at(directory, name)
     if metadata is None:
@@ -1064,6 +1430,10 @@ def _file_evidence_at(
         description=description,
         require_single_link=False,
     )
+    if max_bytes is not None and metadata.st_size > max_bytes:
+        raise BootstrapTransactionError(
+            f"{description} exceeds its bounded read limit of {max_bytes} bytes"
+        )
     if (
         expected_metadata is not None
         and safe_paths.stable_file_metadata(metadata)
@@ -1082,17 +1452,42 @@ def _file_evidence_at(
             description=description,
             require_single_link=False,
         )
+        if max_bytes is not None and opened.st_size > max_bytes:
+            raise BootstrapTransactionError(
+                f"{description} exceeds its bounded read limit of {max_bytes} bytes"
+            )
         if _inode_payload_identity(opened) != _inode_payload_identity(metadata):
             raise BootstrapTransactionError(f"{description} changed while it was opened")
         digest = hashlib.sha256()
+        total = 0
         while True:
-            chunk = os.read(descriptor, 1024 * 1024)
+            read_size = (
+                1024 * 1024
+                if max_bytes is None
+                else min(1024 * 1024, max_bytes - total + 1)
+            )
+            chunk = os.read(descriptor, read_size)
             if not chunk:
                 break
+            total += len(chunk)
+            if max_bytes is not None and total > max_bytes:
+                raise BootstrapTransactionError(
+                    f"{description} exceeds its bounded read limit of "
+                    f"{max_bytes} bytes"
+                )
             digest.update(chunk)
         final = os.fstat(descriptor)
         if _inode_payload_identity(final) != _inode_payload_identity(opened):
             raise BootstrapTransactionError(f"{description} changed while it was read")
+        named_final = _lstat_at(directory, name)
+        if (
+            named_final is None
+            or safe_paths.stable_file_metadata(named_final)
+            != safe_paths.stable_file_metadata(final)
+        ):
+            raise BootstrapTransactionError(
+                f"{description} pathname changed while it was read"
+            )
         return _metadata_evidence(final, digest.hexdigest())
     finally:
         os.close(descriptor)
@@ -1118,6 +1513,7 @@ def _preimage_evidence_at(
     target_name: str,
     *,
     output_name: str,
+    max_bytes: int | None = None,
 ) -> dict[str, object] | None:
     metadata = _lstat_at(parent, target_name)
     if metadata is None:
@@ -1132,6 +1528,7 @@ def _preimage_evidence_at(
         target_name,
         description=f"existing bootstrap output {output_name}",
         expected_metadata=metadata,
+        max_bytes=max_bytes,
     )
     if evidence is None or not isinstance(evidence.get("sha256"), str):
         raise BootstrapTransactionError(
@@ -1430,12 +1827,21 @@ def _install_staged_output(
         raise BootstrapTransactionError(
             f"bootstrap output was not staged before installation: {record.name}"
         )
+    named_stage = _lstat_at(transaction_directory.binding, record.stage_name)
+    if (
+        named_stage is None
+        or _inode_payload_identity(named_stage) != record.staged_identity
+    ):
+        raise BootstrapTransactionError(
+            f"staged bootstrap output changed before installation: {record.name}"
+        )
     os.link(
         record.stage_name,
         record.target_name,
         src_dir_fd=transaction_descriptor,
         dst_dir_fd=parent_descriptor,
     )
+    record.observed_install_identity = record.staged_identity
     installed = _lstat_at(record.parent, record.target_name)
     if installed is None or _inode_payload_identity(installed) != record.staged_identity:
         raise BootstrapTransactionError(
@@ -1462,7 +1868,184 @@ def _install_staged_output(
     _verify_bound_directories(all_bindings)
 
 
-def _rollback_output(record: _OutputTransactionRecord) -> list[str]:
+def _recovery_quarantine_name(index: int, artifact: str) -> str:
+    if artifact not in {"target", "stage", "backup"}:
+        raise ValueError(f"unsupported bootstrap recovery artifact: {artifact}")
+    return f"quarantine-{artifact}-{index}"
+
+
+def _move_file_to_verified_quarantine(
+    source: _DirectoryBinding,
+    source_name: str,
+    quarantine: _DirectoryBinding,
+    quarantine_name: str,
+    *,
+    expected_evidence: object,
+    description: str,
+    expected_payload_identity: tuple[int, ...] | None = None,
+) -> tuple[int, ...]:
+    """Move a selected name aside, then prove the moved inode and bytes.
+
+    Validation after the rename closes the check-then-unlink/restore race: a
+    syscall-boundary source substitution is retained under the quarantine name
+    and recovery controls remain available instead of deleting unrelated bytes.
+    """
+
+    if _lstat_at(quarantine, quarantine_name) is not None:
+        raise BootstrapTransactionError(
+            f"{description} quarantine already exists: {quarantine_name}"
+        )
+    os.rename(
+        source_name,
+        quarantine_name,
+        src_dir_fd=_binding_descriptor(source),
+        dst_dir_fd=_binding_descriptor(quarantine),
+    )
+    os.fsync(_binding_descriptor(source))
+    if source is not quarantine:
+        os.fsync(_binding_descriptor(quarantine))
+    moved = _lstat_at(quarantine, quarantine_name)
+    if moved is None:
+        raise BootstrapTransactionError(
+            f"{description} disappeared while it was moved to quarantine"
+        )
+    moved_identity = _inode_payload_identity(moved)
+    moved_evidence = _file_evidence_at(
+        quarantine,
+        quarantine_name,
+        description=f"quarantined {description}",
+    )
+    if (
+        expected_payload_identity is not None
+        and moved_identity != expected_payload_identity
+    ) or not _evidence_matches(moved_evidence, expected_evidence):
+        raise BootstrapTransactionError(
+            f"{description} changed while it was moved to quarantine; retained "
+            f"{quarantine_name} and transaction controls for inspection"
+        )
+    return moved_identity
+
+
+def _retire_verified_quarantine(
+    quarantine: _DirectoryBinding,
+    quarantine_name: str,
+    *,
+    expected_evidence: object,
+    expected_payload_identity: tuple[int, ...],
+    description: str,
+) -> None:
+    """Retire a verified private quarantine under the exclusive refresh window.
+
+    The selection move is verified after its syscall and therefore retains a
+    substituted source.  Final name retirement relies on the repository's
+    enforced lifecycle precondition: ordinary project writers are quiesced and
+    cooperating lifecycle writers honor the held advisory project lock.  POSIX
+    does not provide a portable inode-identity-bound unlink for an arbitrary
+    same-UID process that violates that boundary.
+    """
+
+    _verified_quarantine_identity(
+        quarantine,
+        quarantine_name,
+        expected_evidence=expected_evidence,
+        expected_payload_identity=expected_payload_identity,
+        description=description,
+    )
+    os.unlink(quarantine_name, dir_fd=_binding_descriptor(quarantine))
+    os.fsync(_binding_descriptor(quarantine))
+
+
+def _verified_quarantine_identity(
+    quarantine: _DirectoryBinding,
+    quarantine_name: str,
+    *,
+    expected_evidence: object,
+    expected_payload_identity: tuple[int, ...] | None,
+    description: str,
+) -> tuple[int, ...]:
+    current = _lstat_at(quarantine, quarantine_name)
+    if current is None:
+        raise BootstrapTransactionError(
+            f"quarantined {description} disappeared before retirement"
+        )
+    current_evidence = _file_evidence_at(
+        quarantine,
+        quarantine_name,
+        description=f"quarantined {description}",
+    )
+    if (
+        expected_payload_identity is not None
+        and _inode_payload_identity(current) != expected_payload_identity
+        or not _evidence_matches(current_evidence, expected_evidence)
+    ):
+        raise BootstrapTransactionError(
+            f"quarantined {description} changed before retirement"
+        )
+    return _inode_payload_identity(current)
+
+
+def _restore_verified_quarantine(
+    quarantine: _DirectoryBinding,
+    quarantine_name: str,
+    target: _DirectoryBinding,
+    target_name: str,
+    *,
+    expected_evidence: object,
+    expected_payload_identity: tuple[int, ...],
+    description: str,
+) -> None:
+    if _lstat_at(target, target_name) is not None:
+        raise BootstrapTransactionError(
+            f"{description} target was concurrently recreated; retained quarantine"
+        )
+    current = _lstat_at(quarantine, quarantine_name)
+    if current is None:
+        raise BootstrapTransactionError(
+            f"quarantined {description} disappeared before restoration"
+        )
+    current_evidence = _file_evidence_at(
+        quarantine,
+        quarantine_name,
+        description=f"quarantined {description}",
+    )
+    if (
+        _inode_payload_identity(current) != expected_payload_identity
+        or not _evidence_matches(current_evidence, expected_evidence)
+    ):
+        raise BootstrapTransactionError(
+            f"quarantined {description} changed before restoration"
+        )
+    os.link(
+        quarantine_name,
+        target_name,
+        src_dir_fd=_binding_descriptor(quarantine),
+        dst_dir_fd=_binding_descriptor(target),
+    )
+    os.fsync(_binding_descriptor(target))
+    restored = _lstat_at(target, target_name)
+    restored_evidence = _file_evidence_at(
+        target,
+        target_name,
+        description=f"restored {description}",
+    )
+    if (
+        restored is None
+        or _inode_payload_identity(restored) != expected_payload_identity
+        or not _evidence_matches(restored_evidence, expected_evidence)
+    ):
+        raise BootstrapTransactionError(
+            f"{description} restoration did not install the exact quarantined file"
+        )
+    _retire_verified_quarantine(
+        quarantine,
+        quarantine_name,
+        expected_evidence=expected_evidence,
+        expected_payload_identity=expected_payload_identity,
+        description=description,
+    )
+
+
+def _rollback_output(record: _OutputTransactionRecord, index: int) -> list[str]:
     errors: list[str] = []
     transaction_directory = record.transaction_directory
     if transaction_directory is None:
@@ -1471,47 +2054,182 @@ def _rollback_output(record: _OutputTransactionRecord) -> list[str]:
     transaction_descriptor = _binding_descriptor(transaction_directory.binding)
     try:
         target = _lstat_at(record.parent, record.target_name)
-        if target is not None and record.staged_identity is not None:
-            if _inode_payload_identity(target) == record.staged_identity:
-                os.unlink(record.target_name, dir_fd=parent_descriptor)
+        removable_identity = (
+            record.observed_install_identity or record.staged_identity
+        )
+        if (
+            target is not None
+            and removable_identity is not None
+            and _inode_payload_identity(target) == removable_identity
+            and record.candidate_evidence is not None
+        ):
+            quarantine_name = _recovery_quarantine_name(index, "target")
+            quarantined_identity = _move_file_to_verified_quarantine(
+                record.parent,
+                record.target_name,
+                transaction_directory.binding,
+                quarantine_name,
+                expected_evidence=record.candidate_evidence,
+                expected_payload_identity=removable_identity,
+                description=f"rollback candidate {record.name}",
+            )
+            _retire_verified_quarantine(
+                transaction_directory.binding,
+                quarantine_name,
+                expected_evidence=record.candidate_evidence,
+                expected_payload_identity=quarantined_identity,
+                description=f"rollback candidate {record.name}",
+            )
         if record.backup_name is not None:
             backup = _lstat_at(transaction_directory.binding, record.backup_name)
             if backup is not None:
-                if (
-                    record.backup_identity is not None
-                    and _inode_payload_identity(backup) != record.backup_identity
-                ):
-                    errors.append(
-                        f"rollback retained a changed backup for manual recovery: {record.name}"
+                if record.original_evidence is None:
+                    raise BootstrapTransactionError(
+                        f"rollback backup lacks original evidence: {record.name}"
                     )
-                elif _lstat_at(record.parent, record.target_name) is not None:
-                    errors.append(
-                        f"rollback retained a backup because the target was concurrently recreated: {record.name}"
+                quarantine_name = _recovery_quarantine_name(index, "backup")
+                quarantined_identity = _move_file_to_verified_quarantine(
+                    transaction_directory.binding,
+                    record.backup_name,
+                    transaction_directory.binding,
+                    quarantine_name,
+                    expected_evidence=record.original_evidence,
+                    expected_payload_identity=record.backup_identity,
+                    description=f"rollback backup {record.name}",
+                )
+                current_target = _lstat_at(record.parent, record.target_name)
+                current_target_evidence = (
+                    _file_evidence_at(
+                        record.parent,
+                        record.target_name,
+                        description=f"rollback target {record.name}",
+                    )
+                    if current_target is not None
+                    else None
+                )
+                if _evidence_matches(
+                    current_target_evidence,
+                    record.original_evidence,
+                ):
+                    _retire_verified_quarantine(
+                        transaction_directory.binding,
+                        quarantine_name,
+                        expected_evidence=record.original_evidence,
+                        expected_payload_identity=quarantined_identity,
+                        description=f"rollback backup {record.name}",
+                    )
+                elif current_target is None:
+                    _restore_verified_quarantine(
+                        transaction_directory.binding,
+                        quarantine_name,
+                        record.parent,
+                        record.target_name,
+                        expected_evidence=record.original_evidence,
+                        expected_payload_identity=quarantined_identity,
+                        description=f"rollback backup {record.name}",
                     )
                 else:
-                    os.link(
-                        record.backup_name,
-                        record.target_name,
-                        src_dir_fd=transaction_descriptor,
-                        dst_dir_fd=parent_descriptor,
+                    raise BootstrapTransactionError(
+                        "rollback target was concurrently recreated; retained "
+                        f"quarantined backup for {record.name}"
                     )
-                    os.unlink(record.backup_name, dir_fd=transaction_descriptor)
         if record.stage_name is not None:
             stage = _lstat_at(transaction_directory.binding, record.stage_name)
             if stage is not None:
-                if (
-                    record.staged_identity is not None
-                    and _inode_payload_identity(stage) != record.staged_identity
-                ):
-                    errors.append(
-                        f"rollback retained a changed staged file for manual recovery: {record.name}"
+                stage_evidence = (
+                    record.candidate_evidence
+                    if record.staged_identity is not None
+                    else _file_evidence_at(
+                        transaction_directory.binding,
+                        record.stage_name,
+                        description=f"incomplete rollback stage {record.name}",
                     )
-                else:
-                    os.unlink(record.stage_name, dir_fd=transaction_descriptor)
+                )
+                if stage_evidence is None:
+                    raise BootstrapTransactionError(
+                        f"rollback stage lacks candidate evidence: {record.name}"
+                    )
+                quarantine_name = _recovery_quarantine_name(index, "stage")
+                quarantined_identity = _move_file_to_verified_quarantine(
+                    transaction_directory.binding,
+                    record.stage_name,
+                    transaction_directory.binding,
+                    quarantine_name,
+                    expected_evidence=stage_evidence,
+                    expected_payload_identity=(
+                        record.staged_identity
+                        if record.staged_identity is not None
+                        else _inode_payload_identity(stage)
+                    ),
+                    description=f"rollback stage {record.name}",
+                )
+                _retire_verified_quarantine(
+                    transaction_directory.binding,
+                    quarantine_name,
+                    expected_evidence=stage_evidence,
+                    expected_payload_identity=quarantined_identity,
+                    description=f"rollback stage {record.name}",
+                )
         os.fsync(parent_descriptor)
         os.fsync(transaction_descriptor)
     except BaseException as exc:
         errors.append(f"rollback failed for {record.name}: {exc}")
+    errors.extend(_rollback_terminal_errors(record, index))
+    return errors
+
+
+def _rollback_terminal_errors(
+    record: _OutputTransactionRecord,
+    index: int,
+) -> list[str]:
+    """Prove one live rollback reached its exact file and artifact contract."""
+
+    errors: list[str] = []
+    try:
+        target_metadata = _lstat_at(record.parent, record.target_name)
+        target_evidence = (
+            _file_evidence_at(
+                record.parent,
+                record.target_name,
+                description=f"rolled-back bootstrap output {record.name}",
+            )
+            if target_metadata is not None
+            else None
+        )
+        if record.original_evidence is None:
+            if target_evidence is not None:
+                errors.append(
+                    f"rollback did not restore approved target absence: {record.name}"
+                )
+        elif not _evidence_matches(target_evidence, record.original_evidence):
+            errors.append(
+                f"rollback did not restore the exact original output: {record.name}"
+            )
+        transaction_directory = record.transaction_directory
+        if transaction_directory is not None:
+            for artifact_name, artifact_label in (
+                (record.stage_name, "stage"),
+                (record.backup_name, "backup"),
+                (_recovery_quarantine_name(index, "target"), "target quarantine"),
+                (_recovery_quarantine_name(index, "stage"), "stage quarantine"),
+                (_recovery_quarantine_name(index, "backup"), "backup quarantine"),
+            ):
+                if (
+                    artifact_name is not None
+                    and _lstat_at(
+                        transaction_directory.binding,
+                        artifact_name,
+                    )
+                    is not None
+                ):
+                    errors.append(
+                        f"rollback retained its {artifact_label} artifact for "
+                        f"{record.name}"
+                    )
+    except BaseException as exc:
+        errors.append(
+            f"rollback terminal state could not be verified for {record.name}: {exc}"
+        )
     return errors
 
 
@@ -1927,6 +2645,73 @@ def _validate_journal_payload(payload: object) -> list[str]:
             "bootstrap recovery journal phase must be one of: "
             + ", ".join(sorted(_RECOVERY_PHASES))
         )
+    bound_directories = payload.get("bound_directories")
+    bound_directory_parts: list[tuple[str, ...]] = []
+    bound_directory_identities: dict[tuple[str, ...], object] = {}
+    if not isinstance(bound_directories, list):
+        errors.append("bootstrap recovery journal bound_directories must be a list")
+    else:
+        if len(bound_directories) > _RECOVERY_JOURNAL_MAX_BOUND_DIRECTORIES:
+            errors.append(
+                "bootstrap recovery journal bound_directories exceed the bounded "
+                "directory limit"
+            )
+        normalized_bound: list[str] = []
+        for index, item in enumerate(bound_directories):
+            label = f"bootstrap recovery journal bound_directories[{index}]"
+            if not isinstance(item, dict):
+                errors.append(f"{label} must be an object")
+                continue
+            if set(item) != _RECOVERY_BOUND_DIRECTORY_KEYS:
+                errors.append(
+                    f"{label} keys must be exactly: "
+                    + ", ".join(sorted(_RECOVERY_BOUND_DIRECTORY_KEYS))
+                )
+            path = item.get("path")
+            if path == ".":
+                parts: tuple[str, ...] = ()
+                normalized = "."
+            else:
+                try:
+                    parts = _relative_output_parts(path) if isinstance(path, str) else ()
+                except ValueError as exc:
+                    errors.append(f"{label}.path is invalid: {exc}")
+                    parts = ()
+                normalized = "/".join(parts)
+                if not parts:
+                    errors.append(
+                        f"{label}.path must be '.' or a normalized relative path"
+                    )
+                elif _is_reserved_transaction_path(parts):
+                    errors.append(f"{label}.path uses a reserved transaction namespace")
+            if path == "." or parts:
+                normalized_bound.append(normalized)
+                bound_directory_parts.append(parts)
+                bound_directory_identities[parts] = item.get("identity")
+            errors.extend(
+                _directory_identity_errors(item.get("identity"), f"{label}.identity")
+            )
+        if len(set(normalized_bound)) != len(normalized_bound):
+            errors.append("bootstrap recovery journal bound_directories must be unique")
+        if normalized_bound != sorted(
+            normalized_bound,
+            key=lambda value: (0 if value == "." else len(value.split("/")), value),
+        ):
+            errors.append(
+                "bootstrap recovery journal bound_directories must use canonical "
+                "parent-before-child order"
+            )
+        if () not in bound_directory_parts:
+            errors.append(
+                "bootstrap recovery journal bound_directories must include project root '.'"
+            )
+        bound_directory_set = set(bound_directory_parts)
+        for parts in bound_directory_parts:
+            if parts and parts[:-1] not in bound_directory_set:
+                errors.append(
+                    "bootstrap recovery journal bound directory lacks its exact "
+                    "pre-existing parent binding: " + "/".join(parts)
+                )
     created_directories = payload.get("created_directories")
     created_directory_parts: list[tuple[str, ...]] = []
     if not isinstance(created_directories, list):
@@ -1973,6 +2758,7 @@ def _validate_journal_payload(payload: object) -> list[str]:
     retired_directory_parts: list[tuple[str, ...]] = []
     if not isinstance(retired_directories, list):
         errors.append("bootstrap recovery journal retired_directories must be a list")
+        retired_directories = []
     else:
         if len(retired_directories) > _RECOVERY_JOURNAL_MAX_RETIRED_DIRECTORIES:
             errors.append(
@@ -2018,6 +2804,41 @@ def _validate_journal_payload(payload: object) -> list[str]:
             "bootstrap recovery journal cannot both create and retire a directory: "
             + ", ".join("/".join(parts) for parts in sorted(overlap_directories))
         )
+    bound_created_overlap = set(bound_directory_parts).intersection(
+        created_directory_parts
+    )
+    if bound_created_overlap:
+        errors.append(
+            "bootstrap recovery journal cannot classify a directory as both "
+            "pre-existing and transaction-created: "
+            + ", ".join(
+                "/".join(parts) for parts in sorted(bound_created_overlap)
+            )
+        )
+    for retired in retired_directory_parts:
+        if retired not in bound_directory_identities:
+            errors.append(
+                "bootstrap recovery journal retired directory lacks its "
+                f"pre-existing binding: {'/'.join(retired)}"
+            )
+            continue
+        retired_entry = next(
+            (
+                item
+                for item in retired_directories
+                if isinstance(item, dict) and item.get("path") == "/".join(retired)
+            ),
+            None,
+        )
+        if (
+            isinstance(retired_entry, dict)
+            and retired_entry.get("identity")
+            != bound_directory_identities[retired]
+        ):
+            errors.append(
+                "bootstrap recovery journal retired directory identity disagrees "
+                f"with its pre-existing binding: {'/'.join(retired)}"
+            )
     operations = payload.get("operations")
     if not isinstance(operations, list) or not operations:
         errors.append("bootstrap recovery journal operations must be a non-empty list")
@@ -2129,6 +2950,18 @@ def _validate_journal_payload(payload: object) -> list[str]:
             errors.append(f"{label}.backup_name does not match its original evidence and index")
         if action == "remove" and original is None:
             errors.append(f"{label} removal requires original evidence")
+    covered_directory_parts = set(bound_directory_parts).union(
+        created_directory_parts
+    )
+    for operation_parts in seen_path_parts:
+        for depth in range(0, len(operation_parts)):
+            parent_parts = operation_parts[:depth]
+            if parent_parts not in covered_directory_parts:
+                errors.append(
+                    "bootstrap recovery journal operation parent lacks an exact "
+                    "pre-existing or transaction-created binding: "
+                    + ("." if not parent_parts else "/".join(parent_parts))
+                )
     for parts in created_directory_parts:
         if not any(
             len(parts) < len(operation_parts)
@@ -2217,6 +3050,64 @@ def _journal_temporary_metadata(root: _DirectoryBinding) -> os.stat_result | Non
     return metadata
 
 
+def _journal_previous_metadata(root: _DirectoryBinding) -> os.stat_result | None:
+    """Inspect the exact prior journal retained across a journal rewrite.
+
+    The prior canonical bytes are copied from a retained descriptor into this
+    O_EXCL name.  It therefore remains a single-link control independently of
+    later canonical-name replacement.
+    """
+
+    metadata = _lstat_at(root, _RECOVERY_JOURNAL_PREVIOUS_NAME)
+    if metadata is None:
+        return None
+    _require_owned_regular_output(
+        metadata,
+        description="previous bootstrap recovery journal",
+        require_single_link=False,
+    )
+    if metadata.st_nlink != 1:
+        raise ValueError(
+            "previous bootstrap recovery journal must have exactly one hard link"
+        )
+    if stat.S_IMODE(metadata.st_mode) & 0o077:
+        raise ValueError(
+            "previous bootstrap recovery journal must not be group- or world-accessible"
+        )
+    if metadata.st_size > _RECOVERY_JOURNAL_MAX_BYTES:
+        raise ValueError("previous bootstrap recovery journal exceeds its byte limit")
+    return metadata
+
+
+def _remove_recovery_journal_previous(
+    root: _DirectoryBinding,
+    *,
+    expected_payload_identity: tuple[int, ...],
+) -> None:
+    metadata = _journal_previous_metadata(root)
+    if metadata is None:
+        raise BootstrapTransactionError(
+            "previous bootstrap recovery journal disappeared"
+        )
+    if _inode_payload_identity(metadata) != expected_payload_identity:
+        raise BootstrapTransactionError(
+            "previous bootstrap recovery journal was replaced"
+        )
+    current = _lstat_at(root, _RECOVERY_JOURNAL_PREVIOUS_NAME)
+    if (
+        current is None
+        or _inode_payload_identity(current) != expected_payload_identity
+    ):
+        raise BootstrapTransactionError(
+            "previous bootstrap recovery journal changed before removal"
+        )
+    os.unlink(
+        _RECOVERY_JOURNAL_PREVIOUS_NAME,
+        dir_fd=_binding_descriptor(root),
+    )
+    os.fsync(_binding_descriptor(root))
+
+
 def _remove_recovery_journal_temporary(
     root: _DirectoryBinding,
     *,
@@ -2246,6 +3137,77 @@ def _remove_recovery_journal_temporary(
     os.fsync(_binding_descriptor(root))
 
 
+def _read_recovery_journal_snapshot(
+    root: _DirectoryBinding,
+    *,
+    name: str,
+    metadata: os.stat_result,
+    description: str,
+    require_single_link: bool,
+) -> tuple[dict[str, object] | None, list[str]]:
+    descriptor = os.open(
+        name,
+        _transaction_read_flags(),
+        dir_fd=_binding_descriptor(root),
+    )
+    try:
+        opened = os.fstat(descriptor)
+        _require_owned_regular_output(
+            opened,
+            description=f"opened {description}",
+            require_single_link=require_single_link,
+        )
+        if (
+            stat.S_IMODE(opened.st_mode) & 0o077
+            or safe_paths.stable_file_metadata(opened)
+            != safe_paths.stable_file_metadata(metadata)
+        ):
+            return None, [f"{description} changed while it was opened"]
+        raw = bytearray()
+        while True:
+            chunk = os.read(descriptor, 64 * 1024)
+            if not chunk:
+                break
+            raw.extend(chunk)
+            if len(raw) > _RECOVERY_JOURNAL_MAX_BYTES:
+                return None, [f"{description} exceeds its byte limit"]
+        final = os.fstat(descriptor)
+        current = _lstat_at(root, name)
+        try:
+            _require_owned_regular_output(
+                final,
+                description=f"read {description}",
+                require_single_link=require_single_link,
+            )
+            if current is not None:
+                _require_owned_regular_output(
+                    current,
+                    description=f"named {description}",
+                    require_single_link=require_single_link,
+                )
+        except (OSError, ValueError) as exc:
+            return None, [str(exc)]
+        if (
+            stat.S_IMODE(final.st_mode) & 0o077
+            or current is not None
+            and stat.S_IMODE(current.st_mode) & 0o077
+            or safe_paths.stable_file_metadata(final)
+            != safe_paths.stable_file_metadata(opened)
+            or current is None
+            or safe_paths.stable_file_metadata(current)
+            != safe_paths.stable_file_metadata(opened)
+        ):
+            return None, [f"{description} changed while it was read"]
+    finally:
+        os.close(descriptor)
+    try:
+        payload = safe_paths.loads_json_no_duplicates(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        return None, [f"{description} is invalid UTF-8 JSON: {exc}"]
+    errors = _validate_journal_payload(payload)
+    return (payload if isinstance(payload, dict) else None), errors
+
+
 def _read_recovery_journal(
     root: _DirectoryBinding,
 ) -> tuple[dict[str, object] | None, list[str]]:
@@ -2255,39 +3217,249 @@ def _read_recovery_journal(
         return None, [str(exc)]
     if metadata is None:
         return None, []
+    return _read_recovery_journal_snapshot(
+        root,
+        name=RECOVERY_JOURNAL_NAME,
+        metadata=metadata,
+        description="bootstrap recovery journal",
+        require_single_link=True,
+    )
+
+
+def _read_previous_recovery_journal(
+    root: _DirectoryBinding,
+) -> tuple[dict[str, object] | None, list[str]]:
+    try:
+        metadata = _journal_previous_metadata(root)
+    except (OSError, ValueError) as exc:
+        return None, [str(exc)]
+    if metadata is None:
+        return None, []
+    return _read_recovery_journal_snapshot(
+        root,
+        name=_RECOVERY_JOURNAL_PREVIOUS_NAME,
+        metadata=metadata,
+        description="previous bootstrap recovery journal",
+        require_single_link=False,
+    )
+
+
+def _select_recovery_journal(
+    root: _DirectoryBinding,
+    lock_descriptor: int,
+) -> tuple[
+    dict[str, object] | None,
+    list[str],
+    tuple[int, ...] | None,
+]:
+    """Select a canonical or exactly retained prior journal without mutation."""
+
+    canonical_payload, canonical_errors = _read_recovery_journal(root)
+    previous_metadata = _journal_previous_metadata(root)
+    if previous_metadata is None:
+        return canonical_payload, canonical_errors, None
+    previous_payload, previous_errors = _read_previous_recovery_journal(root)
+    if previous_payload is None or previous_errors:
+        # A hard exit can leave the O_EXCL descriptor copy incomplete while
+        # the canonical journal and its lock remain exact.  In that bounded
+        # state the canonical record supplies the authorization identity and
+        # recovery may retire only the exact inspected previous inode.
+        if canonical_payload is not None and not canonical_errors:
+            canonical_identity_errors = _recovery_journal_identity_errors(
+                root,
+                lock_descriptor,
+                canonical_payload,
+            )
+            if not canonical_identity_errors:
+                return (
+                    canonical_payload,
+                    [],
+                    _inode_payload_identity(previous_metadata),
+                )
+        return (
+            None,
+            [
+                *canonical_errors,
+                *previous_errors,
+                "retained previous bootstrap recovery journal is not a valid "
+                "exact-ID recovery record",
+            ],
+            None,
+        )
+    previous_errors.extend(
+        _recovery_journal_identity_errors(
+            root,
+            lock_descriptor,
+            previous_payload,
+        )
+    )
+    if previous_errors:
+        return None, previous_errors, None
+    previous_identity = _inode_payload_identity(previous_metadata)
+    if canonical_payload is not None and not canonical_errors:
+        if canonical_payload.get("transaction_id") != previous_payload.get(
+            "transaction_id"
+        ):
+            return (
+                None,
+                [
+                    "canonical and previous bootstrap recovery journals bind "
+                    "different transaction identities"
+                ],
+                previous_identity,
+            )
+        return canonical_payload, [], previous_identity
+    canonical_metadata = _lstat_at(root, RECOVERY_JOURNAL_NAME)
+    if canonical_metadata is None:
+        return (
+            None,
+            [
+                "canonical bootstrap recovery journal is missing while its "
+                "descriptor-copied previous record remains"
+            ],
+            previous_identity,
+        )
+    return (
+        None,
+        [
+            *canonical_errors,
+            "canonical bootstrap recovery journal does not match the exact "
+            "retained previous journal",
+        ],
+        previous_identity,
+    )
+
+
+def _normalize_previous_recovery_journal(
+    root: _DirectoryBinding,
+    *,
+    payload: dict[str, object],
+    previous_identity: tuple[int, ...],
+) -> None:
+    """Restore one exact selected journal name, then retire its prior link."""
+
+    canonical_metadata = _lstat_at(root, RECOVERY_JOURNAL_NAME)
+    if canonical_metadata is None:
+        raise BootstrapTransactionError(
+            "selected previous bootstrap recovery journal could not be restored"
+        )
+    canonical_payload_identity = _inode_payload_identity(canonical_metadata)
+    canonical_payload, canonical_errors = _read_recovery_journal_snapshot(
+        root,
+        name=RECOVERY_JOURNAL_NAME,
+        metadata=canonical_metadata,
+        description="selected bootstrap recovery journal",
+        require_single_link=False,
+    )
+    if canonical_errors or canonical_payload != payload:
+        raise BootstrapTransactionError(
+            "selected bootstrap recovery journal changed before previous-journal "
+            "normalization: "
+            + "; ".join(canonical_errors or ["payload mismatch"])
+        )
+    if (
+        canonical_payload_identity != previous_identity
+        and _lstat_at(root, _RECOVERY_JOURNAL_PREVIOUS_NAME) is None
+    ):
+        raise BootstrapTransactionError(
+            "previous bootstrap recovery journal disappeared before normalization"
+        )
+    _remove_recovery_journal_previous(
+        root,
+        expected_payload_identity=previous_identity,
+    )
+    normalized_payload, normalized_errors = _read_recovery_journal(root)
+    if normalized_errors or normalized_payload != payload:
+        raise BootstrapTransactionError(
+            "bootstrap recovery journal normalization did not retain the exact "
+            "selected payload: "
+            + "; ".join(normalized_errors or ["payload mismatch"])
+        )
+
+
+def _copy_open_journal_to_previous(
+    root: _DirectoryBinding,
+    source_descriptor: int,
+    source_metadata: os.stat_result,
+) -> tuple[int, ...]:
+    """Copy one descriptor-bound canonical journal into an O_EXCL control."""
+
+    # A rename of the already-open canonical name may legitimately change
+    # ctime while leaving the descriptor-bound payload intact.  Bind the copy
+    # to payload identity so that pathname substitution is detected by the
+    # caller's canonical-name recheck without discarding the exact prior bytes.
+    source_signature = _inode_payload_identity(source_metadata)
+    os.lseek(source_descriptor, 0, os.SEEK_SET)
+    raw = bytearray()
+    while True:
+        chunk = os.read(source_descriptor, 64 * 1024)
+        if not chunk:
+            break
+        raw.extend(chunk)
+        if len(raw) > _RECOVERY_JOURNAL_MAX_BYTES:
+            raise BootstrapTransactionError(
+                "prior bootstrap recovery journal exceeds its bounded copy limit"
+            )
+    source_final = os.fstat(source_descriptor)
+    if _inode_payload_identity(source_final) != source_signature:
+        raise BootstrapTransactionError(
+            "prior bootstrap recovery journal changed during descriptor-bound copy"
+        )
     descriptor = os.open(
-        RECOVERY_JOURNAL_NAME,
-        _transaction_read_flags(),
+        _RECOVERY_JOURNAL_PREVIOUS_NAME,
+        _transaction_file_flags(),
+        0o600,
         dir_fd=_binding_descriptor(root),
     )
+    created_object_identity: tuple[int, ...] | None = None
     try:
-        opened = os.fstat(descriptor)
-        if _inode_payload_identity(opened) != _inode_payload_identity(metadata):
-            return None, ["bootstrap recovery journal changed while it was opened"]
-        raw = bytearray()
-        while True:
-            chunk = os.read(descriptor, 64 * 1024)
-            if not chunk:
-                break
-            raw.extend(chunk)
-            if len(raw) > _RECOVERY_JOURNAL_MAX_BYTES:
-                return None, ["bootstrap recovery journal exceeds its byte limit"]
-        final = os.fstat(descriptor)
-        current = _lstat_at(root, RECOVERY_JOURNAL_NAME)
-        if (
-            _inode_payload_identity(final) != _inode_payload_identity(opened)
-            or current is None
-            or _inode_payload_identity(current) != _inode_payload_identity(opened)
-        ):
-            return None, ["bootstrap recovery journal changed while it was read"]
-    finally:
+        created_object_identity = _inode_object_identity(os.fstat(descriptor))
+        os.fchmod(descriptor, stat.S_IMODE(source_metadata.st_mode) & 0o777)
+        _write_all(descriptor, bytes(raw))
+        os.fsync(descriptor)
+        copied = os.fstat(descriptor)
+        _require_owned_regular_output(
+            copied,
+            description="descriptor-copied previous bootstrap recovery journal",
+            require_single_link=True,
+        )
+        copied_identity = _inode_payload_identity(copied)
+    except BaseException as exc:
+        try:
+            os.close(descriptor)
+        finally:
+            current = _lstat_at(root, _RECOVERY_JOURNAL_PREVIOUS_NAME)
+            if (
+                created_object_identity is not None
+                and current is not None
+                and _inode_object_identity(current) == created_object_identity
+            ):
+                os.unlink(
+                    _RECOVERY_JOURNAL_PREVIOUS_NAME,
+                    dir_fd=_binding_descriptor(root),
+                )
+                os.fsync(_binding_descriptor(root))
+        raise exc
+    else:
         os.close(descriptor)
-    try:
-        payload = safe_paths.loads_json_no_duplicates(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
-        return None, [f"bootstrap recovery journal is invalid UTF-8 JSON: {exc}"]
-    errors = _validate_journal_payload(payload)
-    return (payload if isinstance(payload, dict) else None), errors
+    expected_evidence = {
+        "sha256": hashlib.sha256(raw).hexdigest(),
+        "mode": stat.S_IMODE(source_metadata.st_mode) & 0o777,
+        "size": len(raw),
+    }
+    copied_evidence = _file_evidence_at(
+        root,
+        _RECOVERY_JOURNAL_PREVIOUS_NAME,
+        description="descriptor-copied previous bootstrap recovery journal",
+        max_bytes=_RECOVERY_JOURNAL_MAX_BYTES,
+    )
+    if copied_evidence != expected_evidence:
+        raise BootstrapTransactionError(
+            "descriptor-copied previous bootstrap recovery journal does not "
+            "match its exact source bytes"
+        )
+    os.fsync(_binding_descriptor(root))
+    return copied_identity
 
 
 def _write_recovery_journal(
@@ -2326,6 +3498,10 @@ def _write_recovery_journal(
         raise BootstrapTransactionError(
             "an incomplete bootstrap recovery journal update requires inspection"
         )
+    if _journal_previous_metadata(root) is not None:
+        raise BootstrapTransactionError(
+            "an incomplete bootstrap recovery journal replacement requires inspection"
+        )
     descriptor = os.open(
         _RECOVERY_JOURNAL_TEMP_NAME,
         _transaction_file_flags(),
@@ -2334,6 +3510,9 @@ def _write_recovery_journal(
     )
     temporary_object_identity: tuple[int, ...] | None = None
     temporary_payload_identity: tuple[int, ...] | None = None
+    previous_payload_identity: tuple[int, ...] | None = None
+    previous_source_identity: tuple[int, ...] | None = None
+    previous_source_descriptor: int | None = None
     try:
         os.fchmod(descriptor, 0o600)
         temporary_object_identity = _inode_object_identity(os.fstat(descriptor))
@@ -2365,8 +3544,6 @@ def _write_recovery_journal(
             primary=exc,
         )
         raise
-    else:
-        os.close(descriptor)
     try:
         _verify_project_lock(root, lock_descriptor)
         current = _journal_metadata(root)
@@ -2394,6 +3571,63 @@ def _write_recovery_journal(
             raise BootstrapTransactionError(
                 "bootstrap recovery journal temporary file changed before installation"
             )
+        if not require_absent:
+            if existing is None:
+                raise BootstrapTransactionError(
+                    "bootstrap recovery journal disappeared before its prior "
+                    "version could be retained"
+                )
+            previous_source_identity = _inode_payload_identity(existing)
+            previous_source_descriptor = os.open(
+                RECOVERY_JOURNAL_NAME,
+                _transaction_read_flags(),
+                dir_fd=_binding_descriptor(root),
+            )
+            held_previous = os.fstat(previous_source_descriptor)
+            _require_owned_regular_output(
+                held_previous,
+                description="held prior bootstrap recovery journal",
+                require_single_link=True,
+            )
+            if _inode_payload_identity(held_previous) != previous_source_identity:
+                raise BootstrapTransactionError(
+                    "bootstrap recovery journal changed while its prior version "
+                    "was bound for preservation"
+                )
+            previous_payload_identity = _copy_open_journal_to_previous(
+                root,
+                previous_source_descriptor,
+                held_previous,
+            )
+            retained_previous = _journal_previous_metadata(root)
+            rebound_canonical = _journal_metadata(root)
+            if (
+                retained_previous is None
+                or _inode_payload_identity(retained_previous)
+                != previous_payload_identity
+                or _inode_payload_identity(os.fstat(previous_source_descriptor))
+                != previous_source_identity
+                or rebound_canonical is None
+                or _inode_payload_identity(rebound_canonical)
+                != previous_source_identity
+            ):
+                raise BootstrapTransactionError(
+                    "bootstrap recovery journal replacement did not retain the "
+                    "exact descriptor-bound prior journal"
+                )
+            os.close(previous_source_descriptor)
+            previous_source_descriptor = None
+        if previous_source_identity is not None:
+            rebound_canonical = _journal_metadata(root)
+            if (
+                rebound_canonical is None
+                or _inode_payload_identity(rebound_canonical)
+                != previous_source_identity
+            ):
+                raise BootstrapTransactionError(
+                    "canonical bootstrap recovery journal changed after its "
+                    "descriptor-bound prior copy"
+                )
         os.rename(
             _RECOVERY_JOURNAL_TEMP_NAME,
             RECOVERY_JOURNAL_NAME,
@@ -2402,6 +3636,35 @@ def _write_recovery_journal(
         )
         os.fsync(_binding_descriptor(root))
         _verify_project_lock(root, lock_descriptor)
+        installed = _journal_metadata(root)
+        held = os.fstat(descriptor)
+        expected_evidence = {
+            "sha256": hashlib.sha256(serialized).hexdigest(),
+            "mode": 0o600,
+            "size": len(serialized),
+        }
+        installed_evidence = _file_evidence_at(
+            root,
+            RECOVERY_JOURNAL_NAME,
+            description="installed bootstrap recovery journal",
+            max_bytes=_RECOVERY_JOURNAL_MAX_BYTES,
+        )
+        if (
+            installed is None
+            or temporary_payload_identity is None
+            or _inode_payload_identity(held) != temporary_payload_identity
+            or _inode_payload_identity(installed) != temporary_payload_identity
+            or installed_evidence != expected_evidence
+        ):
+            raise BootstrapTransactionError(
+                "bootstrap recovery journal installation did not retain the "
+                "exact staged inode and bytes"
+            )
+        if previous_payload_identity is not None:
+            _remove_recovery_journal_previous(
+                root,
+                expected_payload_identity=previous_payload_identity,
+            )
     except BaseException as exc:
         try:
             current_temporary = _journal_temporary_metadata(root)
@@ -2418,7 +3681,19 @@ def _write_recovery_journal(
                 "bootstrap recovery journal installation failed and its exact "
                 f"temporary file could not be removed: {cleanup_exc}"
             ) from exc
+        try:
+            if previous_source_descriptor is not None:
+                os.close(previous_source_descriptor)
+                previous_source_descriptor = None
+            os.close(descriptor)
+        except BaseException as close_exc:
+            exc.add_note(
+                "bootstrap recovery journal staged descriptor cleanup failure: "
+                f"{close_exc}"
+            )
         raise
+    else:
+        os.close(descriptor)
     _journal_metadata(root)
     if _recovery_journal_identity_errors(root, lock_descriptor, payload):
         raise BootstrapTransactionError(
@@ -2428,6 +3703,11 @@ def _write_recovery_journal(
 
 
 def _remove_recovery_journal(root: _DirectoryBinding) -> None:
+    if _journal_previous_metadata(root) is not None:
+        raise BootstrapTransactionError(
+            "bootstrap recovery journal cannot be removed while its previous "
+            "version is retained"
+        )
     metadata = _journal_metadata(root)
     if metadata is None:
         return
@@ -2447,6 +3727,7 @@ def _render_recovery_payload(
     records: list[_OutputTransactionRecord],
     *,
     transaction_id: str,
+    bound_directories: list[dict[str, object]],
     created_directories: list[dict[str, object]],
     retired_directories: list[dict[str, object]],
 ) -> dict[str, object]:
@@ -2472,6 +3753,7 @@ def _render_recovery_payload(
         "transaction_id": transaction_id,
         "phase": "prepared",
         "applied_count": 0,
+        "bound_directories": bound_directories,
         "created_directories": sorted(
             created_directories,
             key=lambda value: (
@@ -2490,6 +3772,36 @@ def _render_recovery_payload(
     }
 
 
+def _journal_bound_directory_records(
+    bindings: list[_DirectoryBinding],
+) -> list[dict[str, object]]:
+    """Serialize every exact pre-existing project directory binding once."""
+
+    by_parts: dict[tuple[str, ...], tuple[int, ...]] = {}
+    for binding in bindings:
+        parts = binding.project_relative_parts
+        if parts is None or binding.created or _is_reserved_transaction_path(parts):
+            continue
+        previous = by_parts.get(parts)
+        if previous is not None and previous != binding.identity:
+            raise BootstrapTransactionError(
+                "pre-existing project directory was rebound to a different inode: "
+                + ("." if not parts else "/".join(parts))
+            )
+        by_parts[parts] = binding.identity
+    if () not in by_parts:
+        raise BootstrapTransactionError(
+            "project root binding is unavailable for recovery journaling"
+        )
+    return [
+        {
+            "path": "." if not parts else "/".join(parts),
+            "identity": list(by_parts[parts]),
+        }
+        for parts in sorted(by_parts, key=lambda value: (len(value), value))
+    ]
+
+
 def _open_recovery_directory(
     root: _DirectoryBinding,
     parts: tuple[str, ...],
@@ -2500,6 +3812,17 @@ def _open_recovery_directory(
     for depth, part in enumerate(parts, start=1):
         key = parts[:depth]
         existing = cache.get(key)
+        if existing is None:
+            existing = next(
+                (
+                    binding
+                    for binding in all_bindings
+                    if binding.active and binding.project_relative_parts == key
+                ),
+                None,
+            )
+            if existing is not None:
+                cache[key] = existing
         if existing is not None:
             parent = existing
             continue
@@ -2517,6 +3840,90 @@ def _open_recovery_directory(
             return None
         cache[key] = parent
     return parent
+
+
+def _recovery_bound_directory_bindings(
+    root: _DirectoryBinding,
+    payload: Mapping[str, object],
+    all_bindings: list[_DirectoryBinding],
+) -> tuple[dict[tuple[str, ...], _DirectoryBinding], list[str]]:
+    """Rebind every journaled pre-existing directory to its exact inode."""
+
+    cache: dict[tuple[str, ...], _DirectoryBinding] = {(): root}
+    errors: list[str] = []
+    raw_entries = payload.get("bound_directories")
+    if not isinstance(raw_entries, list):
+        return cache, ["bootstrap recovery bound_directories are unavailable"]
+    retired_parts: set[tuple[str, ...]] = set()
+    raw_retired = payload.get("retired_directories")
+    if isinstance(raw_retired, list):
+        for entry in raw_retired:
+            path = entry.get("path") if isinstance(entry, dict) else None
+            if isinstance(path, str):
+                try:
+                    retired_parts.add(_relative_output_parts(path))
+                except ValueError:
+                    pass
+    phase = payload.get("phase")
+    parsed: list[tuple[tuple[str, ...], object]] = []
+    for entry in raw_entries:
+        if not isinstance(entry, dict):
+            continue
+        path = entry.get("path")
+        if path == ".":
+            parts: tuple[str, ...] = ()
+        elif isinstance(path, str):
+            try:
+                parts = _relative_output_parts(path)
+            except ValueError:
+                continue
+        else:
+            continue
+        parsed.append((parts, entry.get("identity")))
+    for parts, raw_identity in sorted(parsed, key=lambda value: (len(value[0]), value[0])):
+        expected_identity = _journal_directory_identity(raw_identity)
+        if expected_identity is None:
+            errors.append(
+                "bootstrap recovery pre-existing directory identity is invalid: "
+                + ("." if not parts else "/".join(parts))
+            )
+            continue
+        if not parts:
+            binding = root
+        else:
+            try:
+                binding = _open_recovery_directory(
+                    root,
+                    parts,
+                    cache,
+                    all_bindings,
+                )
+            except (OSError, ValueError) as exc:
+                errors.append(
+                    "bootstrap recovery pre-existing directory could not be bound: "
+                    f"{'/'.join(parts)}: {exc}"
+                )
+                continue
+            if binding is None:
+                retired_missing = phase == "verified" and any(
+                    len(retired) <= len(parts) and parts[: len(retired)] == retired
+                    for retired in retired_parts
+                )
+                if retired_missing:
+                    continue
+                errors.append(
+                    "bootstrap recovery pre-existing directory is missing: "
+                    f"{'/'.join(parts)}"
+                )
+                continue
+        if binding.identity != expected_identity:
+            errors.append(
+                "bootstrap recovery pre-existing directory identity changed: "
+                + ("." if not parts else "/".join(parts))
+            )
+            continue
+        cache[parts] = binding
+    return cache, errors
 
 
 def _recovery_operation_views(
@@ -2556,6 +3963,7 @@ def _recovery_operation_views(
                 continue
     transaction_cache: dict[str, _TransactionDirectory | None] = {}
     allowed_artifacts: dict[str, set[str]] = {}
+    recognized_quarantines: dict[str, set[str]] = {}
     for index, raw_operation in enumerate(operations):
         if not isinstance(raw_operation, dict):
             errors.append(f"bootstrap recovery operation {index} is not an object")
@@ -2571,6 +3979,11 @@ def _recovery_operation_views(
             artifact_name = operation.get(artifact_key)
             if isinstance(artifact_name, str):
                 allowed.add(artifact_name)
+        quarantines = recognized_quarantines.setdefault(transaction_path, set())
+        for artifact in ("target", "stage", "backup"):
+            quarantine_name = _recovery_quarantine_name(index, artifact)
+            quarantines.add(quarantine_name)
+            allowed.add(quarantine_name)
         parts = _relative_output_parts(path)
         parent = _open_recovery_directory(root, parts[:-1], cache, all_bindings)
         if parent is None:
@@ -2641,6 +4054,9 @@ def _recovery_operation_views(
             if transaction_directory is None:
                 stage_evidence = None
                 backup_evidence = None
+                target_quarantine_evidence = None
+                stage_quarantine_evidence = None
+                backup_quarantine_evidence = None
             else:
                 stage_name = operation.get("stage_name")
                 backup_name = operation.get("backup_name")
@@ -2662,6 +4078,19 @@ def _recovery_operation_views(
                     if isinstance(backup_name, str)
                     else None
                 )
+                quarantine_evidence: dict[str, dict[str, object] | None] = {}
+                for artifact in ("target", "stage", "backup"):
+                    quarantine_name = _recovery_quarantine_name(index, artifact)
+                    quarantine_evidence[artifact] = _file_evidence_at(
+                        transaction_directory.binding,
+                        quarantine_name,
+                        description=(
+                            f"bootstrap recovery {artifact} quarantine for {path}"
+                        ),
+                    )
+                target_quarantine_evidence = quarantine_evidence["target"]
+                stage_quarantine_evidence = quarantine_evidence["stage"]
+                backup_quarantine_evidence = quarantine_evidence["backup"]
         except (OSError, ValueError) as exc:
             errors.append(str(exc))
             continue
@@ -2673,6 +4102,9 @@ def _recovery_operation_views(
                 target_evidence=target_evidence,
                 stage_evidence=stage_evidence,
                 backup_evidence=backup_evidence,
+                target_quarantine_evidence=target_quarantine_evidence,
+                stage_quarantine_evidence=stage_quarantine_evidence,
+                backup_quarantine_evidence=backup_quarantine_evidence,
             )
         )
     for transaction_path, transaction_directory in transaction_cache.items():
@@ -2983,6 +4415,18 @@ def _recovery_status_from_payload(
         target_is_candidate = _evidence_matches(view.target_evidence, candidate)
         backup_is_original = _evidence_matches(view.backup_evidence, original)
         stage_is_candidate = _evidence_matches(view.stage_evidence, candidate)
+        target_quarantine_is_candidate = _evidence_matches(
+            view.target_quarantine_evidence,
+            candidate,
+        )
+        backup_quarantine_is_original = _evidence_matches(
+            view.backup_quarantine_evidence,
+            original,
+        )
+        stage_quarantine_is_candidate = _evidence_matches(
+            view.stage_quarantine_evidence,
+            candidate,
+        )
         if view.target_evidence is not None and not (
             target_is_original or target_is_candidate
         ):
@@ -2996,12 +4440,40 @@ def _recovery_status_from_payload(
             preapply or not backup_is_original
         ):
             errors.append(f"unexpected recovery backup bytes: {operation.get('path')}")
+        if view.target_quarantine_evidence is not None and (
+            preapply
+            or view.target_evidence is not None
+            or not target_quarantine_is_candidate
+        ):
+            errors.append(
+                "unexpected recovery target quarantine bytes or topology: "
+                f"{operation.get('path')}"
+            )
+        if view.backup_quarantine_evidence is not None and (
+            preapply
+            or view.backup_evidence is not None
+            or not backup_quarantine_is_original
+        ):
+            errors.append(
+                "unexpected recovery backup quarantine bytes or topology: "
+                f"{operation.get('path')}"
+            )
         if (
             view.stage_evidence is not None
             and not stage_is_candidate
             and phase != "preparing"
         ):
             errors.append(f"unexpected recovery stage bytes: {operation.get('path')}")
+        if view.stage_quarantine_evidence is not None and (
+            view.stage_evidence is not None
+            or phase != "preparing" and not stage_quarantine_is_candidate
+        ):
+            errors.append(
+                "unexpected recovery stage quarantine bytes or topology: "
+                f"{operation.get('path')}"
+            )
+        candidate_available = target_is_candidate or target_quarantine_is_candidate
+        backup_available = backup_is_original or backup_quarantine_is_original
         if preapply:
             rollback_ok = (
                 target_is_original
@@ -3011,16 +4483,16 @@ def _recovery_status_from_payload(
             finalize_ok = False
         elif action == "write":
             if original is None:
-                rollback_ok = view.target_evidence is None or target_is_candidate
+                rollback_ok = view.target_evidence is None or candidate_available
             else:
                 rollback_ok = target_is_original or (
-                    backup_is_original
-                    and (view.target_evidence is None or target_is_candidate)
+                    backup_available
+                    and (view.target_evidence is None or candidate_available)
                 )
             finalize_ok = target_is_candidate
         else:
             rollback_ok = target_is_original or (
-                backup_is_original and view.target_evidence is None
+                backup_available and view.target_evidence is None
             )
             finalize_ok = view.target_evidence is None
         can_rollback = can_rollback and rollback_ok
@@ -3103,12 +4575,25 @@ def transaction_recovery_status(project_root: Path) -> BootstrapRecoveryStatus:
         lock_metadata = _lstat_at(root, TRANSACTION_LOCK_NAME)
         journal_metadata = _lstat_at(root, RECOVERY_JOURNAL_NAME)
         temporary_metadata = _journal_temporary_metadata(root)
+        previous_metadata = _journal_previous_metadata(root)
         if (
             lock_metadata is None
             and journal_metadata is None
             and temporary_metadata is None
+            and previous_metadata is None
         ):
-            return _clean_recovery_status()
+            orphan_errors = _initialization_transaction_artifact_errors(root)
+            if not orphan_errors:
+                return _clean_recovery_status()
+            return BootstrapRecoveryStatus(
+                state="invalid",
+                transaction_id=None,
+                phase=None,
+                operation_paths=(),
+                can_rollback=False,
+                can_finalize=False,
+                errors=tuple(orphan_errors),
+            )
         if lock_metadata is not None:
             try:
                 lock_descriptor, _lock_created = _acquire_project_lock(
@@ -3126,7 +4611,9 @@ def transaction_recovery_status(project_root: Path) -> BootstrapRecoveryStatus:
                     can_finalize=False,
                     errors=(),
                 )
-        if journal_metadata is not None and lock_descriptor is None:
+        if (
+            journal_metadata is not None or previous_metadata is not None
+        ) and lock_descriptor is None:
             return BootstrapRecoveryStatus(
                 state="invalid",
                 transaction_id=None,
@@ -3139,7 +4626,12 @@ def transaction_recovery_status(project_root: Path) -> BootstrapRecoveryStatus:
                     "transaction lock",
                 ),
             )
-        payload, journal_errors = _read_recovery_journal(root)
+        if lock_descriptor is None:
+            payload, journal_errors = _read_recovery_journal(root)
+        else:
+            payload, journal_errors, _previous_identity = (
+                _select_recovery_journal(root, lock_descriptor)
+            )
         if payload is None:
             if journal_errors:
                 return BootstrapRecoveryStatus(
@@ -3208,6 +4700,11 @@ def transaction_recovery_status(project_root: Path) -> BootstrapRecoveryStatus:
                 payload,
             )
         )
+        _bound_cache, bound_errors = _recovery_bound_directory_bindings(
+            root,
+            payload,
+            all_bindings,
+        )
         views, view_errors = _recovery_operation_views(root, payload, all_bindings)
         (
             _inside,
@@ -3224,6 +4721,7 @@ def transaction_recovery_status(project_root: Path) -> BootstrapRecoveryStatus:
             views,
             [
                 *journal_errors,
+                *bound_errors,
                 *view_errors,
                 *created_errors,
                 *_unknown_created_directory_errors(unknown_created),
@@ -3258,6 +4756,80 @@ def _recovery_transaction_directories(
         if transaction_directory is not None:
             unique[transaction_directory.relative_path] = transaction_directory
     return list(unique.values())
+
+
+def _recovery_terminal_state_errors(
+    views: list[_RecoveryOperationView],
+    *,
+    action: str,
+) -> list[str]:
+    """Re-read every target and artifact before recovery controls may retire."""
+
+    errors: list[str] = []
+    for index, view in enumerate(views):
+        operation = view.operation
+        path = operation.get("path")
+        if not isinstance(path, str):
+            errors.append("bootstrap recovery terminal operation path is missing")
+            continue
+        expected = (
+            operation.get("original")
+            if action == "rollback"
+            else operation.get("candidate")
+        )
+        try:
+            if view.parent is None:
+                actual = None
+            else:
+                target_name = _relative_output_parts(path)[-1]
+                actual = (
+                    _file_evidence_at(
+                        view.parent,
+                        target_name,
+                        description=f"bootstrap recovery terminal target {path}",
+                    )
+                    if _lstat_at(view.parent, target_name) is not None
+                    else None
+                )
+            if expected is None:
+                if actual is not None:
+                    errors.append(
+                        "bootstrap recovery did not restore approved target "
+                        f"absence: {path}"
+                    )
+            elif not _evidence_matches(actual, expected):
+                errors.append(
+                    "bootstrap recovery target does not match its exact terminal "
+                    f"evidence: {path}"
+                )
+            transaction_directory = view.transaction_directory
+            if transaction_directory is not None:
+                artifact_names = [
+                    operation.get("stage_name"),
+                    operation.get("backup_name"),
+                    *(
+                        _recovery_quarantine_name(index, artifact)
+                        for artifact in ("target", "stage", "backup")
+                    ),
+                ]
+                for artifact_name in artifact_names:
+                    if (
+                        isinstance(artifact_name, str)
+                        and _lstat_at(
+                            transaction_directory.binding,
+                            artifact_name,
+                        )
+                        is not None
+                    ):
+                        errors.append(
+                            "bootstrap recovery retained a transaction artifact "
+                            f"after {action}: {path}: {artifact_name}"
+                        )
+        except (OSError, ValueError) as exc:
+            errors.append(
+                f"bootstrap recovery terminal state could not be verified for {path}: {exc}"
+            )
+    return errors
 
 
 def _recover_interrupted_transaction(
@@ -3314,7 +4886,14 @@ def _recover_interrupted_transaction(
                 exclusive=True,
                 create=False,
             )
-        payload, journal_errors = _read_recovery_journal(root)
+        if lock_descriptor is None:
+            payload, journal_errors = _read_recovery_journal(root)
+            previous_identity = None
+        else:
+            payload, journal_errors, previous_identity = _select_recovery_journal(
+                root,
+                lock_descriptor,
+            )
         if payload is None:
             if journal_errors:
                 raise BootstrapTransactionError("; ".join(journal_errors))
@@ -3360,12 +4939,15 @@ def _recover_interrupted_transaction(
                     "; ".join(fresh_initialization_errors)
                 )
             if fresh_temporary_identity is not None:
+                _verify_transaction_context(root, lock_descriptor, all_bindings)
                 _remove_recovery_journal_temporary(
                     root,
                     expected_object_identity=fresh_temporary_identity,
                 )
-            _verify_project_lock(root, lock_descriptor)
+                _verify_transaction_context(root, lock_descriptor, all_bindings)
+            _verify_transaction_context(root, lock_descriptor, all_bindings)
             _remove_project_lock(root, lock_descriptor)
+            _verify_bound_directories(all_bindings)
             return _clean_recovery_status()
         if lock_descriptor is None:
             raise BootstrapTransactionError(
@@ -3384,6 +4966,11 @@ def _recover_interrupted_transaction(
             raise BootstrapTransactionError(
                 "bootstrap recovery transaction identity changed after inspection"
             )
+        _bound_cache, bound_errors = _recovery_bound_directory_bindings(
+            root,
+            payload,
+            all_bindings,
+        )
         views, view_errors = _recovery_operation_views(root, payload, all_bindings)
         (
             _inside,
@@ -3400,6 +4987,7 @@ def _recover_interrupted_transaction(
             views,
             [
                 *journal_errors,
+                *bound_errors,
                 *view_errors,
                 *created_errors,
                 *_unknown_created_directory_errors(unknown_created),
@@ -3419,6 +5007,13 @@ def _recover_interrupted_transaction(
         # Repeat the complete read-only preflight immediately before the first
         # recovery mutation. A later invalid operation must not leave an earlier
         # operation partially recovered.
+        _fresh_bound_cache, fresh_bound_errors = (
+            _recovery_bound_directory_bindings(
+                root,
+                payload,
+                all_bindings,
+            )
+        )
         fresh_views, fresh_errors = _recovery_operation_views(root, payload, all_bindings)
         (
             created_inside,
@@ -3434,6 +5029,7 @@ def _recover_interrupted_transaction(
             payload,
             fresh_views,
             [
+                *fresh_bound_errors,
                 *fresh_errors,
                 *fresh_created_errors,
                 *_unknown_created_directory_errors(unknown_created_paths),
@@ -3451,8 +5047,16 @@ def _recover_interrupted_transaction(
         views = fresh_views
         _verify_bound_directories(all_bindings)
         _verify_project_lock(root, lock_descriptor)
+        if previous_identity is not None:
+            _normalize_previous_recovery_journal(
+                root,
+                payload=payload,
+                previous_identity=previous_identity,
+            )
+            _verify_project_lock(root, lock_descriptor)
         preapply = payload.get("phase") in {"preparing", "prepared"}
-        for view in reversed(views):
+        for index in range(len(views) - 1, -1, -1):
+            view = views[index]
             _verify_bound_directories(all_bindings)
             _verify_project_lock(root, lock_descriptor)
             operation = view.operation
@@ -3469,27 +5073,86 @@ def _recover_interrupted_transaction(
             if action == "rollback":
                 if not preapply:
                     original = operation.get("original")
+                    if original is not None and not isinstance(original, dict):
+                        raise BootstrapTransactionError(
+                            f"bootstrap recovery original evidence is invalid: {path}"
+                        )
                     if view.parent is None and original is not None:
                         raise BootstrapTransactionError(
                             f"bootstrap recovery target parent is missing: {path}"
                         )
                     if view.parent is not None:
-                        if _evidence_matches(
+                        if view.target_quarantine_evidence is not None:
+                            if transaction_directory is None:
+                                raise BootstrapTransactionError(
+                                    "bootstrap recovery transaction directory is "
+                                    f"unavailable for candidate quarantine: {path}"
+                                )
+                            quarantine_name = _recovery_quarantine_name(
+                                index,
+                                "target",
+                            )
+                            quarantined_identity = _verified_quarantine_identity(
+                                transaction_directory.binding,
+                                quarantine_name,
+                                expected_evidence=operation.get("candidate"),
+                                expected_payload_identity=None,
+                                description=f"bootstrap recovery candidate {path}",
+                            )
+                            _retire_verified_quarantine(
+                                transaction_directory.binding,
+                                quarantine_name,
+                                expected_evidence=operation.get("candidate"),
+                                expected_payload_identity=quarantined_identity,
+                                description=f"bootstrap recovery candidate {path}",
+                            )
+                            view.target_quarantine_evidence = None
+                        elif _evidence_matches(
                             view.target_evidence,
                             operation.get("candidate"),
                         ):
-                            os.unlink(
-                                target_name,
-                                dir_fd=_binding_descriptor(view.parent),
+                            if transaction_directory is None:
+                                raise BootstrapTransactionError(
+                                    "bootstrap recovery transaction directory is "
+                                    f"unavailable for candidate quarantine: {path}"
+                                )
+                            quarantine_name = _recovery_quarantine_name(
+                                index,
+                                "target",
+                            )
+                            quarantined_identity = (
+                                _move_file_to_verified_quarantine(
+                                    view.parent,
+                                    target_name,
+                                    transaction_directory.binding,
+                                    quarantine_name,
+                                    expected_evidence=operation.get("candidate"),
+                                    description=(
+                                        f"bootstrap recovery candidate {path}"
+                                    ),
+                                )
+                            )
+                            _retire_verified_quarantine(
+                                transaction_directory.binding,
+                                quarantine_name,
+                                expected_evidence=operation.get("candidate"),
+                                expected_payload_identity=quarantined_identity,
+                                description=f"bootstrap recovery candidate {path}",
                             )
                             view.target_evidence = None
                         if original is not None:
                             if _evidence_matches(view.target_evidence, original):
                                 if (
                                     transaction_directory is not None
-                                    and _evidence_matches(
-                                        view.backup_evidence,
-                                        original,
+                                    and (
+                                        _evidence_matches(
+                                            view.backup_evidence,
+                                            original,
+                                        )
+                                        or _evidence_matches(
+                                            view.backup_quarantine_evidence,
+                                            original,
+                                        )
                                     )
                                 ):
                                     backup_name = operation.get("backup_name")
@@ -3498,58 +5161,240 @@ def _recover_interrupted_transaction(
                                             "bootstrap recovery backup name is missing: "
                                             f"{path}"
                                         )
-                                    os.unlink(
-                                        backup_name,
-                                        dir_fd=transaction_descriptor,
+                                    quarantine_name = _recovery_quarantine_name(
+                                        index,
+                                        "backup",
                                     )
+                                    if view.backup_quarantine_evidence is not None:
+                                        quarantined_identity = (
+                                            _verified_quarantine_identity(
+                                                transaction_directory.binding,
+                                                quarantine_name,
+                                                expected_evidence=original,
+                                                expected_payload_identity=None,
+                                                description=(
+                                                    "bootstrap recovery redundant "
+                                                    f"backup {path}"
+                                                ),
+                                            )
+                                        )
+                                    else:
+                                        quarantined_identity = (
+                                            _move_file_to_verified_quarantine(
+                                                transaction_directory.binding,
+                                                backup_name,
+                                                transaction_directory.binding,
+                                                quarantine_name,
+                                                expected_evidence=original,
+                                                description=(
+                                                    "bootstrap recovery redundant backup "
+                                                    f"{path}"
+                                                ),
+                                            )
+                                        )
+                                    _retire_verified_quarantine(
+                                        transaction_directory.binding,
+                                        quarantine_name,
+                                        expected_evidence=original,
+                                        expected_payload_identity=(
+                                            quarantined_identity
+                                        ),
+                                        description=(
+                                            "bootstrap recovery redundant backup "
+                                            f"{path}"
+                                        ),
+                                    )
+                                    view.backup_evidence = None
+                                    view.backup_quarantine_evidence = None
                             else:
                                 backup_name = operation.get("backup_name")
                                 if (
                                     transaction_directory is None
                                     or not isinstance(backup_name, str)
-                                    or not _evidence_matches(
-                                        view.backup_evidence,
-                                        original,
+                                    or not (
+                                        _evidence_matches(
+                                            view.backup_evidence,
+                                            original,
+                                        )
+                                        or _evidence_matches(
+                                            view.backup_quarantine_evidence,
+                                            original,
+                                        )
                                     )
                                 ):
                                     raise BootstrapTransactionError(
                                         "bootstrap recovery original is unavailable: "
                                         f"{path}"
                                     )
-                                os.rename(
-                                    backup_name,
-                                    target_name,
-                                    src_dir_fd=transaction_descriptor,
-                                    dst_dir_fd=_binding_descriptor(view.parent),
+                                quarantine_name = _recovery_quarantine_name(
+                                    index,
+                                    "backup",
                                 )
+                                if view.backup_quarantine_evidence is not None:
+                                    quarantined_identity = (
+                                        _verified_quarantine_identity(
+                                            transaction_directory.binding,
+                                            quarantine_name,
+                                            expected_evidence=original,
+                                            expected_payload_identity=None,
+                                            description=(
+                                                f"bootstrap recovery backup {path}"
+                                            ),
+                                        )
+                                    )
+                                else:
+                                    quarantined_identity = (
+                                        _move_file_to_verified_quarantine(
+                                            transaction_directory.binding,
+                                            backup_name,
+                                            transaction_directory.binding,
+                                            quarantine_name,
+                                            expected_evidence=original,
+                                            description=(
+                                                f"bootstrap recovery backup {path}"
+                                            ),
+                                        )
+                                    )
+                                _restore_verified_quarantine(
+                                    transaction_directory.binding,
+                                    quarantine_name,
+                                    view.parent,
+                                    target_name,
+                                    expected_evidence=original,
+                                    expected_payload_identity=quarantined_identity,
+                                    description=f"bootstrap recovery backup {path}",
+                                )
+                                view.target_evidence = dict(original)
+                                view.backup_evidence = None
+                                view.backup_quarantine_evidence = None
                 stage_name = operation.get("stage_name")
                 if (
                     transaction_directory is not None
                     and isinstance(stage_name, str)
-                    and view.stage_evidence is not None
+                    and (
+                        view.stage_evidence is not None
+                        or view.stage_quarantine_evidence is not None
+                    )
                 ):
-                    os.unlink(stage_name, dir_fd=transaction_descriptor)
+                    expected_stage_evidence = (
+                        (
+                            view.stage_quarantine_evidence
+                            if view.stage_quarantine_evidence is not None
+                            else view.stage_evidence
+                        )
+                        if preapply
+                        else operation.get("candidate")
+                    )
+                    quarantine_name = _recovery_quarantine_name(index, "stage")
+                    if view.stage_quarantine_evidence is not None:
+                        quarantined_identity = _verified_quarantine_identity(
+                            transaction_directory.binding,
+                            quarantine_name,
+                            expected_evidence=expected_stage_evidence,
+                            expected_payload_identity=None,
+                            description=f"bootstrap recovery stage {path}",
+                        )
+                    else:
+                        quarantined_identity = _move_file_to_verified_quarantine(
+                            transaction_directory.binding,
+                            stage_name,
+                            transaction_directory.binding,
+                            quarantine_name,
+                            expected_evidence=expected_stage_evidence,
+                            description=f"bootstrap recovery stage {path}",
+                        )
+                    _retire_verified_quarantine(
+                        transaction_directory.binding,
+                        quarantine_name,
+                        expected_evidence=expected_stage_evidence,
+                        expected_payload_identity=quarantined_identity,
+                        description=f"bootstrap recovery stage {path}",
+                    )
+                    view.stage_evidence = None
+                    view.stage_quarantine_evidence = None
             else:
-                for artifact_name, artifact_evidence in (
-                    (operation.get("stage_name"), view.stage_evidence),
-                    (operation.get("backup_name"), view.backup_evidence),
+                for (
+                    artifact,
+                    artifact_name,
+                    artifact_evidence,
+                    quarantine_evidence,
+                    expected,
+                ) in (
+                    (
+                        "stage",
+                        operation.get("stage_name"),
+                        view.stage_evidence,
+                        view.stage_quarantine_evidence,
+                        operation.get("candidate"),
+                    ),
+                    (
+                        "backup",
+                        operation.get("backup_name"),
+                        view.backup_evidence,
+                        view.backup_quarantine_evidence,
+                        operation.get("original"),
+                    ),
                 ):
                     if (
                         transaction_directory is not None
                         and isinstance(artifact_name, str)
-                        and artifact_evidence is not None
+                        and (
+                            artifact_evidence is not None
+                            or quarantine_evidence is not None
+                        )
                     ):
-                        os.unlink(artifact_name, dir_fd=transaction_descriptor)
+                        quarantine_name = _recovery_quarantine_name(index, artifact)
+                        if quarantine_evidence is not None:
+                            quarantined_identity = _verified_quarantine_identity(
+                                transaction_directory.binding,
+                                quarantine_name,
+                                expected_evidence=expected,
+                                expected_payload_identity=None,
+                                description=(
+                                    f"bootstrap recovery {artifact} {path}"
+                                ),
+                            )
+                        else:
+                            quarantined_identity = _move_file_to_verified_quarantine(
+                                transaction_directory.binding,
+                                artifact_name,
+                                transaction_directory.binding,
+                                quarantine_name,
+                                expected_evidence=expected,
+                                description=(
+                                    f"bootstrap recovery {artifact} {path}"
+                                ),
+                            )
+                        _retire_verified_quarantine(
+                            transaction_directory.binding,
+                            quarantine_name,
+                            expected_evidence=expected,
+                            expected_payload_identity=quarantined_identity,
+                            description=(
+                                f"bootstrap recovery {artifact} {path}"
+                            ),
+                        )
+                        if artifact == "stage":
+                            view.stage_evidence = None
+                            view.stage_quarantine_evidence = None
+                        else:
+                            view.backup_evidence = None
+                            view.backup_quarantine_evidence = None
             if view.parent is not None:
                 os.fsync(_binding_descriptor(view.parent))
             if transaction_descriptor is not None:
                 os.fsync(transaction_descriptor)
-            _verify_project_lock(root, lock_descriptor)
+            _verify_transaction_context(root, lock_descriptor, all_bindings)
+        _verify_transaction_context(root, lock_descriptor, all_bindings)
+        terminal_errors = _recovery_terminal_state_errors(views, action=action)
+        if terminal_errors:
+            raise BootstrapTransactionError("; ".join(terminal_errors))
         cleanup_warnings = _remove_empty_transaction_directories(
             _recovery_transaction_directories(views)
         )
         if cleanup_warnings:
             raise BootstrapTransactionError("; ".join(cleanup_warnings))
+        _verify_transaction_context(root, lock_descriptor, all_bindings)
         if action == "rollback":
             created_directory_errors = _remove_created_directories(created_inside)
             if created_directory_errors:
@@ -3558,9 +5403,13 @@ def _recover_interrupted_transaction(
             retired_directory_errors = _retire_empty_directories(retired_inside)
             if retired_directory_errors:
                 raise BootstrapTransactionError("; ".join(retired_directory_errors))
+        _verify_transaction_context(root, lock_descriptor, all_bindings)
         _remove_recovery_journal_temporary(root)
+        _verify_transaction_context(root, lock_descriptor, all_bindings)
         _remove_recovery_journal(root)
+        _verify_transaction_context(root, lock_descriptor, all_bindings)
         _remove_project_lock(root, lock_descriptor)
+        _verify_bound_directories(all_bindings)
         return _clean_recovery_status()
     except BootstrapTransactionError:
         raise
@@ -3616,8 +5465,14 @@ def transactional_write_outputs(
     expected_preimage_modes: dict[str, int | None] | None = None,
     assert_preimages: dict[str, str] | None = None,
     assert_preimage_modes: dict[str, int] | None = None,
+    assert_preimage_max_bytes: Mapping[str, int | None] | None = None,
     target_modes: dict[str, int] | None = None,
     retired_directory_modes: dict[str, int] | None = None,
+    expected_project_root_identity: Mapping[str, object] | None = None,
+    expected_directory_identities: Mapping[
+        str,
+        Mapping[str, object] | None,
+    ] | None = None,
     post_install_verifier: Callable[[], None] | None = None,
     create_file_mode: int | None = None,
     create_directory_mode: int | None = None,
@@ -3634,15 +5489,21 @@ def transactional_write_outputs(
     same preimages to POSIX rwx modes. ``assert_preimages`` protects disjoint
     files without staging them. Digest and mode are sampled together while the
     exclusive project lock is held, and asserted files are checked again
-    immediately before durable commit. ``target_modes`` applies an exact mode to
-    every planned write rather than inheriting an existing mode or the creation
-    default.
+    immediately before durable commit. ``assert_preimage_max_bytes`` can impose
+    an exact per-assertion bounded-read ceiling; null retains the established
+    unbounded assertion behavior. ``target_modes`` applies an exact mode to every
+    planned write rather than inheriting an existing mode or the creation default.
     ``retire_empty_directories`` names an exact, pre-existing directory forest
     that may be removed only after verified file commit. Every directory is
     descriptor-bound, journaled by identity, optionally bound to an exact-keyed
     mode map, required to contain only the named removal topology, and removed
     non-recursively deepest-first. Rollback never retires these directories;
     exact-ID finalize may resume verified cleanup.
+    ``expected_project_root_identity`` and ``expected_directory_identities``
+    carry reviewed directory-object identities (or an approved absence for a
+    project-relative directory) into the descriptor-opening boundary. They are
+    checked and retained before the project lock, journal, staging directory,
+    or output graph can be created.
     Without ``target_modes``, explicit create modes are applied exactly to new
     files and directories after the platform umask and replacement files retain
     their original mode. ``None`` selects the standard umask-governed creation
@@ -3656,6 +5517,18 @@ def transactional_write_outputs(
     """
 
     _require_transaction_support()
+    validated_project_root_identity = (
+        None
+        if expected_project_root_identity is None
+        else _validated_expected_directory_identity(
+            expected_project_root_identity,
+            label="expected project root identity",
+            allow_absent=False,
+        )
+    )
+    validated_directory_identities = _validated_expected_directory_identities(
+        expected_directory_identities
+    )
     validated_file_mode = _validated_create_mode(create_file_mode, kind="file")
     validated_directory_mode = _validated_create_mode(
         create_directory_mode,
@@ -3814,11 +5687,18 @@ def transactional_write_outputs(
             )
     if assert_preimage_modes is not None and assert_preimages is None:
         raise ValueError("assert_preimage_modes requires assert_preimages")
+    if assert_preimage_max_bytes is not None and assert_preimages is None:
+        raise ValueError("assert_preimage_max_bytes requires assert_preimages")
     validated_assertion_modes = _validated_mode_map(
         assert_preimage_modes,
         expected_keys=set(assertions),
         label="assert_preimage_modes",
         allow_absence=False,
+    )
+    validated_assertion_max_bytes = _validated_max_bytes_map(
+        assert_preimage_max_bytes,
+        expected_keys=set(assertions),
+        label="assert_preimage_max_bytes",
     )
     all_bindings: list[_DirectoryBinding] = []
     created_bindings: list[_DirectoryBinding] = []
@@ -3833,16 +5713,44 @@ def transactional_write_outputs(
     root_binding: _DirectoryBinding | None = None
     transaction_id: str | None = None
     journal_update_started = False
+    approved_directory_bindings: dict[
+        tuple[str, ...],
+        _DirectoryBinding,
+    ] = {}
+    approved_absent_directories: list[_AbsentDirectoryBinding] = []
     try:
         root_binding = _open_project_root_transaction(
             project_root,
             all_bindings=all_bindings,
         )
+        if (
+            validated_project_root_identity is not None
+            and _directory_node_identity(
+                os.fstat(_binding_descriptor(root_binding))
+            )
+            != validated_project_root_identity
+        ):
+            raise BootstrapTransactionError(
+                "approved target project root identity changed before the "
+                "transaction opened"
+            )
+        (
+            approved_directory_bindings,
+            approved_absent_directories,
+        ) = _bind_expected_directories(
+            root_binding,
+            validated_directory_identities,
+            all_bindings=all_bindings,
+        )
+        _verify_bound_directories(all_bindings)
+        _verify_absent_directory_bindings(approved_absent_directories)
         project_lock, project_lock_created = _acquire_project_lock(
             root_binding,
             exclusive=True,
         )
         _verify_project_lock(root_binding, project_lock)
+        _verify_bound_directories(all_bindings)
+        _verify_absent_directory_bindings(approved_absent_directories)
         transaction_id = _project_lock_transaction_id(root_binding, project_lock)
         existing_journal, journal_errors = _read_recovery_journal(root_binding)
         if journal_errors:
@@ -3858,17 +5766,37 @@ def transactional_write_outputs(
             raise BootstrapTransactionError(
                 "an incomplete bootstrap recovery journal update requires inspection"
             )
+        if _journal_previous_metadata(root_binding) is not None:
+            raise BootstrapTransactionError(
+                "an incomplete bootstrap recovery journal replacement requires inspection"
+            )
         if not project_lock_created:
             raise BootstrapTransactionError(
                 "an orphaned bootstrap project transaction lock requires manual inspection"
             )
-        directory_bindings: dict[tuple[str, ...], _DirectoryBinding] = {(): root_binding}
+        directory_bindings: dict[tuple[str, ...], _DirectoryBinding] = dict(
+            approved_directory_bindings
+        )
+        approved_absent_by_parts: dict[
+            tuple[str, ...],
+            _AbsentDirectoryBinding,
+        ] = {}
+        for approved_absence in approved_absent_directories:
+            parent_parts = approved_absence.parent.project_relative_parts
+            if parent_parts is None:
+                raise BootstrapTransactionError(
+                    "approved-absent directory lacks a project-relative parent binding"
+                )
+            approved_absent_by_parts[
+                (*parent_parts, approved_absence.entry_name)
+            ] = approved_absence
 
         def verify_locked_preimages(
             expected: Mapping[str, str | None],
             *,
             purpose: str,
             expected_modes: Mapping[str, int | None] | None = None,
+            expected_max_bytes: Mapping[str, int | None] | None = None,
         ) -> None:
             for output_name in sorted(expected):
                 parts = _relative_output_parts(output_name)
@@ -3876,6 +5804,14 @@ def transactional_write_outputs(
                 parent_missing = False
                 for depth, part in enumerate(parts[:-1], start=1):
                     key = parts[:depth]
+                    _require_exact_directory_entry_spelling(
+                        parent,
+                        part,
+                        description=(
+                            f"bootstrap {purpose} preimage path "
+                            + "/".join(key)
+                        ),
+                    )
                     existing = directory_bindings.get(key)
                     if existing is not None:
                         parent = existing
@@ -3894,6 +5830,12 @@ def transactional_write_outputs(
                         parent_missing = True
                         break
                     directory_bindings[key] = parent
+                if not parent_missing:
+                    _require_exact_directory_entry_spelling(
+                        parent,
+                        parts[-1],
+                        description=f"bootstrap {purpose} preimage {output_name}",
+                    )
                 actual_evidence = (
                     None
                     if parent_missing
@@ -3901,6 +5843,11 @@ def transactional_write_outputs(
                         parent,
                         parts[-1],
                         output_name=output_name,
+                        max_bytes=(
+                            expected_max_bytes[output_name]
+                            if expected_max_bytes is not None
+                            else None
+                        ),
                     )
                 )
                 expected_mode = (
@@ -4117,6 +6064,7 @@ def transactional_write_outputs(
                 assertions,
                 purpose="asserted",
                 expected_modes=validated_assertion_modes,
+                expected_max_bytes=validated_assertion_max_bytes,
             )
         if not plans:
             if post_install_verifier is not None:
@@ -4126,15 +6074,18 @@ def transactional_write_outputs(
                     assertions,
                     purpose="asserted",
                     expected_modes=validated_assertion_modes,
+                    expected_max_bytes=validated_assertion_max_bytes,
                 )
             _remove_project_lock(root_binding, project_lock)
             return BootstrapWriteResult(written=[], cleanup_warnings=[], removed=[])
 
+        journal_bound_directories = _journal_bound_directory_records(all_bindings)
         journal: dict[str, object] = {
             "schema_version": RECOVERY_JOURNAL_SCHEMA_VERSION,
             "transaction_id": transaction_id,
             "phase": "preparing",
             "applied_count": 0,
+            "bound_directories": journal_bound_directories,
             "created_directories": [
                 {"path": "/".join(parts), "identity": None}
                 for parts in sorted(
@@ -4172,6 +6123,7 @@ def transactional_write_outputs(
             ],
         }
         _verify_bound_directories(all_bindings)
+        _verify_absent_directory_bindings(approved_absent_directories)
         _verify_project_lock(root_binding, project_lock)
         if retired_bindings:
             _verify_retirement_inventory(
@@ -4196,6 +6148,15 @@ def transactional_write_outputs(
                 if existing is not None:
                     parent = existing
                     continue
+                approved_absence = approved_absent_by_parts.get(key)
+                if (
+                    approved_absence is not None
+                    and approved_absence.parent is not parent
+                ):
+                    raise BootstrapTransactionError(
+                        "approved-absent directory parent binding changed before "
+                        f"creation: {'/'.join(key)}"
+                    )
                 parent = _open_bound_directory(
                     parent,
                     part,
@@ -4205,6 +6166,7 @@ def transactional_write_outputs(
                     created_bindings=created_bindings,
                     all_bindings=all_bindings,
                     create_mode=validated_directory_mode,
+                    require_absent=key in planned_created_parts,
                 )
                 directory_bindings[key] = parent
             original = _snapshot_output_target(
@@ -4317,6 +6279,7 @@ def transactional_write_outputs(
         journal = _render_recovery_payload(
             records,
             transaction_id=transaction_id,
+            bound_directories=journal_bound_directories,
             created_directories=created_directories,
             retired_directories=[
                 {
@@ -4365,8 +6328,10 @@ def transactional_write_outputs(
                 assertions,
                 purpose="asserted",
                 expected_modes=validated_assertion_modes,
+                expected_max_bytes=validated_assertion_max_bytes,
             )
             _verify_installed_records(records)
+        _verify_transaction_context(root_binding, project_lock, all_bindings)
         journal["phase"] = "verified"
         _write_recovery_journal(
             root_binding,
@@ -4374,24 +6339,37 @@ def transactional_write_outputs(
             require_absent=False,
             lock_descriptor=project_lock,
         )
+        _verify_transaction_context(root_binding, project_lock, all_bindings)
         committed = True
         try:
+            _verify_transaction_context(root_binding, project_lock, all_bindings)
             cleanup_warnings.extend(
                 _cleanup_committed_outputs(records, transaction_directories)
             )
+            _verify_transaction_context(root_binding, project_lock, all_bindings)
         except BaseException as exc:
             cleanup_warnings.append(
                 f"could not complete post-commit bootstrap cleanup: {exc}"
             )
         if not cleanup_warnings and retired_bindings:
-            cleanup_warnings.extend(
-                _retire_empty_directories(retired_bindings)
-            )
+            try:
+                _verify_transaction_context(root_binding, project_lock, all_bindings)
+                cleanup_warnings.extend(
+                    _retire_empty_directories(retired_bindings)
+                )
+                _verify_transaction_context(root_binding, project_lock, all_bindings)
+            except BaseException as exc:
+                cleanup_warnings.append(
+                    "could not complete verified directory retirement: " + str(exc)
+                )
         if not cleanup_warnings:
             try:
+                _verify_transaction_context(root_binding, project_lock, all_bindings)
                 _remove_recovery_journal(root_binding)
                 journal_created = False
+                _verify_transaction_context(root_binding, project_lock, all_bindings)
                 _remove_project_lock(root_binding, project_lock)
+                _verify_bound_directories(all_bindings)
             except BaseException as exc:
                 cleanup_warnings.append(
                     "could not remove verified bootstrap recovery controls: "
@@ -4423,11 +6401,59 @@ def transactional_write_outputs(
                         "could not inspect bootstrap recovery journal after failure: "
                         + "; ".join(installed_errors)
                     )
-            for record in reversed(records):
-                rollback_errors.extend(_rollback_output(record))
-            cleanup_warnings.extend(
-                _remove_empty_transaction_directories(transaction_directories)
-            )
+            if root_binding is not None and project_lock is not None:
+                try:
+                    _verify_transaction_context(
+                        root_binding,
+                        project_lock,
+                        all_bindings,
+                    )
+                except BaseException as context_exc:
+                    rollback_errors.append(
+                        "transaction directory context changed before rollback; "
+                        f"retained recovery controls: {context_exc}"
+                    )
+            if not rollback_errors:
+                for index in range(len(records) - 1, -1, -1):
+                    record = records[index]
+                    try:
+                        assert root_binding is not None and project_lock is not None
+                        _verify_transaction_context(
+                            root_binding,
+                            project_lock,
+                            all_bindings,
+                        )
+                        rollback_errors.extend(_rollback_output(record, index))
+                        _verify_transaction_context(
+                            root_binding,
+                            project_lock,
+                            all_bindings,
+                        )
+                    except BaseException as rollback_exc:
+                        rollback_errors.append(
+                            f"rollback context verification failed: {rollback_exc}"
+                        )
+                        break
+            if not rollback_errors:
+                try:
+                    assert root_binding is not None and project_lock is not None
+                    _verify_transaction_context(
+                        root_binding,
+                        project_lock,
+                        all_bindings,
+                    )
+                    cleanup_warnings.extend(
+                        _remove_empty_transaction_directories(transaction_directories)
+                    )
+                    _verify_transaction_context(
+                        root_binding,
+                        project_lock,
+                        all_bindings,
+                    )
+                except BaseException as cleanup_exc:
+                    rollback_errors.append(
+                        f"rollback cleanup context verification failed: {cleanup_exc}"
+                    )
             rollback_errors.extend(cleanup_warnings)
             created_inside_project = [
                 binding
@@ -4435,9 +6461,25 @@ def transactional_write_outputs(
                 if binding.project_relative_parts
             ]
             if not rollback_errors:
-                rollback_errors.extend(
-                    _remove_created_directories(created_inside_project)
-                )
+                try:
+                    assert root_binding is not None and project_lock is not None
+                    _verify_transaction_context(
+                        root_binding,
+                        project_lock,
+                        all_bindings,
+                    )
+                    rollback_errors.extend(
+                        _remove_created_directories(created_inside_project)
+                    )
+                    _verify_transaction_context(
+                        root_binding,
+                        project_lock,
+                        all_bindings,
+                    )
+                except BaseException as directory_exc:
+                    rollback_errors.append(
+                        f"rollback directory context verification failed: {directory_exc}"
+                    )
             if (
                 root_binding is not None
                 and journal_update_started
@@ -4468,8 +6510,18 @@ def transactional_write_outputs(
                 and not rollback_errors
             ):
                 try:
+                    _verify_transaction_context(
+                        root_binding,
+                        project_lock,
+                        all_bindings,
+                    )
                     _remove_recovery_journal(root_binding)
                     journal_created = False
+                    _verify_transaction_context(
+                        root_binding,
+                        project_lock,
+                        all_bindings,
+                    )
                 except BaseException as journal_exc:
                     rollback_errors.append(
                         "could not remove bootstrap recovery journal after "
@@ -4484,6 +6536,7 @@ def transactional_write_outputs(
             ):
                 try:
                     _remove_project_lock(root_binding, project_lock)
+                    _verify_bound_directories(all_bindings)
                 except BaseException as lock_exc:
                     rollback_errors.append(
                         f"could not remove bootstrap lock after rollback: {lock_exc}"

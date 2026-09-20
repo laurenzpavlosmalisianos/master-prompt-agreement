@@ -64,7 +64,7 @@ Shared routing triggers:
 - `check_prereqs.py` — no long options.
 - `project_contract_model.py` — `--check`, `--write`.
 - `project_bootstrap.py` — `--answers`, `--approve-write-plan-sha256`, `--contract-root`, `--create-contract-root`, `--dry-run`, `--framework-ref`, `--framework-revision-policy`, `--project-kind`, `--project-root`, `--runtime`, `--runtime-wrapper`, `--setup-profile`.
-- `project_refresh.py` — `--accept-no-post-apply-backout`, `--action`, `--answers`, `--approve-action`, `--approve-plan-sha256`, `--approve-refresh-transaction-id`, `--approve-transaction-id`, `--approve-warning`, `--backout-root`, `--candidate-input`, `--check`, `--clear-runtime-wrappers`, `--contract-root`, `--framework-ref`, `--framework-revision-policy`, `--plan`, `--project-kind`, `--project-root`, `--require-project-preimage`, `--runtime`, `--runtime-wrapper`.
+- `project_refresh.py` — `--accept-no-post-apply-backout`, `--action`, `--answers`, `--approve-action`, `--approve-plan-sha256`, `--approve-refresh-transaction-id`, `--approve-transaction-id`, `--approve-warning`, `--backout-root`, `--candidate-input`, `--check`, `--clear-runtime-wrappers`, `--contract-root`, `--framework-ref`, `--framework-revision-policy`, `--plan`, `--project-kind`, `--project-root`, `--rebind-authority-modules`, `--require-project-preimage`, `--runtime`, `--runtime-wrapper`.
 - `project_contract_sync.py` — positional operand: `project_root`; `--contract-root`, `--project-kind`, `--strict-warnings`.
 - `project_instance_lint.py` — `--contract-root`, `--framework-root`, `--project-kind`, `--project-root`.
 - `project_state_lint.py` — `--project-root`, `--root`.
@@ -78,15 +78,15 @@ Shared routing triggers:
 - `query_clause_map.py` — `--disposition`, `--home`.
 - `render_integrations.py` — `--contract-root`, `--force`, `--framework-ref`, `--framework-root`, `--integration`, `--output-dir`.
 - `link_check.py` — `--exclude-dir`, `--external`, `--include`, `--include-root-path`, `--no-anchors`, `--root`, `--timeout`.
-- `check_reference_freshness.py` — `--audit-monitor-roots`, `--format`, `--include-non-reference-docs`, `--max-age-days`, `--reference-dir`, `--resolve-hostnames`, `--root`, `--today`, `--warnings-as-errors`.
+- `check_reference_freshness.py` — `--audit-monitor-roots`, `--format`, `--hostname-resolution-timeout-seconds`, `--include-non-reference-docs`, `--max-age-days`, `--max-hostname-resolution-cache-entries`, `--max-hostname-resolution-requests`, `--max-source-bytes`, `--max-source-files`, `--max-unique-hosts`, `--reference-dir`, `--resolve-hostnames`, `--root`, `--run-deadline`, `--today`, `--warnings-as-errors`.
 - `reference_snapshot.py` — `--force`, `--github-path`, `--github-repo`, `--output`, `--ref`, `--retrieved-date`, `--source-file`, `--source-label`, `--title`, `--url`.
 - `review_packet_contract.py` — positional operand: `manifest`; `--external-status`, `--prepare-receipt`, `--validated-at`.
 - `source_chain_preflight.py` — `--artifacts-root`, `--expected-model-route`, `--expected-timezone`, `--logical-date`, `--monitor-scope`, `--project-root`, `--repair-current-slot`, `--run-slot`, `--stage`.
 - `source_chain_artifact_lint.py` — positional operands: `artifact [artifact ...]`; `--expected-execution-mode`, `--expected-model-label`, `--expected-model-route`, `--expected-reasoning-effort`, `--expected-timezone`, `--prepare-decision-hashes`, `--project-root`, `--required-policy-file`, `--stage`, `--verify-current-input-hashes`, `--verify-decision-hashes`.
 - `source_chain_status.py` — `--artifacts-root`, `--expected-model-route`, `--expected-timezone`, `--format`, `--logical-date`, `--monitor-scope`, `--project-root`, `--run-slot`.
 - `source_chain_wait.py` — `--artifact`, `--expected-execution-mode`, `--expected-model-label`, `--expected-model-route`, `--expected-reasoning-effort`, `--expected-timezone`, `--logical-date`, `--monitor-scope`, `--poll-seconds`, `--project-root`, `--run-slot`, `--stage`, `--timeout-seconds`, `--verify-current-input-hashes`.
-- `source_deep_research_lint.py` — positional operands: `artifact [artifact ...]`; `--project-root`.
-- `source_registry_access_audit.py` — `--check-robots`, `--format`, `--max-read-bytes`, `--monitor-roots-only`, `--reference-dir`, `--root`, `--timeout`, `--user-agent`, `--workers`.
+- `source_deep_research_lint.py` — positional operands: `artifact [artifact ...]`; `--max-evidence-items`, `--max-git-queries`, `--max-records`, `--project-root`, `--run-deadline`.
+- `source_registry_access_audit.py` — `--check-robots`, `--format`, `--max-read-bytes`, `--max-source-bytes`, `--max-source-entries`, `--max-source-files`, `--max-transport-requests`, `--max-unique-urls`, `--max-url-references`, `--monitor-roots-only`, `--reference-dir`, `--root`, `--run-deadline`, `--timeout`, `--user-agent`, `--workers`.
 - `automation_orders_lint.py` — positional operand: `manifest`; `--project-root`, `--target`.
 - `render_cron.py` — positional operand: `manifest`; `--force`, `--output`, `--project-root`.
 - `run_scheduled_job.py` — `--expected-job-sha256`, `--expected-runtime-bundle-sha256`, `--job-id`, `--manifest`, `--project-root`.
@@ -130,8 +130,8 @@ separately before invoking bootstrap.
 | Subcommand | Safety-relevant arguments and result |
 |---|---|
 | `candidate` | `--answers`, `--project-root`, layout/runtime options; emit canonical candidate input without changing the project. |
-| `inspect` | `--project-root`, optional `--contract-root`, optional `--check`; classify current, drift, refresh, recovery, manual-update, or newer-framework status. |
-| `plan` | `--project-root`, optional `--candidate-input`, and either `--backout-root` or explicit `--accept-no-post-apply-backout`; emit canonical plan JSON. |
+| `inspect` | `--project-root`, optional `--contract-root`, optional `--check`; classify current, drift, refresh, recovery, manual-update, or newer-framework status. Exact current-schema authority-only drift has the distinct `authority-module-rebind-required` status with `errors: []` and eligibility evidence. |
+| `plan` | `--project-root`, optional `--candidate-input`, and either `--backout-root` or explicit `--accept-no-post-apply-backout`; emit canonical plan JSON. A current schema-6 authority-digest-only recovery may instead add `--rebind-authority-modules --accept-no-post-apply-backout`. |
 | `preview` | `--project-root --plan`; expose exact target text, diffs, digests, and POSIX rwx modes without writing. |
 | `backout-create` | `--project-root --plan --backout-root`; capture plan-bound changed-path preimages. |
 | `backout-verify` | Same roots plus optional `--require-project-preimage`; verify the closed bundle and, when requested, live preimage parity. |
@@ -146,6 +146,17 @@ the governing sequence. Effective framework drift requires
 `ACCEPT-SELECTED-FRAMEWORK-CHANGE`; a changed wrapper set requires
 `REVISE-RUNTIME-WRAPPERS`. Optional-state removal requires its exact numbered
 `RETIRE-MUTABLE-####` or `RETIRE-IMMUTABLE-####` action.
+Intentional byte drift limited to receipt-recorded external authority modules
+uses the current-only, receipt-only `--rebind-authority-modules` route. Review
+the exact module bytes and require its `REBIND-AUTHORITY-MODULES`,
+`ACCEPT-NO-POST-APPLY-BACKOUT`, and warning approvals; structural, coverage,
+path, redirect, missing-file, candidate, generated-output, framework, and
+retirement changes remain blocked from that route.
+A normal schema-6 plan binds current-receipt snapshots in
+`current_authority_modules` and target-receipt snapshots in `authority_modules`;
+apply asserts their path union. The rebind route leaves the unavailable
+superseded-current list empty. Verified-bundle restore asserts the union of the
+displaced target set and restored current set.
 
 Bootstrap creates only a first instance. Refresh accepts only a verified,
 complete current-format identity and exact recorded preimage. Older, newer,
@@ -178,15 +189,15 @@ scope, grant external effects, or weaken a project verification command.
 
 | Command | Interface and purpose |
 |---|---|
-| [`check_reference_freshness.py`](check_reference_freshness.py) | Select `--root`; repeat `--reference-dir` for every local registry directory. Optional controls include `--max-age-days`, `--today`, `--include-non-reference-docs`, `--audit-monitor-roots`, `--resolve-hostnames`, `--warnings-as-errors`, and `--format`. No private directory is assumed. |
+| [`check_reference_freshness.py`](check_reference_freshness.py) | Select `--root`; repeat `--reference-dir` for every local registry directory. File/byte limits and the whole-run deadline cover the shared registry plus selected public-document snapshot. Selected documentation is inventoried and read through one descriptor-bound generation per declared root; concurrent deletion, addition, substitution, or safe-path binding failure stops the CLI with a bounded diagnostic. Hostname resolution separately bounds unique hosts, uncached requests, cache entries, and per-request time. Optional controls include `--max-age-days`, `--today`, `--include-non-reference-docs`, `--audit-monitor-roots`, `--resolve-hostnames`, `--hostname-resolution-timeout-seconds`, `--max-source-files`, `--max-source-bytes`, `--max-unique-hosts`, `--max-hostname-resolution-requests`, `--max-hostname-resolution-cache-entries`, `--run-deadline`, `--warnings-as-errors`, and `--format`. No private directory is assumed. |
 | [`reference_snapshot.py`](reference_snapshot.py) | Snapshot one approved local or external source into an explicit bounded output; network acquisition and hostname resolution remain explicit. |
 | [`review_packet_contract.py`](review_packet_contract.py) | Validate lifecycle bundles and stage provenance; optional receipt preparation requires `--prepare-receipt packet_ready|pre_submission` and timezone-aware `--validated-at`. Preparation emits a proposal and never edits the bundle. |
 | [`source_chain_preflight.py`](source_chain_preflight.py) | Require the selected project root, logical date, slot, scope, route, timezone, predecessor, and current artifact identity before a stage. |
 | [`source_chain_artifact_lint.py`](source_chain_artifact_lint.py) | Validate monitor/review/apply/assurance artifacts. `--prepare-decision-hashes` emits canonical finding hashes; normal validation can require route/timezone, model label, reasoning effort, execution mode, and exact review-packet evidence. |
 | [`source_chain_status.py`](source_chain_status.py) | Summarize terminal/success state for one date, slot, scope, route, timezone, and project root. |
 | [`source_chain_wait.py`](source_chain_wait.py) | Wait only within the declared timeout for a matching artifact; optional current-input hash checks bind monitor-to-review handoff. |
-| [`source_deep_research_lint.py`](source_deep_research_lint.py) | Validate typed browser-research digests and explicitly rooted local evidence. |
-| [`source_registry_access_audit.py`](source_registry_access_audit.py) | Perform an explicitly authorized bounded live-access audit. Repeat `--reference-dir` for selected registries; no private directory is assumed. |
+| [`source_deep_research_lint.py`](source_deep_research_lint.py) | Validate typed browser-research digests and explicitly rooted local evidence under shared record, evidence-item, Git-query, and whole-run deadline limits. Exact repeated revision-bound local evidence is queried once per run; mutable current-successor paths are revalidated. |
+| [`source_registry_access_audit.py`](source_registry_access_audit.py) | Perform an explicitly authorized bounded live-access audit. Repeat `--reference-dir` for selected registries; visited-entry, retained-file, byte, URL, transport-attempt, and whole-run limits are explicit. Safe-path binding failures become bounded structured diagnostics before any network work, and no private directory is assumed. |
 
 Network-capable helpers connect directly and ignore ambient proxy settings.
 Proxy-backed acquisition needs a separately reviewed transport. Retrieved and
@@ -207,7 +218,10 @@ These modules have no standalone command interface:
 
 - [`bootstrap_transaction.py`](bootstrap_transaction.py) — descriptor-relative
   locking, staging, installation, rollback, recovery, and verified cleanup for
-  bootstrap and refresh.
+  bootstrap and refresh. Its internal `.mpa-bootstrap-recovery.previous`
+  preservation artifact must coexist with the durable `.mpa-bootstrap.lock`,
+  and lock retirement refuses while it exists; it is therefore not a fourth
+  independent member of the public three-artifact startup gate.
 - [`bounded_subprocess.py`](bounded_subprocess.py) — finite runtime/output,
   process-group termination, and child-reaping contract.
 - [`generated_sow_text.py`](generated_sow_text.py) — shared generated-SOW

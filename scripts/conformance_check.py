@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -47,10 +50,37 @@ EXIT_INVALID_METADATA = 3
 COMMAND_TIMEOUT_SECONDS = 60.0
 COMMAND_MAX_TIMEOUT_SECONDS = bounded_subprocess.HARD_MAX_TIMEOUT_SECONDS
 COMMAND_TERMINATION_GRACE_SECONDS = 1.0
+NESTED_CHILD_SHUTDOWN_MARGIN_SECONDS = 5.0
 MAX_COMMAND_OUTPUT_BYTES = 4 * 1024 * 1024
 MAX_COMMAND_OUTPUT_LIMIT_BYTES = 16 * 1024 * 1024
+MAX_PROTOCOL_DIAGNOSTIC_BYTES = 64 * 1024
 PRODUCT_LOCAL_METADATA_ROOT_ENTRIES = frozenset({".git"})
 PYTHON_CHILD_STARTUP_FLAGS = ("-E", "-S", "-B")
+_EXACT_TREE_OPEN_SUPPORTS_DIR_FD = os.open in getattr(os, "supports_dir_fd", set())
+_EXACT_TREE_STAT_SUPPORTS_DIR_FD = os.stat in getattr(os, "supports_dir_fd", set())
+_EXACT_TREE_STAT_SUPPORTS_NOFOLLOW = os.stat in getattr(
+    os,
+    "supports_follow_symlinks",
+    set(),
+)
+_EXACT_TREE_SCANDIR_SUPPORTS_FD = os.scandir in getattr(os, "supports_fd", set())
+
+
+def nested_child_deadline_seconds(parent_timeout_seconds: float) -> float:
+    """Reserve cleanup time inside one parent-owned bounded child."""
+
+    if (
+        not isinstance(parent_timeout_seconds, (int, float))
+        or isinstance(parent_timeout_seconds, bool)
+        or not math.isfinite(float(parent_timeout_seconds))
+        or parent_timeout_seconds <= NESTED_CHILD_SHUTDOWN_MARGIN_SECONDS
+        or parent_timeout_seconds > COMMAND_MAX_TIMEOUT_SECONDS
+    ):
+        raise ValueError(
+            "nested child parent timeout must be finite, exceed the shutdown "
+            f"margin, and be at most {COMMAND_MAX_TIMEOUT_SECONDS:g}"
+        )
+    return float(parent_timeout_seconds) - NESTED_CHILD_SHUTDOWN_MARGIN_SECONDS
 
 
 def trusted_python_child(script: Path, *args: str) -> list[str]:
@@ -136,6 +166,40 @@ class CommandCapture:
         return "\n".join(
             part for part in (self.stdout, self.stderr) if part
         )
+
+
+@dataclass(frozen=True)
+class _ExactTreeDirectoryEdge:
+    """One retained parent/name binding for a traversed product directory."""
+
+    descriptor: int
+    parent_descriptor: int
+    name: str
+    relative: str
+    identity: tuple[int, int, int]
+
+
+@dataclass(frozen=True)
+class _ExactTreeEntryEdge:
+    """One observed product entry retained for no-follow name rechecks."""
+
+    parent_descriptor: int
+    name: str
+    relative: str
+    identity: tuple[int, int, int]
+
+
+@dataclass(frozen=True)
+class _ExactTreeDirectorySnapshot:
+    """One bounded directory-name snapshot retained for terminal comparison."""
+
+    descriptor: int
+    relative: str
+    names: frozenset[str]
+
+
+class _ExactProductTreeFailure(Exception):
+    """A bounded exact-tree traversal found its first unsafe condition."""
 
 
 CheckReturn = list[str] | CheckOutcome
@@ -662,6 +726,36 @@ def _decode_capture_stream(
         )
 
 
+def bounded_diagnostic_text(
+    value: object,
+    *,
+    max_bytes: int = MAX_PROTOCOL_DIAGNOSTIC_BYTES,
+) -> str:
+    """Sanitize controls and bound one diagnostic copied across a process hop."""
+
+    if not isinstance(max_bytes, int) or isinstance(max_bytes, bool) or max_bytes <= 0:
+        raise ValueError("diagnostic byte limit must be a positive integer")
+    text = str(value)
+    visible = "".join(
+        character
+        if character in {"\n", "\t"} or 0x20 <= ord(character) < 0x7F
+        or ord(character) >= 0xA0
+        else f"\\x{ord(character):02x}"
+        for character in text
+    )
+    encoded = visible.encode("utf-8", errors="replace")
+    if len(encoded) <= max_bytes:
+        return visible
+    marker = f"\n...[diagnostic truncated from {len(encoded)} bytes]"
+    marker_bytes = marker.encode("ascii")
+    if len(marker_bytes) >= max_bytes:
+        return marker_bytes[:max_bytes].decode("ascii", errors="ignore")
+    return (
+        encoded[: max_bytes - len(marker_bytes)].decode("utf-8", errors="ignore")
+        + marker
+    )
+
+
 def run_command_capture(
     label: str,
     cmd: list[str],
@@ -779,7 +873,7 @@ def structured_capture_failures(
     if capture.stderr:
         failures.append(
             f"{label} violated structured-report protocol: stderr must be empty: "
-            f"{capture.stderr}"
+            f"{bounded_diagnostic_text(capture.stderr)}"
         )
     return failures
 
@@ -1171,24 +1265,56 @@ def check_required_directories(root: Path, directories: list[str]) -> list[str]:
     return required_directory_diagnostics(root, directories)[0]
 
 
-def _exact_product_tree_errors(root: Path) -> list[str]:
-    """Return the first bounded exact-tree contamination diagnostic.
+def _exact_tree_identity(metadata: os.stat_result) -> tuple[int, int, int]:
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        stat.S_IFMT(metadata.st_mode),
+    )
 
-    Required-file validation owns completeness.  This pass therefore walks
-    only directories declared by the positive product manifest, streams each
-    directory, and stops at the first entry that is undeclared or unsafe.  A
-    conforming directory can expose no more names than the manifest-derived
-    set below; repeated names also fail closed so an abnormal iterator cannot
-    drive unbounded work.
+
+def _exact_product_tree_support_error() -> str | None:
+    missing: list[str] = []
+    if not _EXACT_TREE_OPEN_SUPPORTS_DIR_FD:
+        missing.append("os.open(dir_fd)")
+    if not _EXACT_TREE_STAT_SUPPORTS_DIR_FD:
+        missing.append("os.stat(dir_fd)")
+    if not _EXACT_TREE_STAT_SUPPORTS_NOFOLLOW:
+        missing.append("os.stat(follow_symlinks=False)")
+    if not _EXACT_TREE_SCANDIR_SUPPORTS_FD:
+        missing.append("os.scandir(fd)")
+    for flag_name in ("O_DIRECTORY", "O_NOFOLLOW"):
+        value = getattr(os, flag_name, None)
+        if not isinstance(value, int) or value == 0:
+            missing.append(flag_name)
+    if not missing:
+        return None
+    return (
+        "exact product tree inspection requires descriptor-safe filesystem "
+        "primitives: " + ", ".join(missing)
+    )
+
+
+def _exact_product_tree_errors(
+    root: Path,
+    *,
+    _test_hook: Callable[[str, str, tuple[int, int, int]], None] | None = None,
+) -> list[str]:
+    """Return the first bounded exact-tree conformance diagnostic.
+
+    This pass binds the root once and owns completeness, entry types, and
+    contamination checks for exact mode.  It walks only manifest-declared
+    directories through retained no-follow descriptors and stops at the first
+    missing, undeclared, or unsafe entry.  A conforming directory can expose no
+    more names than the manifest-derived set below; repeated names also fail
+    closed so an abnormal iterator cannot drive unbounded work.
+    ``_test_hook`` is an internal deterministic race seam; production callers
+    never supply it.
     """
 
-    try:
-        safe_paths.validate_directory_no_follow(
-            root,
-            description="exact product distribution root",
-        )
-    except (OSError, ValueError) as exc:
-        return [f"exact product distribution root is unsafe: {exc}"]
+    support_error = _exact_product_tree_support_error()
+    if support_error is not None:
+        return [support_error]
 
     declared_children: dict[str, set[str]] = {}
     for relative in (
@@ -1198,22 +1324,239 @@ def _exact_product_tree_errors(root: Path) -> list[str]:
         parent, _separator, name = relative.rpartition("/")
         declared_children.setdefault(parent, set()).add(name)
 
-    pending: list[tuple[Path, str]] = [(root, "")]
-    while pending:
-        directory, relative_directory = pending.pop()
-        permitted_names = set(declared_children.get(relative_directory, set()))
-        if not relative_directory:
-            permitted_names.update(PRODUCT_LOCAL_METADATA_ROOT_ENTRIES)
-        observed_names: set[str] = set()
+    directory_flag = getattr(os, "O_DIRECTORY")
+    no_follow_flag = getattr(os, "O_NOFOLLOW")
+    directory_flags = (
+        os.O_RDONLY
+        | directory_flag
+        | no_follow_flag
+        | getattr(os, "O_CLOEXEC", 0)
+    )
+    try:
+        root_binding = safe_paths.open_output_directory(
+            root,
+            create_missing=False,
+        )
+    except (OSError, ValueError, safe_paths.OutputDirectoryBindingError) as exc:
+        return [f"exact product distribution root is unsafe: {exc}"]
+
+    opened_directories: list[_ExactTreeDirectoryEdge] = []
+    observed_entries: list[_ExactTreeEntryEdge] = []
+    directory_snapshots: list[_ExactTreeDirectorySnapshot] = []
+    result: list[str] = []
+    cleanup_errors: list[str] = []
+
+    @contextmanager
+    def fresh_directory_entries(
+        directory_descriptor: int,
+        relative_directory: str,
+        *,
+        operation: str,
+    ) -> Iterator[Any]:
+        """Enumerate through a fresh open description without sharing offsets."""
+
+        label = relative_directory or "."
+        scan_descriptor: int | None = None
         try:
-            with os.scandir(directory) as iterator:
+            scan_descriptor = os.open(
+                ".",
+                directory_flags,
+                dir_fd=directory_descriptor,
+            )
+            if _exact_tree_identity(
+                os.fstat(scan_descriptor)
+            ) != _exact_tree_identity(os.fstat(directory_descriptor)):
+                raise _ExactProductTreeFailure(
+                    "product distribution directory binding changed before "
+                    f"{operation}: {label}"
+                )
+            with os.scandir(scan_descriptor) as iterator:
+                yield iterator
+        except OSError as exc:
+            raise _ExactProductTreeFailure(
+                f"could not {operation} product directory {label}: {exc}"
+            ) from exc
+        finally:
+            if scan_descriptor is not None:
+                primary = sys.exception()
+                try:
+                    os.close(scan_descriptor)
+                except OSError as cleanup:
+                    cleanup_diagnostic = (
+                        "could not close product directory scan descriptor "
+                        f"{label}: {_bounded_exception_detail(cleanup)}"
+                    )
+                    cleanup_errors.append(cleanup_diagnostic)
+                    if primary is not None:
+                        primary.add_note(cleanup_diagnostic)
+                    else:
+                        raise _ExactProductTreeFailure(
+                            cleanup_diagnostic
+                        ) from cleanup
+
+    def require_same_names(
+        directory_descriptor: int,
+        relative_directory: str,
+        expected_names: frozenset[str],
+    ) -> None:
+        label = relative_directory or "."
+        current_names: set[str] = set()
+        with fresh_directory_entries(
+            directory_descriptor,
+            relative_directory,
+            operation="re-enumerate",
+        ) as iterator:
+            for entry in iterator:
+                if entry.name in current_names:
+                    raise _ExactProductTreeFailure(
+                        "product distribution directory enumeration "
+                        f"repeated an entry name in {label}"
+                    )
+                current_names.add(entry.name)
+                if entry.name not in expected_names:
+                    raise _ExactProductTreeFailure(
+                        "product distribution directory entries changed "
+                        f"during traversal: {label}"
+                    )
+        if current_names != expected_names:
+            raise _ExactProductTreeFailure(
+                "product distribution directory entries changed during "
+                f"traversal: {label}"
+            )
+
+    def require_same_entry(edge: _ExactTreeEntryEdge) -> None:
+        try:
+            current = os.stat(
+                edge.name,
+                dir_fd=edge.parent_descriptor,
+                follow_symlinks=False,
+            )
+        except OSError as exc:
+            raise _ExactProductTreeFailure(
+                "product distribution entry name changed during traversal: "
+                f"{edge.relative}: {exc}"
+            ) from exc
+        if _exact_tree_identity(current) != edge.identity:
+            raise _ExactProductTreeFailure(
+                "product distribution entry name changed during traversal: "
+                f"{edge.relative}"
+            )
+
+    def bind_directory(entry_edge: _ExactTreeEntryEdge) -> int:
+        if _test_hook is not None:
+            _test_hook(
+                "before_directory_open",
+                entry_edge.relative,
+                entry_edge.identity,
+            )
+        try:
+            child_descriptor = os.open(
+                entry_edge.name,
+                directory_flags,
+                dir_fd=entry_edge.parent_descriptor,
+            )
+        except OSError as exc:
+            try:
+                current = os.stat(
+                    entry_edge.name,
+                    dir_fd=entry_edge.parent_descriptor,
+                    follow_symlinks=False,
+                )
+            except OSError:
+                current = None
+            if (
+                current is None
+                or _exact_tree_identity(current) != entry_edge.identity
+            ):
+                raise _ExactProductTreeFailure(
+                    "product distribution directory changed before traversal: "
+                    f"{entry_edge.relative}"
+                ) from exc
+            raise _ExactProductTreeFailure(
+                "could not bind enumerated product directory without following "
+                f"links: {entry_edge.relative}: {exc}"
+            ) from exc
+        edge = _ExactTreeDirectoryEdge(
+            descriptor=child_descriptor,
+            parent_descriptor=entry_edge.parent_descriptor,
+            name=entry_edge.name,
+            relative=entry_edge.relative,
+            identity=entry_edge.identity,
+        )
+        opened_directories.append(edge)
+        opened = os.fstat(child_descriptor)
+        if (
+            not stat.S_ISDIR(opened.st_mode)
+            or _exact_tree_identity(opened) != edge.identity
+        ):
+            raise _ExactProductTreeFailure(
+                "product distribution directory changed before traversal: "
+                f"{entry_edge.relative}"
+            )
+        if _test_hook is not None:
+            _test_hook(
+                "after_directory_open",
+                entry_edge.relative,
+                _exact_tree_identity(opened),
+            )
+        try:
+            named_after_open = os.stat(
+                entry_edge.name,
+                dir_fd=entry_edge.parent_descriptor,
+                follow_symlinks=False,
+            )
+        except OSError as exc:
+            raise _ExactProductTreeFailure(
+                "product distribution directory name changed before traversal: "
+                f"{entry_edge.relative}: {exc}"
+            ) from exc
+        if (
+            not stat.S_ISDIR(named_after_open.st_mode)
+            or _exact_tree_identity(named_after_open) != edge.identity
+        ):
+            raise _ExactProductTreeFailure(
+                "product distribution directory name changed before traversal: "
+                f"{entry_edge.relative}"
+            )
+        return child_descriptor
+
+    try:
+        pending: list[tuple[int, str] | _ExactTreeEntryEdge] = [
+            (root_binding.descriptor, "")
+        ]
+        while pending:
+            pending_directory = pending.pop()
+            if isinstance(pending_directory, _ExactTreeEntryEdge):
+                directory_descriptor = bind_directory(pending_directory)
+                relative_directory = pending_directory.relative
+            else:
+                directory_descriptor, relative_directory = pending_directory
+            permitted_names = set(
+                declared_children.get(relative_directory, set())
+            )
+            if not relative_directory:
+                permitted_names.update(PRODUCT_LOCAL_METADATA_ROOT_ENTRIES)
+            observed_names: set[str] = set()
+            directory_entries: list[_ExactTreeEntryEdge] = []
+            directories_to_open: list[_ExactTreeEntryEdge] = []
+            label = relative_directory or "."
+            if _test_hook is not None:
+                _test_hook(
+                    "before_directory_enumeration",
+                    label,
+                    _exact_tree_identity(os.fstat(directory_descriptor)),
+                )
+            with fresh_directory_entries(
+                directory_descriptor,
+                relative_directory,
+                operation="enumerate",
+            ) as iterator:
                 for entry in iterator:
-                    label = relative_directory or "."
                     if entry.name in observed_names:
-                        return [
-                            "product distribution directory enumeration repeated "
-                            f"an entry name in {label}"
-                        ]
+                        raise _ExactProductTreeFailure(
+                            "product distribution directory enumeration "
+                            f"repeated an entry name in {label}"
+                        )
                     observed_names.add(entry.name)
 
                     relative = (
@@ -1221,47 +1564,202 @@ def _exact_product_tree_errors(root: Path) -> list[str]:
                         if relative_directory
                         else entry.name
                     )
+                    if _test_hook is not None:
+                        _test_hook(
+                            "before_entry_stat",
+                            relative,
+                            _exact_tree_identity(
+                                os.fstat(directory_descriptor)
+                            ),
+                        )
                     try:
-                        metadata = entry.stat(follow_symlinks=False)
+                        metadata = os.stat(
+                            entry.name,
+                            dir_fd=directory_descriptor,
+                            follow_symlinks=False,
+                        )
                     except OSError as exc:
-                        return [
-                            f"could not inspect product tree entry {relative}: {exc}"
-                        ]
+                        raise _ExactProductTreeFailure(
+                            "could not inspect product tree entry "
+                            f"{relative}: {exc}"
+                        ) from exc
                     mode = metadata.st_mode
                     if stat.S_ISLNK(mode):
-                        return [f"product distribution contains symlink: {relative}"]
+                        raise _ExactProductTreeFailure(
+                            "product distribution contains symlink: "
+                            f"{relative}"
+                        )
                     if (
                         not relative_directory
                         and entry.name in PRODUCT_LOCAL_METADATA_ROOT_ENTRIES
                     ):
                         if not (stat.S_ISDIR(mode) or stat.S_ISREG(mode)):
-                            return [
-                                "product local metadata entry has unsupported type: "
-                                f"{relative}"
-                            ]
+                            raise _ExactProductTreeFailure(
+                                "product local metadata entry has unsupported "
+                                f"type: {relative}"
+                            )
+                        edge = _ExactTreeEntryEdge(
+                            parent_descriptor=directory_descriptor,
+                            name=entry.name,
+                            relative=relative,
+                            identity=_exact_tree_identity(metadata),
+                        )
+                        observed_entries.append(edge)
+                        directory_entries.append(edge)
                         continue
                     if stat.S_ISDIR(mode):
                         if (
                             entry.name not in permitted_names
-                            or relative not in product_manifest.PRODUCT_DIRECTORY_PATHS
+                            or relative
+                            not in product_manifest.PRODUCT_DIRECTORY_PATHS
                         ):
-                            return [f"undeclared product directory: {relative}"]
-                        pending.append((directory / entry.name, relative))
+                            raise _ExactProductTreeFailure(
+                                f"undeclared product directory: {relative}"
+                            )
+                        entry_edge = _ExactTreeEntryEdge(
+                            parent_descriptor=directory_descriptor,
+                            name=entry.name,
+                            relative=relative,
+                            identity=_exact_tree_identity(metadata),
+                        )
+                        observed_entries.append(entry_edge)
+                        directory_entries.append(entry_edge)
+                        directories_to_open.append(entry_edge)
                         continue
                     if stat.S_ISREG(mode):
                         if (
                             entry.name not in permitted_names
-                            or relative not in product_manifest.PRODUCT_REQUIRED_FILE_SET
+                            or relative
+                            not in product_manifest.PRODUCT_REQUIRED_FILE_SET
                         ):
-                            return [f"undeclared product file: {relative}"]
+                            raise _ExactProductTreeFailure(
+                                f"undeclared product file: {relative}"
+                            )
+                        edge = _ExactTreeEntryEdge(
+                            parent_descriptor=directory_descriptor,
+                            name=entry.name,
+                            relative=relative,
+                            identity=_exact_tree_identity(metadata),
+                        )
+                        observed_entries.append(edge)
+                        directory_entries.append(edge)
                         continue
-                    return [
-                        f"product distribution contains special entry: {relative}"
-                    ]
+                    raise _ExactProductTreeFailure(
+                        "product distribution contains special entry: "
+                        f"{relative}"
+                    )
+            missing_names = sorted(
+                declared_children.get(relative_directory, set())
+                - observed_names
+            )
+            if missing_names:
+                missing_name = missing_names[0]
+                missing_relative = (
+                    f"{relative_directory}/{missing_name}"
+                    if relative_directory
+                    else missing_name
+                )
+                if missing_relative in product_manifest.PRODUCT_DIRECTORY_PATHS:
+                    raise _ExactProductTreeFailure(
+                        f"missing product directory: {missing_relative}"
+                    )
+                raise _ExactProductTreeFailure(
+                    f"missing product file: {missing_relative}"
+                )
+            snapshot = _ExactTreeDirectorySnapshot(
+                descriptor=directory_descriptor,
+                relative=relative_directory,
+                names=frozenset(observed_names),
+            )
+            directory_snapshots.append(snapshot)
+            if _test_hook is not None:
+                _test_hook(
+                    "after_directory_enumeration",
+                    label,
+                    _exact_tree_identity(os.fstat(directory_descriptor)),
+                )
+            require_same_names(
+                snapshot.descriptor,
+                snapshot.relative,
+                snapshot.names,
+            )
+            for edge in directory_entries:
+                require_same_entry(edge)
+            pending.extend(directories_to_open)
+
+        for snapshot in directory_snapshots:
+            require_same_names(
+                snapshot.descriptor,
+                snapshot.relative,
+                snapshot.names,
+            )
+        for entry_edge in observed_entries:
+            require_same_entry(entry_edge)
+        for edge in opened_directories:
+            if _test_hook is not None:
+                _test_hook(
+                    "before_directory_edge_recheck",
+                    edge.relative,
+                    edge.identity,
+                )
+            try:
+                named = os.stat(
+                    edge.name,
+                    dir_fd=edge.parent_descriptor,
+                    follow_symlinks=False,
+                )
+                opened = os.fstat(edge.descriptor)
+            except OSError as exc:
+                raise _ExactProductTreeFailure(
+                    "product distribution directory name changed during "
+                    f"traversal: {edge.relative}: {exc}"
+                ) from exc
+            if (
+                not stat.S_ISDIR(named.st_mode)
+                or not stat.S_ISDIR(opened.st_mode)
+                or _exact_tree_identity(named) != edge.identity
+                or _exact_tree_identity(opened) != edge.identity
+            ):
+                raise _ExactProductTreeFailure(
+                    "product distribution directory name changed during "
+                    f"traversal: {edge.relative}"
+                )
+        if _test_hook is not None:
+            _test_hook(
+                "before_root_edge_recheck",
+                ".",
+                _exact_tree_identity(os.fstat(root_binding.descriptor)),
+            )
+        try:
+            root_binding.require_lexical_binding(
+                description="exact product distribution root",
+            )
+        except (OSError, ValueError) as exc:
+            raise _ExactProductTreeFailure(
+                "product distribution root name changed during traversal: "
+                f"{_bounded_exception_detail(exc)}"
+            ) from exc
+    except _ExactProductTreeFailure as exc:
+        result = [str(exc)]
+    except (OSError, ValueError) as exc:
+        result = [f"could not inspect product tree safely: {exc}"]
+    finally:
+        for edge in reversed(opened_directories):
+            try:
+                os.close(edge.descriptor)
+            except OSError as exc:
+                cleanup_errors.append(
+                    "could not close product directory descriptor "
+                    f"{edge.relative}: {_bounded_exception_detail(exc)}"
+                )
+        try:
+            root_binding.close()
         except OSError as exc:
-            label = relative_directory or "."
-            return [f"could not enumerate product directory {label}: {exc}"]
-    return []
+            cleanup_errors.append(
+                "could not close exact product distribution root: "
+                f"{_bounded_exception_detail(exc)}"
+            )
+    return ordered_unique([*result, *cleanup_errors[:1]])
 
 
 def check_framework_product_files(
@@ -1269,6 +1767,8 @@ def check_framework_product_files(
     *,
     exact_product_tree: bool = False,
 ) -> list[str]:
+    if exact_product_tree:
+        return _exact_product_tree_errors(root)
     errors: list[str] = []
     for rel in product_manifest.PRODUCT_REQUIRED_FILES:
         path = root / rel
@@ -1281,8 +1781,6 @@ def check_framework_product_files(
         )
         if not path.exists() and not path.is_symlink():
             errors.append(f"missing product file: {rel}")
-    if exact_product_tree:
-        errors.extend(_exact_product_tree_errors(root))
     return ordered_unique(errors)
 
 
@@ -1412,6 +1910,7 @@ def check_source_freshness_metadata(
     errors = check_required_files(contract_root, ["SOURCE_PACKS.md", "SOURCE_UPDATE.md"])
     if errors:
         return errors
+    child_deadline = nested_child_deadline_seconds(COMMAND_TIMEOUT_SECONDS)
     return run_json_child(
         "check-reference-freshness",
         trusted_python_child(
@@ -1420,12 +1919,15 @@ def check_source_freshness_metadata(
             str(contract_root),
             "--audit-monitor-roots",
             "--warnings-as-errors",
+            "--run-deadline",
+            f"{child_deadline:g}",
             "--format",
             "json",
         ),
         FRAMEWORK_ROOT,
         item_renderer=_source_report_item,
         warnings_fail=True,
+        timeout_seconds=COMMAND_TIMEOUT_SECONDS,
     )
 
 

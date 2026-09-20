@@ -104,7 +104,7 @@ import safe_paths
 
 
 FRAMEWORK_ROOT = Path(__file__).resolve().parent.parent
-PLAN_SCHEMA_VERSION = 4
+PLAN_SCHEMA_VERSION = 6
 PLAN_KIND = "master-prompt-agreement-project-refresh"
 EXIT_BLOCKED = 1
 EXIT_INVOCATION = 2
@@ -120,6 +120,7 @@ PLAN_KEYS = frozenset(
         "project_root",
         "current_contract_root",
         "target_contract_root",
+        "target_directory_binding",
         "mode",
         "framework_content_sha256",
         "framework_distribution_sha256",
@@ -128,6 +129,8 @@ PLAN_KEYS = frozenset(
         "current_instance_sha256",
         "target_input",
         "target_input_sha256",
+        "current_authority_modules",
+        "authority_modules",
         "current_files",
         "target_files",
         "operations",
@@ -141,6 +144,10 @@ PLAN_KEYS = frozenset(
         "plan_sha256",
     }
 )
+TARGET_DIRECTORY_BINDING_KEYS = frozenset(
+    {"project_root_identity", "directory_identities"}
+)
+DIRECTORY_IDENTITY_KEYS = frozenset({"device", "inode", "file_type"})
 OPERATION_KEYS = frozenset(
     {
         "action",
@@ -154,6 +161,9 @@ OPERATION_KEYS = frozenset(
     }
 )
 WARNING_KEYS = frozenset({"id", "message"})
+AUTHORITY_MODULE_PLAN_KEYS = frozenset(
+    {"label", "path", "sha256", "mode"}
+)
 BACKOUT_BUNDLE_SCHEMA_VERSION = 3
 BACKOUT_BUNDLE_KIND = "master-prompt-agreement-refresh-backout-bundle"
 BACKOUT_BUNDLE_MANIFEST = "BACKOUT_BUNDLE.json"
@@ -188,6 +198,7 @@ class CurrentInstance:
     retained_input: dict[str, object]
     input_raw: bytes
     current_files: dict[str, str]
+    authority_module_rebind_required: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -221,6 +232,123 @@ def _is_sha256(value: object) -> bool:
         and len(value) == 64
         and all(character in "0123456789abcdef" for character in value)
     )
+
+
+def _authority_module_snapshot_records(
+    project_root: Path,
+    manifest: Mapping[str, object],
+    *,
+    include_text: bool = False,
+) -> tuple[list[dict[str, object]], list[str]]:
+    """Bind live authority bytes and modes to the rendered receipt records."""
+
+    raw_records = manifest.get("authority_module_digests")
+    if not isinstance(raw_records, list):
+        return [], ["rendered authority-module records are unavailable"]
+    snapshots: list[dict[str, object]] = []
+    errors: list[str] = []
+    for index, raw_record in enumerate(raw_records):
+        label = f"authority_module_digests[{index}]"
+        if (
+            not isinstance(raw_record, dict)
+            or set(raw_record) != project_bootstrap.AUTHORITY_MODULE_DIGEST_KEYS
+        ):
+            errors.append(f"{label} does not use the closed receipt schema")
+            continue
+        canonical_label = raw_record.get("label")
+        raw_path = raw_record.get("path")
+        expected_digest = raw_record.get("sha256")
+        if (
+            not isinstance(canonical_label, str)
+            or not canonical_label
+            or not isinstance(raw_path, str)
+            or not raw_path
+            or not _is_sha256(expected_digest)
+        ):
+            errors.append(f"{label} is malformed")
+            continue
+        try:
+            path = safe_paths.normalize_repo_relative_path(
+                raw_path,
+                project_root,
+                description=f"authority module {canonical_label}",
+            )
+            if path != raw_path:
+                raise ValueError(
+                    f"authority module path must use canonical form: {raw_path}"
+                )
+            raw, mode = safe_paths.read_regular_file_bytes_and_mode(
+                project_root / path,
+                description=f"authority module {canonical_label}",
+                max_bytes=project_bootstrap.AUTHORITY_MODULE_MAX_BYTES,
+            )
+        except (FileNotFoundError, OSError, ValueError) as exc:
+            errors.append(
+                f"authority module could not be snapshot safely: "
+                f"{canonical_label}: {raw_path}: {exc}"
+            )
+            continue
+        digest = _sha256(raw)
+        if digest != expected_digest:
+            errors.append(
+                "authority module changed while the refresh plan was built: "
+                f"{canonical_label}: {path}"
+            )
+            continue
+        snapshot: dict[str, object] = {
+            "label": canonical_label,
+            "path": path,
+            "sha256": digest,
+            "mode": mode,
+        }
+        if include_text:
+            try:
+                snapshot["text"] = raw.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                errors.append(
+                    "authority module cannot be represented as exact UTF-8 review "
+                    f"text: {canonical_label}: {path}: {exc}"
+                )
+                continue
+        snapshots.append(snapshot)
+    return snapshots, errors
+
+
+def _authority_module_assertion_maps(
+    *record_sets: tuple[str, list[dict[str, object]]],
+) -> tuple[dict[str, str], dict[str, int], list[str]]:
+    """Merge reviewed authority snapshots by path without hiding divergence."""
+
+    digests: dict[str, str] = {}
+    modes: dict[str, int] = {}
+    owners: dict[str, str] = {}
+    errors: list[str] = []
+    for scope, records in record_sets:
+        for record in records:
+            path = record.get("path")
+            digest = record.get("sha256")
+            mode = record.get("mode")
+            if (
+                not isinstance(path, str)
+                or not _is_sha256(digest)
+                or not _is_posix_rwx_mode(mode)
+            ):
+                errors.append(
+                    f"{scope} authority snapshot cannot form an exact path assertion"
+                )
+                continue
+            if path in digests and (
+                digests[path] != digest or modes[path] != mode
+            ):
+                errors.append(
+                    "current and target authority snapshots disagree for one path: "
+                    f"{path} ({owners[path]} versus {scope})"
+                )
+                continue
+            digests[path] = cast(str, digest)
+            modes[path] = cast(int, mode)
+            owners.setdefault(path, scope)
+    return digests, modes, errors
 
 
 def _is_posix_rwx_mode(value: object) -> bool:
@@ -272,6 +400,18 @@ def _optional_state_retirement_warning(path: str, category: str) -> str:
             "the plan's selected and approved post-apply backout basis"
         )
     raise ValueError(f"optional-state retirement category is invalid: {category}")
+
+
+def _authority_module_rebind_warning() -> str:
+    """Describe the exact residual effect of an intentional digest rebind."""
+
+    return (
+        "authority-module digest rebind updates the project instance receipt to "
+        "bind the exact reviewed module bytes rendered in this plan. The authority "
+        "modules remain outside managed outputs, so the lifecycle transaction cannot "
+        "restore their earlier bytes; apply therefore requires explicit acceptance of "
+        "no post-apply semantic backout"
+    )
 
 
 def _manual_update_error(message: str) -> str:
@@ -374,6 +514,146 @@ def _contract_root(
     return contract_root, ([error] if error is not None else [])
 
 
+def _refresh_directory_identity_bindings(
+    project_root: Path,
+    contract_root_ref: str,
+) -> tuple[
+    dict[str, int] | None,
+    dict[str, dict[str, int] | None],
+    list[str],
+]:
+    """Capture final-rebuild directory identities immediately before mutation."""
+
+    try:
+        project_identity = project_bootstrap.target_directory_identity(
+            project_root
+        )
+        contract_root, contract_errors = _contract_root(
+            project_root,
+            contract_root_ref,
+        )
+        if contract_errors:
+            return None, {}, contract_errors
+        contract_identity = project_bootstrap.target_directory_identity(
+            contract_root
+        )
+        directory_identities = (
+            project_bootstrap.target_directory_identity_bindings(
+                project_root,
+                contract_root,
+            )
+        )
+    except (OSError, ValueError) as exc:
+        return None, {}, [f"refresh target directory identity failed: {exc}"]
+    if project_identity is None:
+        return None, {}, ["refresh target project root disappeared before mutation"]
+    if contract_identity is None:
+        return None, {}, [
+            "refresh target contract root disappeared before mutation: "
+            + contract_root_ref
+        ]
+    return (
+        project_identity,
+        directory_identities,
+        [],
+    )
+
+
+def _directory_identity_record_errors(
+    value: object,
+    label: str,
+    *,
+    allow_absent: bool,
+) -> list[str]:
+    """Validate one closed, JSON-safe directory identity record."""
+
+    if value is None:
+        return [] if allow_absent else [f"{label} must identify a directory"]
+    if not isinstance(value, dict) or set(value) != DIRECTORY_IDENTITY_KEYS:
+        return [
+            f"{label} keys must be exactly: "
+            + ", ".join(sorted(DIRECTORY_IDENTITY_KEYS))
+        ]
+    fields = [value.get(key) for key in ("device", "inode", "file_type")]
+    if any(type(field) is not int or field < 0 for field in fields):
+        return [f"{label} fields must be non-negative non-boolean integers"]
+    if fields[2] != stat.S_IFDIR:
+        return [f"{label} must identify a directory"]
+    return []
+
+
+def _target_directory_binding_errors(
+    value: object,
+    *,
+    project_root: Path | None,
+    contract_root_ref: str | None,
+) -> list[str]:
+    """Validate the exact reviewed directory chain embedded in one plan."""
+
+    label = "refresh plan target_directory_binding"
+    if not isinstance(value, dict) or set(value) != TARGET_DIRECTORY_BINDING_KEYS:
+        return [
+            f"{label} keys must be exactly: "
+            + ", ".join(sorted(TARGET_DIRECTORY_BINDING_KEYS))
+        ]
+    errors = _directory_identity_record_errors(
+        value.get("project_root_identity"),
+        f"{label}.project_root_identity",
+        allow_absent=False,
+    )
+    raw_directories = value.get("directory_identities")
+    if not isinstance(raw_directories, dict) or not raw_directories:
+        errors.append(f"{label}.directory_identities must be a non-empty object")
+        return errors
+    normalized: dict[str, object] = {}
+    for raw_path, identity in raw_directories.items():
+        entry_label = f"{label}.directory_identities[{raw_path!r}]"
+        if not isinstance(raw_path, str):
+            errors.append(f"{entry_label} path must be a string")
+            continue
+        if raw_path == ".":
+            canonical = "."
+        else:
+            try:
+                canonical = safe_paths.normalize_repo_relative_path(
+                    raw_path,
+                    project_root or Path("/__mpa_refresh_plan__"),
+                    description=f"{entry_label} path",
+                )
+            except ValueError as exc:
+                errors.append(str(exc))
+                continue
+            if canonical != raw_path:
+                errors.append(f"{entry_label} path must use canonical form")
+        normalized[canonical] = identity
+        errors.extend(
+            _directory_identity_record_errors(
+                identity,
+                entry_label,
+                allow_absent=False,
+            )
+        )
+    if contract_root_ref == ".":
+        if set(normalized) != {"."}:
+            errors.append(
+                f"{label}.directory_identities must contain only '.' for a root contract"
+            )
+        elif normalized.get(".") != value.get("project_root_identity"):
+            errors.append(
+                f"{label} root and contract-root identities must match"
+            )
+    elif isinstance(contract_root_ref, str):
+        parts = tuple(contract_root_ref.split("/"))
+        expected_paths = {
+            "/".join(parts[:depth]) for depth in range(1, len(parts) + 1)
+        }
+        if set(normalized) != expected_paths:
+            errors.append(
+                f"{label}.directory_identities must exactly bind every contract-root parent edge"
+            )
+    return errors
+
+
 def _resolve_contract_root_selection(
     project_root: Path,
     supplied_contract_root: str | None,
@@ -465,6 +745,8 @@ def _project_file_digest(project_root: Path, name: str) -> tuple[str | None, str
 def _existing_project_file_evidence(
     project_root: Path,
     name: str,
+    *,
+    max_bytes: int = safe_paths.DEFAULT_JSON_INPUT_MAX_BYTES,
 ) -> tuple[str | None, int | None, str | None]:
     try:
         normalized = safe_paths.normalize_repo_relative_path(
@@ -477,6 +759,7 @@ def _existing_project_file_evidence(
         raw = safe_paths.read_regular_file_bytes(
             path,
             description=f"candidate project file {name}",
+            max_bytes=max_bytes,
         )
         after = path.lstat()
     except FileNotFoundError:
@@ -623,6 +906,7 @@ def _load_current_instance(
     contract_root_ref: str,
     *,
     preimage: dict[str, object] | None = None,
+    allow_authority_module_rebind: bool = False,
 ) -> tuple[CurrentInstance | None, list[str]]:
     if preimage is None:
         preimage = project_instance_lint.validate_recorded_preimage(
@@ -630,6 +914,14 @@ def _load_current_instance(
             contract_root_ref,
         )
     errors = list(cast(list[str], preimage["errors"]))
+    raw_authority_drift = preimage.get("authority_module_drift_errors")
+    authority_drift = (
+        list(raw_authority_drift)
+        if isinstance(raw_authority_drift, list)
+        and all(isinstance(item, str) for item in raw_authority_drift)
+        else []
+    )
+    exact_authority_drift = bool(authority_drift) and errors == authority_drift
     if errors:
         preimage_manifest = preimage.get("manifest")
         preimage_input = preimage.get("retained_input")
@@ -678,6 +970,18 @@ def _load_current_instance(
                 + "; perform a reviewed project-specific manual update first"
             )
         ]
+    if exact_authority_drift:
+        if not allow_authority_module_rebind:
+            return None, [
+                _manual_update_error(
+                    "recorded authority module content changed while the current "
+                    "schema-6 receipt remains structurally valid. Review the new "
+                    "module bytes, then run plan --rebind-authority-modules and "
+                    "complete the normal exact plan/action/warning approvals; this "
+                    "route never rewrites a noncurrent or malformed receipt"
+                )
+            ]
+        errors = []
     if errors:
         return None, [
             _manual_update_error(
@@ -755,6 +1059,7 @@ def _load_current_instance(
             retained_input=retained_input,
             input_raw=input_raw,
             current_files=current_files,
+            authority_module_rebind_required=exact_authority_drift,
         ),
         [],
     )
@@ -854,6 +1159,7 @@ def inspect_project(
         project_root,
         contract_root_ref,
         preimage=preimage,
+        allow_authority_module_rebind=True,
     )
     if instance is None:
         return {
@@ -911,6 +1217,60 @@ def inspect_project(
                 "warnings": selected_result["warnings"],
             }
         selected_warnings.extend(selected_result["warnings"])
+    if (
+        instance.authority_module_rebind_required
+        and effective_current
+        and not distribution_drift
+    ):
+        authority_drift = preimage.get("authority_module_drift_errors")
+        exact_authority_drift = (
+            list(authority_drift)
+            if isinstance(authority_drift, list)
+            and all(isinstance(item, str) for item in authority_drift)
+            else []
+        )
+        return {
+            "status": "authority-module-rebind-required",
+            "project_root": str(project_root),
+            "contract_root": contract_root_ref,
+            "framework_content_sha256": current_framework_digest,
+            "recorded_framework_content_sha256": instance.manifest.get(
+                "framework_content_sha256"
+            ),
+            "framework_distribution_sha256": current_distribution_digest,
+            "recorded_framework_distribution_sha256": instance.manifest.get(
+                "framework_distribution_sha256"
+            ),
+            "distribution_drift": distribution_drift,
+            "framework_effective_changes": effective_changes,
+            "active_profiles": instance.manifest.get("active_profiles", []),
+            "authority_module_drift": exact_authority_drift,
+            "rebind_eligible": True,
+            "required_actions": [
+                "ACCEPT-NO-POST-APPLY-BACKOUT",
+                "REBIND-AUTHORITY-MODULES",
+            ],
+            "errors": [],
+            "warnings": selected_warnings,
+        }
+    if instance.authority_module_rebind_required:
+        return {
+            "status": "manual-update-required",
+            "project_root": str(project_root),
+            "contract_root": contract_root_ref,
+            "framework_content_sha256": current_framework_digest,
+            "framework_distribution_sha256": current_distribution_digest,
+            "framework_effective_changes": effective_changes,
+            "distribution_drift": distribution_drift,
+            "errors": [
+                _manual_update_error(
+                    "authority-module byte drift is not the sole lifecycle delta; "
+                    "restore the recorded authority bytes or resolve the combined "
+                    "change through a separately reviewed project update"
+                )
+            ],
+            "warnings": selected_warnings,
+        }
     report_status = (
         "refresh-available"
         if not effective_current
@@ -1354,6 +1714,21 @@ def _target_for_input(
         project_kind=str(project_kind),
     )
     manifest_name = project_bootstrap.INSTANCE_MANIFEST
+    authority_module_digests, authority_errors = (
+        project_bootstrap.authority_module_digest_records(
+            answers,
+            project_root,
+            forbidden_paths=frozenset(
+                {
+                    *managed,
+                    input_name,
+                    manifest_name,
+                }
+            ),
+        )
+    )
+    if authority_errors:
+        return {}, authority_errors, [], []
     rendered[manifest_name] = project_bootstrap.render_instance_manifest(
         input_bytes=input_text.encode("utf-8"),
         project_kind=str(project_kind),
@@ -1378,6 +1753,7 @@ def _target_for_input(
         active_profiles=profiles,
         effective_date=effective_date,
         framework_identity=framework_identity,
+        authority_module_digests=authority_module_digests,
     )
     warnings = _warning_records(
         [
@@ -1430,6 +1806,7 @@ def build_plan(
     *,
     candidate_input: dict[str, object] | None = None,
     post_apply_backout: dict[str, object] | None = None,
+    rebind_authority_modules: bool = False,
 ) -> PlanBuild:
     project_root = project_root.expanduser().resolve(strict=False)
     _status, recovery_errors = _transaction_blocker(project_root)
@@ -1442,9 +1819,23 @@ def build_plan(
     if selection_errors or selected_contract_root is None:
         return PlanBuild(None, {}, [], selection_errors)
     contract_root_ref = selected_contract_root
-    current, errors = _load_current_instance(project_root, contract_root_ref)
+    current, errors = _load_current_instance(
+        project_root,
+        contract_root_ref,
+        allow_authority_module_rebind=rebind_authority_modules,
+    )
     if current is None:
         return PlanBuild(None, {}, [], errors)
+    if rebind_authority_modules and not current.authority_module_rebind_required:
+        return PlanBuild(
+            None,
+            {},
+            [],
+            [
+                "--rebind-authority-modules is permitted only when a structurally "
+                "valid current schema-6 receipt has exact authority-module digest drift"
+            ],
+        )
     target_input = dict(
         current.retained_input if candidate_input is None else candidate_input
     )
@@ -1536,6 +1927,39 @@ def build_plan(
         name: _sha256(content.encode("utf-8"))
         for name, content in sorted(target_outputs.items())
     }
+    try:
+        rendered_manifest = safe_paths.loads_json_no_duplicates(
+            target_outputs[project_bootstrap.INSTANCE_MANIFEST]
+        )
+        if not isinstance(rendered_manifest, dict):
+            raise ValueError("rendered project receipt must be an object")
+    except (KeyError, json.JSONDecodeError, ValueError) as exc:
+        return PlanBuild(
+            None,
+            {},
+            [],
+            [f"rendered authority-module evidence is invalid: {exc}"],
+        )
+    authority_modules, authority_snapshot_errors = (
+        _authority_module_snapshot_records(project_root, rendered_manifest)
+    )
+    if authority_snapshot_errors:
+        return PlanBuild(None, {}, [], authority_snapshot_errors)
+    current_authority_modules: list[dict[str, object]] = []
+    if not current.authority_module_rebind_required:
+        current_authority_modules, current_authority_snapshot_errors = (
+            _authority_module_snapshot_records(project_root, current.manifest)
+        )
+        if current_authority_snapshot_errors:
+            return PlanBuild(None, {}, [], current_authority_snapshot_errors)
+    _authority_digests, _authority_modes, authority_union_errors = (
+        _authority_module_assertion_maps(
+            ("current", current_authority_modules),
+            ("target", authority_modules),
+        )
+    )
+    if authority_union_errors:
+        return PlanBuild(None, {}, [], authority_union_errors)
     # Preserved mutable files remain target managed state and bind the plan even
     # though they are intentionally absent from the transaction write set.
     preserved_mutable = sorted(set(target_mutable).intersection(current_mutable))
@@ -1544,6 +1968,11 @@ def build_plan(
     warnings = _warning_records(
         [
             *(warning["message"] for warning in warnings),
+            *(
+                [_authority_module_rebind_warning()]
+                if current.authority_module_rebind_required
+                else []
+            ),
             *(
                 _optional_state_retirement_warning(name, "mutable")
                 for name in retired_mutable
@@ -1557,7 +1986,11 @@ def build_plan(
 
     remove_outputs = sorted([*retired_immutable, *retired_mutable])
     operations: list[dict[str, object]] = []
-    required_actions: list[str] = []
+    required_actions: list[str] = (
+        ["REBIND-AUTHORITY-MODULES"]
+        if current.authority_module_rebind_required
+        else []
+    )
     all_target_names = sorted(
         {
             *target_managed,
@@ -1760,6 +2193,55 @@ def build_plan(
     if errors:
         return PlanBuild(None, {}, [], errors)
     operations.sort(key=lambda item: (str(item["path"]), str(item["action"])))
+    if current.authority_module_rebind_required:
+        if current.manifest_raw != project_bootstrap.canonical_instance_manifest_bytes(
+            current.manifest
+        ):
+            return PlanBuild(
+                None,
+                {},
+                [],
+                [
+                    "authority-module rebind requires the current project receipt "
+                    "to retain its exact canonical serialization; restore unrelated "
+                    "receipt byte drift before reviewing the module-only change"
+                ],
+            )
+        comparable_current_receipt = dict(current.manifest)
+        comparable_target_receipt = dict(target_manifest)
+        comparable_current_receipt["authority_module_digests"] = (
+            comparable_target_receipt.get("authority_module_digests")
+        )
+        receipt_has_unrelated_changes = (
+            comparable_current_receipt != comparable_target_receipt
+        )
+        unrelated_rebind_changes = [
+            str(item["path"])
+            for item in operations
+            if item["action"] != "preserve"
+            and item["path"] != project_bootstrap.INSTANCE_MANIFEST
+        ]
+        if (
+            target_input_digest != _sha256(current.input_raw)
+            or receipt_has_unrelated_changes
+            or unrelated_rebind_changes
+        ):
+            return PlanBuild(
+                None,
+                {},
+                [],
+                [
+                    "authority-module rebind is a receipt-only recovery route; "
+                    "restore the recorded authority bytes and complete any retained-input, "
+                    "generated-output, retirement, or other framework refresh separately "
+                    "before reviewing the intentional module-byte change"
+                    + (
+                        ": " + ", ".join(sorted(unrelated_rebind_changes))
+                        if unrelated_rebind_changes
+                        else ""
+                    )
+                ],
+            )
     absent_parent_directories, topology_errors = _absent_parent_directories(
         project_root,
         operations,
@@ -1788,6 +2270,21 @@ def build_plan(
         )
         if backout_errors:
             return PlanBuild(None, {}, [], backout_errors)
+        if (
+            current.authority_module_rebind_required
+            and post_apply_backout.get("kind") != "none"
+        ):
+            return PlanBuild(
+                None,
+                {},
+                [],
+                [
+                    "authority-module rebind cannot provide exact-preimage semantic "
+                    "backout because authority modules remain outside managed outputs; "
+                    "review the new module bytes and explicitly use "
+                    "--accept-no-post-apply-backout"
+                ],
+            )
         if retired_mutable and post_apply_backout.get("kind") != "exact-preimage-bundle":
             return PlanBuild(
                 None,
@@ -1808,12 +2305,26 @@ def build_plan(
         post_apply_backout = {"kind": "not-required"}
     input_changed = target_input_digest != _sha256(current.input_raw)
     mode = "revise" if input_changed else "refresh" if changed else "no-op"
+    (
+        planned_project_root_identity,
+        planned_directory_identities,
+        directory_identity_errors,
+    ) = _refresh_directory_identity_bindings(
+        project_root,
+        target_contract_root,
+    )
+    if directory_identity_errors or planned_project_root_identity is None:
+        return PlanBuild(None, {}, [], directory_identity_errors)
     payload: dict[str, object] = {
         "schema_version": PLAN_SCHEMA_VERSION,
         "kind": PLAN_KIND,
         "project_root": str(project_root),
         "current_contract_root": contract_root_ref,
         "target_contract_root": target_contract_root,
+        "target_directory_binding": {
+            "project_root_identity": planned_project_root_identity,
+            "directory_identities": planned_directory_identities,
+        },
         "mode": mode,
         "framework_content_sha256": selected_framework_digest,
         "framework_distribution_sha256": selected_distribution_digest,
@@ -1822,6 +2333,8 @@ def build_plan(
         "current_instance_sha256": _sha256(current.manifest_raw),
         "target_input": json.loads(target_input_text),
         "target_input_sha256": target_input_digest,
+        "current_authority_modules": current_authority_modules,
+        "authority_modules": authority_modules,
         "current_files": dict(sorted(current.current_files.items())),
         "target_files": dict(sorted(target_files.items())),
         "operations": operations,
@@ -1990,6 +2503,13 @@ def _validate_plan(payload: object) -> list[str]:
         errors.append(
             "refresh plan current_contract_root and target_contract_root must match"
         )
+    errors.extend(
+        _target_directory_binding_errors(
+            payload.get("target_directory_binding"),
+            project_root=project_root,
+            contract_root_ref=target_contract_root,
+        )
+    )
     for key in ("framework_content_sha256", "framework_distribution_sha256"):
         if not _is_sha256(payload.get(key)):
             errors.append(f"refresh plan {key} must be a lowercase SHA-256 digest")
@@ -2085,6 +2605,99 @@ def _validate_plan(payload: object) -> list[str]:
         errors.append(
             "refresh plan target_input_sha256 must be a lowercase SHA-256 digest"
         )
+
+    def validate_authority_snapshot_list(
+        value: object,
+        field: str,
+    ) -> tuple[list[dict[str, object]], set[str]]:
+        valid: list[dict[str, object]] = []
+        paths: set[str] = set()
+        labels: set[str] = set()
+        if not isinstance(value, list):
+            errors.append(f"refresh plan {field} must be a list")
+            return valid, paths
+        for index, record in enumerate(value):
+            label = f"refresh plan {field}[{index}]"
+            if not isinstance(record, dict) or set(record) != AUTHORITY_MODULE_PLAN_KEYS:
+                errors.append(f"{label} must use the exact label/path/sha256/mode schema")
+                continue
+            canonical_label = record.get("label")
+            raw_path = record.get("path")
+            digest = record.get("sha256")
+            mode = record.get("mode")
+            if not isinstance(canonical_label, str) or not canonical_label:
+                errors.append(f"{label}.label must be a non-empty string")
+            elif canonical_label in labels:
+                errors.append(f"{label}.label must be unique")
+            else:
+                labels.add(canonical_label)
+            if not isinstance(raw_path, str) or not raw_path:
+                errors.append(f"{label}.path must be a non-empty string")
+            else:
+                try:
+                    normalized_path = safe_paths.normalize_repo_relative_path(
+                        raw_path,
+                        project_root or Path("/__mpa_refresh_plan__"),
+                        description=f"{label}.path",
+                    )
+                except ValueError as exc:
+                    errors.append(str(exc))
+                else:
+                    if normalized_path != raw_path:
+                        errors.append(f"{label}.path must use canonical form")
+                    if raw_path in paths:
+                        errors.append(f"{label}.path must be unique")
+                    paths.add(raw_path)
+            if not _is_sha256(digest):
+                errors.append(f"{label}.sha256 must be a lowercase SHA-256 digest")
+            if not _is_posix_rwx_mode(mode):
+                errors.append(f"{label}.mode must be a POSIX rwx mode")
+            valid.append(record)
+        return valid, paths
+
+    valid_current_authority_modules, current_authority_module_paths = (
+        validate_authority_snapshot_list(
+            payload.get("current_authority_modules"),
+            "current_authority_modules",
+        )
+    )
+    valid_authority_modules, authority_module_paths = (
+        validate_authority_snapshot_list(
+            payload.get("authority_modules"),
+            "authority_modules",
+        )
+    )
+    if target_answers is not None:
+        expected_authority_identity: list[tuple[str, str]] = []
+        for canonical_label, raw_path in project_bootstrap.project_module_references(
+            target_answers
+        ):
+            try:
+                canonical_path = safe_paths.normalize_repo_relative_path(
+                    raw_path,
+                    project_root or Path("/__mpa_refresh_plan__"),
+                    description=f"authority module {canonical_label}",
+                )
+            except ValueError as exc:
+                errors.append(str(exc))
+                continue
+            expected_authority_identity.append((canonical_label, canonical_path))
+        actual_authority_identity = [
+            (record.get("label"), record.get("path"))
+            for record in valid_authority_modules
+        ]
+        if actual_authority_identity != expected_authority_identity:
+            errors.append(
+                "refresh plan authority_modules must exactly match the "
+                "canonical target-input authority order"
+            )
+    _authority_digests, _authority_modes, authority_union_errors = (
+        _authority_module_assertion_maps(
+            ("current", valid_current_authority_modules),
+            ("target", valid_authority_modules),
+        )
+    )
+    errors.extend(authority_union_errors)
 
     for key in ("current_input_sha256", "current_instance_sha256"):
         value = payload.get(key)
@@ -2279,6 +2892,25 @@ def _validate_plan(payload: object) -> list[str]:
             )
 
     expected_operation_paths = set(current_files).union(target_files)
+    for authority_path in sorted(
+        authority_module_paths.union(current_authority_module_paths)
+    ):
+        colliding_output = next(
+            (
+                output
+                for output in sorted(expected_operation_paths)
+                if project_bootstrap.repo_relative_paths_overlap(
+                    authority_path,
+                    output,
+                )
+            ),
+            None,
+        )
+        if colliding_output is not None:
+            errors.append(
+                "refresh plan authority module overlaps a managed or metadata "
+                f"output path: {authority_path} conflicts with {colliding_output}"
+            )
     if set(operation_by_path) != expected_operation_paths:
         errors.append(
             "refresh plan operation paths must exactly equal current_files union target_files"
@@ -2442,6 +3074,14 @@ def _validate_plan(payload: object) -> list[str]:
         if isinstance(required_actions, list)
         else set()
     )
+    if (
+        "REBIND-AUTHORITY-MODULES" in required_action_set
+        and valid_current_authority_modules
+    ):
+        errors.append(
+            "authority-module rebind must leave current_authority_modules empty because "
+            "the superseded recorded bytes are unavailable for an exact live snapshot"
+        )
     missing_operation_approvals = sorted(approval_ids - required_action_set)
     if missing_operation_approvals:
         errors.append(
@@ -2557,13 +3197,19 @@ def _load_plan(path: Path) -> tuple[dict[str, object] | None, list[str]]:
 def _rebuild_plan(project_root: Path, plan: dict[str, object]) -> PlanBuild:
     target_input = plan.get("target_input")
     backout = plan.get("post_apply_backout")
+    required_actions = plan.get("required_actions")
     if not isinstance(target_input, dict):
         return PlanBuild(None, {}, [], ["refresh plan target_input must be an object"])
+    if not isinstance(required_actions, list):
+        return PlanBuild(None, {}, [], ["refresh plan required_actions must be a list"])
     return build_plan(
         project_root,
         str(plan["current_contract_root"]),
         candidate_input=target_input,
         post_apply_backout=backout if isinstance(backout, dict) else None,
+        rebind_authority_modules=(
+            "REBIND-AUTHORITY-MODULES" in required_actions
+        ),
     )
 
 
@@ -2674,6 +3320,72 @@ def preview_plan(
                 "unified_diff": unified_diff,
             }
         )
+    current_authority_previews: list[dict[str, object]] = []
+    required_actions = cast(list[str], plan.get("required_actions", []))
+    if "REBIND-AUTHORITY-MODULES" not in required_actions:
+        try:
+            current_manifest_raw = safe_paths.read_regular_file_bytes(
+                project_root / project_bootstrap.INSTANCE_MANIFEST,
+                description="refresh preview current project receipt",
+            )
+            current_manifest = safe_paths.loads_json_no_duplicates(
+                current_manifest_raw.decode("utf-8")
+            )
+            if not isinstance(current_manifest, dict):
+                raise ValueError("current project receipt must be an object")
+        except (FileNotFoundError, OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+            preview_errors.append(
+                f"refresh preview lacks valid current authority-module evidence: {exc}"
+            )
+        else:
+            current_authority_previews, current_authority_preview_errors = (
+                _authority_module_snapshot_records(
+                    project_root,
+                    current_manifest,
+                    include_text=True,
+                )
+            )
+            preview_errors.extend(current_authority_preview_errors)
+            planned_current_authority = plan.get("current_authority_modules")
+            observed_current_authority = [
+                {key: record[key] for key in AUTHORITY_MODULE_PLAN_KEYS}
+                for record in current_authority_previews
+            ]
+            if observed_current_authority != planned_current_authority:
+                preview_errors.append(
+                    "refresh preview current authority bytes or modes no longer match "
+                    "the plan"
+                )
+
+    authority_previews: list[dict[str, object]] = []
+    try:
+        rebuilt_manifest = safe_paths.loads_json_no_duplicates(
+            rebuilt.target_outputs[project_bootstrap.INSTANCE_MANIFEST]
+        )
+        if not isinstance(rebuilt_manifest, dict):
+            raise ValueError("rendered project receipt must be an object")
+    except (KeyError, json.JSONDecodeError, ValueError) as exc:
+        preview_errors.append(
+            f"refresh preview lacks valid authority-module evidence: {exc}"
+        )
+    else:
+        authority_previews, authority_preview_errors = (
+            _authority_module_snapshot_records(
+                project_root,
+                rebuilt_manifest,
+                include_text=True,
+            )
+        )
+        preview_errors.extend(authority_preview_errors)
+        planned_authority = plan.get("authority_modules")
+        observed_authority = [
+            {key: record[key] for key in AUTHORITY_MODULE_PLAN_KEYS}
+            for record in authority_previews
+        ]
+        if observed_authority != planned_authority:
+            preview_errors.append(
+                "refresh preview authority bytes or modes no longer match the plan"
+            )
     if preview_errors:
         return EXIT_BLOCKED, {
             "status": "stale-plan",
@@ -2686,6 +3398,8 @@ def preview_plan(
         "refresh_transaction_id": plan["refresh_transaction_id"],
         "target_files_verified": True,
         "changed_files": sorted(previews, key=lambda item: str(item["path"])),
+        "current_authority_modules": current_authority_previews,
+        "authority_modules": authority_previews,
         "errors": [],
     }
 
@@ -3489,6 +4203,113 @@ def restore_backout_bundle(
         for operation in operations
         if operation.get("action") == "preserve"
     }
+    try:
+        restored_receipt = safe_paths.loads_json_no_duplicates(
+            blobs[project_bootstrap.INSTANCE_MANIFEST].decode("utf-8")
+        )
+        if not isinstance(restored_receipt, dict):
+            raise ValueError("restored project instance receipt must be an object")
+        restored_authority_assertions = (
+            project_bootstrap.authority_module_digest_map_from_manifest(
+                restored_receipt
+            )
+        )
+    except (KeyError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        return EXIT_BLOCKED, {
+            "status": "invalid-backout-bundle",
+            "errors": [f"restored authority-module evidence is invalid: {exc}"],
+        }
+    planned_current_authority = cast(
+        list[dict[str, object]],
+        plan["current_authority_modules"],
+    )
+    planned_target_authority = cast(
+        list[dict[str, object]],
+        plan["authority_modules"],
+    )
+    current_authority_assertions, _current_authority_modes, current_errors = (
+        _authority_module_assertion_maps(
+            ("restored/current", planned_current_authority),
+        )
+    )
+    if current_errors:
+        return EXIT_BLOCKED, {
+            "status": "invalid-backout-bundle",
+            "errors": current_errors,
+        }
+    if restored_authority_assertions != current_authority_assertions:
+        return EXIT_BLOCKED, {
+            "status": "invalid-backout-bundle",
+            "errors": [
+                "restored receipt authority modules do not match the plan-bound "
+                "current authority snapshot"
+            ],
+        }
+    authority_assertions, authority_assertion_modes, authority_union_errors = (
+        _authority_module_assertion_maps(
+            ("restored/current", planned_current_authority),
+            ("displaced target", planned_target_authority),
+        )
+    )
+    if authority_union_errors:
+        return EXIT_BLOCKED, {
+            "status": "invalid-backout-bundle",
+            "errors": authority_union_errors,
+        }
+    for name, expected_digest in sorted(authority_assertions.items()):
+        observed_digest, observed_mode, evidence_error = (
+            _existing_project_file_evidence(
+                project_root,
+                name,
+                max_bytes=project_bootstrap.AUTHORITY_MODULE_MAX_BYTES,
+            )
+        )
+        if (
+            evidence_error is not None
+            or observed_digest != expected_digest
+            or observed_mode is None
+        ):
+            return EXIT_BLOCKED, {
+                "status": "stale-target",
+                "errors": [
+                    "authority module no longer matches the plan-bound restore union: "
+                    f"{name}: {evidence_error or 'digest or mode mismatch'}"
+                ],
+            }
+        if observed_mode != authority_assertion_modes[name]:
+            return EXIT_BLOCKED, {
+                "status": "stale-target",
+                "errors": [
+                    "authority module no longer matches the plan-bound restore union: "
+                    f"{name}: mode mismatch"
+                ],
+            }
+    authority_overlap = set(authority_assertions).intersection(
+        {
+            str(operation["path"])
+            for operation in operations
+            if isinstance(operation, dict)
+        }
+    )
+    if authority_overlap:
+        return EXIT_BLOCKED, {
+            "status": "invalid-backout-bundle",
+            "errors": [
+                "restore authority modules overlap receipt-managed outputs: "
+                + ", ".join(sorted(authority_overlap))
+            ],
+        }
+    assert_preimage_max_bytes: dict[str, int | None] = {
+        name: None for name in assert_preimages
+    }
+    assert_preimages.update(authority_assertions)
+    assert_preimage_modes.update(authority_assertion_modes)
+    assert_preimage_max_bytes.update(
+        {
+            name: project_bootstrap.AUTHORITY_MODULE_MAX_BYTES
+            for name in authority_assertions
+        }
+    )
     target_modes = {
         str(entry["path"]): cast(int, entry["mode"])
         for entry in entries
@@ -3505,7 +4326,25 @@ def restore_backout_bundle(
     }
     verification: dict[str, object] = {}
 
+    def verify_authority_union() -> None:
+        for name, expected_digest in sorted(authority_assertions.items()):
+            digest, mode, evidence_error = _existing_project_file_evidence(
+                project_root,
+                name,
+                max_bytes=project_bootstrap.AUTHORITY_MODULE_MAX_BYTES,
+            )
+            if (
+                evidence_error is not None
+                or digest != expected_digest
+                or mode != authority_assertion_modes[name]
+            ):
+                raise ValueError(
+                    "authority module changed during restore: "
+                    f"{name}: {evidence_error or 'digest or mode mismatch'}"
+                )
+
     def verify() -> None:
+        verify_authority_union()
         for entry in entries:
             path = str(entry["path"])
             digest, mode, evidence_error = _existing_project_file_evidence(
@@ -3541,7 +4380,20 @@ def restore_backout_bundle(
         )
         verification["selected_checkout_errors"] = selected["errors"]
         verification["selected_checkout_warnings"] = selected["warnings"]
+        verify_authority_union()
 
+    target_directory_binding = cast(
+        dict[str, object],
+        plan["target_directory_binding"],
+    )
+    approved_project_root_identity = cast(
+        dict[str, int],
+        target_directory_binding["project_root_identity"],
+    )
+    approved_directory_identities = cast(
+        dict[str, dict[str, int]],
+        target_directory_binding["directory_identities"],
+    )
     try:
         result = bootstrap_transaction.transactional_write_outputs(
             project_root,
@@ -3554,8 +4406,11 @@ def restore_backout_bundle(
             expected_preimage_modes=expected_preimage_modes,
             assert_preimages=assert_preimages,
             assert_preimage_modes=assert_preimage_modes,
+            assert_preimage_max_bytes=assert_preimage_max_bytes,
             target_modes=target_modes,
             retired_directory_modes=retired_directory_modes,
+            expected_project_root_identity=approved_project_root_identity,
+            expected_directory_identities=approved_directory_identities,
         )
     except (bootstrap_transaction.BootstrapTransactionError, OSError, ValueError) as exc:
         try:
@@ -3741,6 +4596,73 @@ def apply_plan(
                 "project or framework preimages changed after planning; inspect and create a new plan"
             ],
         }
+    try:
+        rebuilt_manifest = safe_paths.loads_json_no_duplicates(
+            rebuilt.target_outputs[project_bootstrap.INSTANCE_MANIFEST]
+        )
+        if not isinstance(rebuilt_manifest, dict):
+            raise ValueError("rendered target receipt must be an object")
+        target_authority_assertions = (
+            project_bootstrap.authority_module_digest_map_from_manifest(
+                rebuilt_manifest
+            )
+        )
+    except (KeyError, json.JSONDecodeError, ValueError) as exc:
+        return EXIT_BLOCKED, {
+            "status": "stale-plan",
+            "errors": [f"rendered authority-module evidence is invalid: {exc}"],
+        }
+    target_authority_records, authority_record_errors = (
+        _authority_module_snapshot_records(
+            project_root,
+            rebuilt_manifest,
+        )
+    )
+    if (
+        authority_record_errors
+        or target_authority_records != plan.get("authority_modules")
+    ):
+        return EXIT_BLOCKED, {
+            "status": "stale-plan",
+            "errors": [
+                *authority_record_errors,
+                *(
+                    ["authority module bytes or modes changed after final plan rebuild"]
+                    if target_authority_records != plan.get("authority_modules")
+                    else []
+                ),
+            ],
+        }
+    if target_authority_assertions != {
+        str(record["path"]): str(record["sha256"])
+        for record in target_authority_records
+    }:
+        return EXIT_BLOCKED, {
+            "status": "stale-plan",
+            "errors": ["rendered authority-module evidence disagrees with the reviewed plan"],
+        }
+    current_authority_records = cast(
+        list[dict[str, object]],
+        rebuilt.payload.get("current_authority_modules", []),
+    )
+    if current_authority_records != plan.get("current_authority_modules"):
+        return EXIT_BLOCKED, {
+            "status": "stale-plan",
+            "errors": [
+                "current authority module bytes or modes changed after final plan rebuild"
+            ],
+        }
+    authority_assertions, authority_assertion_modes, authority_union_errors = (
+        _authority_module_assertion_maps(
+            ("current", current_authority_records),
+            ("target", target_authority_records),
+        )
+    )
+    if authority_union_errors:
+        return EXIT_BLOCKED, {
+            "status": "stale-plan",
+            "errors": authority_union_errors,
+        }
     operations = cast(list[dict[str, object]], plan["operations"])
     write_names = {
         str(item["path"])
@@ -3779,6 +4701,26 @@ def apply_plan(
         for item in operations
         if isinstance(item, dict) and item.get("action") == "preserve"
     }
+    assert_preimage_max_bytes: dict[str, int | None] = {
+        name: None for name in assert_preimages
+    }
+    assertion_overlap = set(assert_preimages).intersection(authority_assertions)
+    if assertion_overlap:
+        return EXIT_BLOCKED, {
+            "status": "stale-plan",
+            "errors": [
+                "authority modules overlap receipt-managed outputs: "
+                + ", ".join(sorted(assertion_overlap))
+            ],
+        }
+    assert_preimages.update(authority_assertions)
+    assert_preimage_modes.update(authority_assertion_modes)
+    assert_preimage_max_bytes.update(
+        {
+            name: project_bootstrap.AUTHORITY_MODULE_MAX_BYTES
+            for name in authority_assertions
+        }
+    )
     target_modes = {
         str(item["path"]): cast(int, item["target_mode"])
         for item in operations
@@ -3846,6 +4788,21 @@ def apply_plan(
                     f"preserved project file changed after planning: {name}: "
                     f"{evidence_error or 'digest or mode mismatch'}"
                 )
+        for name, expected_digest in sorted(authority_assertions.items()):
+            digest, mode, evidence_error = _existing_project_file_evidence(
+                project_root,
+                name,
+                max_bytes=project_bootstrap.AUTHORITY_MODULE_MAX_BYTES,
+            )
+            if (
+                evidence_error is not None
+                or digest != expected_digest
+                or mode != authority_assertion_modes[name]
+            ):
+                raise ValueError(
+                    f"authority module changed after planning: {name}: "
+                    f"{evidence_error or 'digest or mode mismatch'}"
+                )
 
     def verify() -> None:
         verify_framework_and_preserved_state()
@@ -3881,6 +4838,18 @@ def apply_plan(
             "profiles": profile_reports,
             "cleanup_warnings": [],
         }
+    target_directory_binding = cast(
+        dict[str, object],
+        plan["target_directory_binding"],
+    )
+    approved_project_root_identity = cast(
+        dict[str, int],
+        target_directory_binding["project_root_identity"],
+    )
+    approved_directory_identities = cast(
+        dict[str, dict[str, int]],
+        target_directory_binding["directory_identities"],
+    )
     try:
         result = bootstrap_transaction.transactional_write_outputs(
             project_root,
@@ -3892,7 +4861,10 @@ def apply_plan(
             expected_preimage_modes=expected_preimage_modes,
             assert_preimages=assert_preimages,
             assert_preimage_modes=assert_preimage_modes,
+            assert_preimage_max_bytes=assert_preimage_max_bytes,
             target_modes=target_modes,
+            expected_project_root_identity=approved_project_root_identity,
+            expected_directory_identities=approved_directory_identities,
             create_file_mode=creation_modes["file"],
             create_directory_mode=creation_modes["directory"],
         )
@@ -4211,6 +5183,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--accept-no-post-apply-backout",
         action="store_true",
         help="Explicitly accept that transaction recovery does not provide post-success semantic backout.",
+    )
+    plan_parser.add_argument(
+        "--rebind-authority-modules",
+        action="store_true",
+        help=(
+            "After reviewing intentional authority-module byte changes, build a "
+            "current-schema-only plan that rebinds their exact digests. Structural, "
+            "coverage, missing-file, and redirect failures remain blocked."
+        ),
     )
     apply_parser = subparsers.add_parser(
         "apply",
@@ -4579,6 +5560,7 @@ def _run_command(argv: list[str] | None = None) -> int:
             args.contract_root,
             candidate_input=candidate,
             post_apply_backout=backout,
+            rebind_authority_modules=args.rebind_authority_modules,
         )
         if plan.payload is None:
             _print(

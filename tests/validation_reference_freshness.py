@@ -2,14 +2,21 @@
 
 from __future__ import annotations
 
+import io
+import json
+import os
 from pathlib import Path
+import sys
 import tempfile
+import threading
 import unittest
 from unittest import mock
 
 from tests.validation_test_support import SCRIPTS_DIR as _SCRIPTS_DIR
 
 import check_reference_freshness  # noqa: E402
+import safe_paths  # noqa: E402
+import source_registry_files  # noqa: E402
 import url_safety  # noqa: E402
 
 
@@ -24,6 +31,9 @@ def collect_reference_issues(
     *,
     audit_monitor_roots: bool = False,
     resolve_hostnames: bool = False,
+    hostname_resolution_timeout_seconds: float = (
+        url_safety.DEFAULT_HOSTNAME_RESOLUTION_TIMEOUT_SECONDS
+    ),
 ) -> list[check_reference_freshness.Issue]:
     return check_reference_freshness.collect_issues(
         root,
@@ -33,6 +43,9 @@ def collect_reference_issues(
         reference_dirs=GENERIC_REFERENCE_DIRS,
         audit_monitor_roots=audit_monitor_roots,
         resolve_hostnames=resolve_hostnames,
+        hostname_resolution_timeout_seconds=(
+            hostname_resolution_timeout_seconds
+        ),
     )
 
 
@@ -301,6 +314,199 @@ class ReferenceFreshnessTests(unittest.TestCase):
                 self.assertRaisesRegex(ValueError, "1-entry limit"),
             ):
                 check_reference_freshness.existing_product_markdown_files(root)
+
+    def test_non_reference_doc_deleted_after_discovery_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            docs = root / "docs"
+            docs.mkdir()
+            candidate = docs / "one.md"
+            candidate.write_text("# Trusted\n", encoding="utf-8")
+            real_open = source_registry_files.os.open
+            deleted = False
+
+            def delete_before_bound_open(
+                path: str | bytes | os.PathLike[str] | os.PathLike[bytes],
+                flags: int,
+                mode: int = 0o777,
+                *,
+                dir_fd: int | None = None,
+            ) -> int:
+                nonlocal deleted
+                if path == "one.md" and dir_fd is not None and not deleted:
+                    deleted = True
+                    candidate.unlink()
+                return real_open(path, flags, mode, dir_fd=dir_fd)
+
+            with (
+                mock.patch.object(
+                    source_registry_files.os,
+                    "open",
+                    side_effect=delete_before_bound_open,
+                ),
+                self.assertRaisesRegex(ValueError, "could not be opened"),
+            ):
+                collect_reference_issues(
+                    root,
+                    check_reference_freshness.date.fromisoformat("2026-07-12"),
+                    180,
+                    True,
+                )
+
+        self.assertTrue(deleted)
+
+    def test_non_reference_doc_addition_during_inventory_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            docs = root / "docs"
+            docs.mkdir()
+            (docs / "one.md").write_text("# One\n", encoding="utf-8")
+            added = False
+            real_scan = source_registry_files._scan_bound_directory
+
+            def add_after_initial_scan(*args, **kwargs):  # type: ignore[no-untyped-def]
+                nonlocal added
+                captured = real_scan(*args, **kwargs)
+                if kwargs.get("charge_budget") and args[1] == docs and not added:
+                    added = True
+                    (docs / "late.md").write_text("# Late\n", encoding="utf-8")
+                return captured
+
+            with (
+                mock.patch.object(
+                    source_registry_files,
+                    "_scan_bound_directory",
+                    side_effect=add_after_initial_scan,
+                ),
+                self.assertRaisesRegex(ValueError, "changed during inventory"),
+            ):
+                collect_reference_issues(
+                    root,
+                    check_reference_freshness.date.fromisoformat("2026-07-12"),
+                    180,
+                    True,
+                )
+
+        self.assertTrue(added)
+
+    def test_non_reference_doc_late_cross_sibling_addition_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            docs = root / "docs"
+            first = docs / "a"
+            second = docs / "b"
+            first.mkdir(parents=True)
+            second.mkdir()
+            (first / "one.md").write_text("# One\n", encoding="utf-8")
+            (second / "two.md").write_text("# Two\n", encoding="utf-8")
+            added = False
+            real_scan = source_registry_files._scan_bound_directory
+
+            def add_while_later_sibling_starts(*args, **kwargs):  # type: ignore[no-untyped-def]
+                nonlocal added
+                captured = real_scan(*args, **kwargs)
+                if kwargs.get("charge_budget") and args[1] == second and not added:
+                    added = True
+                    (first / "late.md").write_text("# Late\n", encoding="utf-8")
+                return captured
+
+            with (
+                mock.patch.object(
+                    source_registry_files,
+                    "_scan_bound_directory",
+                    side_effect=add_while_later_sibling_starts,
+                ),
+                self.assertRaisesRegex(ValueError, "changed during inventory"),
+            ):
+                collect_reference_issues(
+                    root,
+                    check_reference_freshness.date.fromisoformat("2026-07-12"),
+                    180,
+                    True,
+                )
+
+        self.assertTrue(added)
+
+    def test_non_reference_doc_substitution_before_open_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            docs = root / "docs"
+            docs.mkdir()
+            candidate = docs / "one.md"
+            candidate.write_text("# Trusted\n", encoding="utf-8")
+            displaced = docs / "held.md"
+            replacement = root / "replacement.md"
+            replacement.write_text("# Hostile\n", encoding="utf-8")
+            real_open = source_registry_files.os.open
+            swapped = False
+
+            def swap_before_bound_open(
+                path: str | bytes | os.PathLike[str] | os.PathLike[bytes],
+                flags: int,
+                mode: int = 0o777,
+                *,
+                dir_fd: int | None = None,
+            ) -> int:
+                nonlocal swapped
+                if path == "one.md" and dir_fd is not None and not swapped:
+                    swapped = True
+                    candidate.rename(displaced)
+                    replacement.rename(candidate)
+                return real_open(path, flags, mode, dir_fd=dir_fd)
+
+            with (
+                mock.patch.object(
+                    source_registry_files.os,
+                    "open",
+                    side_effect=swap_before_bound_open,
+                ),
+                self.assertRaisesRegex(ValueError, "changed before it was opened"),
+            ):
+                collect_reference_issues(
+                    root,
+                    check_reference_freshness.date.fromisoformat("2026-07-12"),
+                    180,
+                    True,
+                )
+
+        self.assertTrue(swapped)
+
+    def test_reference_freshness_cli_normalizes_path_binding_failure(self) -> None:
+        oversized_cause = RuntimeError("unsafe\n" + "x" * 2_000)
+        binding_error = safe_paths.OutputDirectoryBindingError(
+            Path("/fixture/references"),
+            "references",
+            (),
+            oversized_cause,
+        )
+        with (
+            mock.patch.object(
+                check_reference_freshness,
+                "collect_issues",
+                side_effect=binding_error,
+            ),
+            mock.patch.object(
+                sys,
+                "argv",
+                ["check_reference_freshness.py", "--format", "json"],
+            ),
+            mock.patch("sys.stdout", new_callable=io.StringIO) as stdout,
+        ):
+            result = check_reference_freshness.main()
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(1, result)
+        self.assertEqual(1, len(payload["errors"]))
+        diagnostic = payload["errors"][0]
+        self.assertEqual("<source-input>", diagnostic["path"])
+        self.assertTrue(
+            diagnostic["message"].startswith("source path binding rejected:")
+        )
+        self.assertLessEqual(
+            len(diagnostic["message"]),
+            check_reference_freshness.MAX_SOURCE_INPUT_DIAGNOSTIC_CHARS,
+        )
+        self.assertNotIn("\n", diagnostic["message"])
 
     def test_reference_freshness_does_not_count_dated_url_as_claim_date(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -2423,3 +2629,452 @@ class ReferenceFreshnessTests(unittest.TestCase):
             )
 
         self.assertIn("resolves to non-public address", issue or "")
+
+    def test_reference_freshness_hostname_resolution_timeout_cli_is_bounded(
+        self,
+    ) -> None:
+        parser = check_reference_freshness.build_parser()
+        defaults = parser.parse_args([])
+        self.assertEqual(
+            url_safety.DEFAULT_HOSTNAME_RESOLUTION_TIMEOUT_SECONDS,
+            defaults.hostname_resolution_timeout_seconds,
+        )
+        for invalid in ("0", "31", "inf", "nan"):
+            with (
+                self.subTest(value=invalid),
+                mock.patch("sys.stderr", new_callable=io.StringIO),
+                self.assertRaises(SystemExit) as caught,
+            ):
+                parser.parse_args(
+                    ["--hostname-resolution-timeout-seconds", invalid]
+                )
+            self.assertEqual(2, caught.exception.code)
+
+    def test_reference_freshness_reuses_one_resolution_per_hostname_and_port(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            references = root / "references"
+            references.mkdir()
+            (references / "sources.md").write_text(
+                "\n".join(
+                    [
+                        "Reviewed: 2026-07-12",
+                        "https://example.com/releases",
+                        "https://example.com:443/docs",
+                        "https://example.com:8443/updates",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            def public_resolution(
+                _host,
+                port,
+                *_args,
+            ):  # type: ignore[no-untyped-def]
+                return [
+                    (
+                        url_safety.socket.AF_INET,
+                        url_safety.socket.SOCK_STREAM,
+                        6,
+                        "",
+                        ("93.184.216.34", port or 443),
+                    )
+                ]
+
+            with mock.patch.object(
+                url_safety.socket,
+                "getaddrinfo",
+                side_effect=public_resolution,
+            ) as resolver:
+                issues = collect_reference_issues(
+                    root,
+                    check_reference_freshness.date.fromisoformat("2026-07-12"),
+                    180,
+                    False,
+                    resolve_hostnames=True,
+                )
+
+        self.assertEqual([], issues)
+        self.assertEqual(2, resolver.call_count)
+        self.assertEqual(
+            {443, 8443},
+            {call.args[1] for call in resolver.call_args_list},
+        )
+
+    def test_reference_freshness_marks_session_terminal_after_blocked_resolver(
+        self,
+    ) -> None:
+        release = threading.Event()
+        started = threading.Event()
+        resolver_slot = threading.BoundedSemaphore(1)
+        resolver_workers: list[threading.Thread] = []
+        created_deadlines: list[url_safety._NetworkDeadline] = []
+        real_deadline_type = url_safety._NetworkDeadline
+
+        class TrackingDeadline(real_deadline_type):
+            def __init__(self, seconds: float) -> None:
+                super().__init__(seconds)
+                created_deadlines.append(self)
+
+        def cleanup_resolver() -> None:
+            release.set()
+            for worker in resolver_workers:
+                worker.join(timeout=1.0)
+                self.assertFalse(worker.is_alive())
+            acquired = resolver_slot.acquire(blocking=False)
+            if acquired:
+                resolver_slot.release()
+            self.assertTrue(acquired)
+
+        self.addCleanup(cleanup_resolver)
+
+        def blocked_resolution(*_args):  # type: ignore[no-untyped-def]
+            resolver_workers.append(threading.current_thread())
+            started.set()
+            if not release.wait(timeout=1.0):
+                raise TimeoutError(
+                    "blocked resolver fixture exceeded its independent escape"
+                )
+            return [
+                (
+                    url_safety.socket.AF_INET,
+                    url_safety.socket.SOCK_STREAM,
+                    6,
+                    "",
+                    ("93.184.216.34", 443),
+                )
+            ]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            references = root / "references"
+            references.mkdir()
+            (references / "sources.md").write_text(
+                "\n".join(
+                    [
+                        "Reviewed: 2026-07-12",
+                        "https://example.com/releases",
+                        "https://example.org/docs",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            with (
+                mock.patch.object(
+                    url_safety.socket,
+                    "getaddrinfo",
+                    side_effect=blocked_resolution,
+                ) as resolver,
+                mock.patch.object(url_safety, "_RESOLVER_SLOT", resolver_slot),
+                mock.patch.object(
+                    url_safety,
+                    "_NetworkDeadline",
+                    TrackingDeadline,
+                ),
+            ):
+                issues = collect_reference_issues(
+                    root,
+                    check_reference_freshness.date.fromisoformat("2026-07-12"),
+                    180,
+                    False,
+                    resolve_hostnames=True,
+                    hostname_resolution_timeout_seconds=0.04,
+                )
+
+        self.assertTrue(started.is_set())
+        self.assertTrue(resolver_workers[0].is_alive())
+        resolver.assert_called_once()
+        self.assertEqual(1, len(created_deadlines))
+        timeout_issues = [
+            issue
+            for issue in issues
+            if "total network deadline exceeded after 0.04s" in issue.message
+        ]
+        self.assertEqual(2, len(timeout_issues), issues)
+
+    def test_reference_freshness_cli_exposes_bounded_aggregate_limits(self) -> None:
+        parser = check_reference_freshness.build_parser()
+        defaults = parser.parse_args([])
+        self.assertEqual(
+            check_reference_freshness.DEFAULT_MAX_SOURCE_FILES,
+            defaults.max_source_files,
+        )
+        self.assertEqual(
+            check_reference_freshness.DEFAULT_MAX_SOURCE_BYTES,
+            defaults.max_source_bytes,
+        )
+        self.assertEqual(
+            check_reference_freshness.DEFAULT_MAX_UNIQUE_HOSTS,
+            defaults.max_unique_hosts,
+        )
+        self.assertEqual(
+            check_reference_freshness.DEFAULT_MAX_HOSTNAME_RESOLUTION_REQUESTS,
+            defaults.max_hostname_resolution_requests,
+        )
+        self.assertEqual(
+            check_reference_freshness.DEFAULT_MAX_HOSTNAME_RESOLUTION_CACHE_ENTRIES,
+            defaults.max_hostname_resolution_cache_entries,
+        )
+        self.assertEqual(
+            check_reference_freshness.DEFAULT_RUN_DEADLINE_SECONDS,
+            defaults.run_deadline,
+        )
+        invalid_options = (
+            ("--max-source-files", "0"),
+            ("--max-source-bytes", "0"),
+            ("--max-unique-hosts", "100001"),
+            ("--max-hostname-resolution-requests", "100001"),
+            ("--max-hostname-resolution-cache-entries", "100002"),
+            ("--run-deadline", "3601"),
+            ("--run-deadline", "nan"),
+        )
+        for option, value in invalid_options:
+            with (
+                self.subTest(option=option, value=value),
+                mock.patch("sys.stderr", new_callable=io.StringIO),
+                self.assertRaises(SystemExit) as caught,
+            ):
+                parser.parse_args([option, value])
+            self.assertEqual(2, caught.exception.code)
+
+    def test_reference_freshness_shares_file_limit_with_public_docs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            references = root / "references"
+            references.mkdir()
+            (references / "sources.md").write_text(
+                "Reviewed: 2026-07-12\n",
+                encoding="utf-8",
+            )
+            docs = root / "docs"
+            docs.mkdir()
+            (docs / "one.md").write_text("# One\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "source registry file count limit exceeded",
+            ):
+                check_reference_freshness.collect_issues(
+                    root,
+                    check_reference_freshness.date.fromisoformat("2026-07-12"),
+                    180,
+                    True,
+                    reference_dirs=GENERIC_REFERENCE_DIRS,
+                    limits=check_reference_freshness.FreshnessLimits(
+                        max_source_files=1,
+                    ),
+                )
+
+            issues = check_reference_freshness.collect_issues(
+                root,
+                check_reference_freshness.date.fromisoformat("2026-07-12"),
+                180,
+                True,
+                reference_dirs=GENERIC_REFERENCE_DIRS,
+                limits=check_reference_freshness.FreshnessLimits(
+                    max_source_files=2,
+                ),
+            )
+
+        self.assertEqual([], issues)
+
+    def test_reference_freshness_shares_byte_limit_with_public_docs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            references = root / "references"
+            references.mkdir()
+            reference_payload = "Reviewed: 2026-07-12\n"
+            (references / "sources.md").write_text(
+                reference_payload,
+                encoding="utf-8",
+            )
+            docs = root / "docs"
+            docs.mkdir()
+            public_payload = "# One\n"
+            (docs / "one.md").write_text(public_payload, encoding="utf-8")
+            exact_bytes = len((reference_payload + public_payload).encode("utf-8"))
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "source registry aggregate bytes limit exceeded",
+            ):
+                check_reference_freshness.collect_issues(
+                    root,
+                    check_reference_freshness.date.fromisoformat("2026-07-12"),
+                    180,
+                    True,
+                    reference_dirs=GENERIC_REFERENCE_DIRS,
+                    limits=check_reference_freshness.FreshnessLimits(
+                        max_source_bytes=exact_bytes - 1,
+                    ),
+                )
+
+            issues = check_reference_freshness.collect_issues(
+                root,
+                check_reference_freshness.date.fromisoformat("2026-07-12"),
+                180,
+                True,
+                reference_dirs=GENERIC_REFERENCE_DIRS,
+                limits=check_reference_freshness.FreshnessLimits(
+                    max_source_bytes=exact_bytes,
+                ),
+            )
+
+        self.assertEqual([], issues)
+
+    def test_reference_freshness_deadline_covers_public_doc_inventory(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            docs = root / "docs"
+            docs.mkdir()
+            (docs / "one.md").write_text("# One\n", encoding="utf-8")
+
+            with (
+                mock.patch.object(
+                    check_reference_freshness.time,
+                    "monotonic",
+                    side_effect=(0.0, 2.0),
+                ),
+                self.assertRaisesRegex(
+                    check_reference_freshness.FreshnessLimitError,
+                    "whole-run monotonic deadline exceeded during public documentation inventory",
+                ),
+            ):
+                check_reference_freshness.collect_issues(
+                    root,
+                    check_reference_freshness.date.fromisoformat("2026-07-12"),
+                    180,
+                    True,
+                    limits=check_reference_freshness.FreshnessLimits(
+                        run_deadline_seconds=1.0,
+                    ),
+                )
+
+    def test_reference_freshness_bounds_unique_resolved_hosts(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            references = root / "references"
+            references.mkdir()
+            (references / "sources.md").write_text(
+                "Reviewed: 2026-07-12\nhttps://one.example/docs\nhttps://two.example/docs\n",
+                encoding="utf-8",
+            )
+            with (
+                mock.patch.object(
+                    url_safety.socket,
+                    "getaddrinfo",
+                    return_value=[
+                        (
+                            url_safety.socket.AF_INET,
+                            url_safety.socket.SOCK_STREAM,
+                            6,
+                            "",
+                            ("93.184.216.34", 443),
+                        )
+                    ],
+                ) as resolver,
+                self.assertRaisesRegex(
+                    check_reference_freshness.FreshnessLimitError,
+                    "unique hostname limit exceeded",
+                ),
+            ):
+                check_reference_freshness.collect_issues(
+                    root,
+                    check_reference_freshness.date.fromisoformat("2026-07-12"),
+                    180,
+                    False,
+                    reference_dirs=GENERIC_REFERENCE_DIRS,
+                    resolve_hostnames=True,
+                    limits=check_reference_freshness.FreshnessLimits(
+                        max_unique_hosts=1,
+                    ),
+                )
+            self.assertEqual(1, resolver.call_count)
+
+    def test_reference_freshness_bounds_uncached_resolution_requests(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            references = root / "references"
+            references.mkdir()
+            (references / "sources.md").write_text(
+                "Reviewed: 2026-07-12\nhttps://example.com:443/docs\nhttps://example.com:8443/docs\n",
+                encoding="utf-8",
+            )
+            with (
+                mock.patch.object(
+                    url_safety.socket,
+                    "getaddrinfo",
+                    return_value=[
+                        (
+                            url_safety.socket.AF_INET,
+                            url_safety.socket.SOCK_STREAM,
+                            6,
+                            "",
+                            ("93.184.216.34", 443),
+                        )
+                    ],
+                ) as resolver,
+                self.assertRaisesRegex(
+                    check_reference_freshness.FreshnessLimitError,
+                    "hostname resolution request limit exceeded",
+                ),
+            ):
+                check_reference_freshness.collect_issues(
+                    root,
+                    check_reference_freshness.date.fromisoformat("2026-07-12"),
+                    180,
+                    False,
+                    reference_dirs=GENERIC_REFERENCE_DIRS,
+                    resolve_hostnames=True,
+                    limits=check_reference_freshness.FreshnessLimits(
+                        max_unique_hosts=1,
+                        max_hostname_resolution_requests=1,
+                    ),
+                )
+            self.assertEqual(1, resolver.call_count)
+
+    def test_reference_freshness_bounds_resolution_cache_growth(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            references = root / "references"
+            references.mkdir()
+            (references / "sources.md").write_text(
+                "Reviewed: 2026-07-12\nhttps://one.example/docs\nhttps://two.example/docs\n",
+                encoding="utf-8",
+            )
+            with (
+                mock.patch.object(
+                    url_safety.socket,
+                    "getaddrinfo",
+                    return_value=[
+                        (
+                            url_safety.socket.AF_INET,
+                            url_safety.socket.SOCK_STREAM,
+                            6,
+                            "",
+                            ("93.184.216.34", 443),
+                        )
+                    ],
+                ) as resolver,
+                self.assertRaisesRegex(
+                    check_reference_freshness.FreshnessLimitError,
+                    "hostname resolution cache entry limit exceeded",
+                ),
+            ):
+                check_reference_freshness.collect_issues(
+                    root,
+                    check_reference_freshness.date.fromisoformat("2026-07-12"),
+                    180,
+                    False,
+                    reference_dirs=GENERIC_REFERENCE_DIRS,
+                    resolve_hostnames=True,
+                    limits=check_reference_freshness.FreshnessLimits(
+                        max_unique_hosts=2,
+                        max_hostname_resolution_requests=2,
+                        max_hostname_resolution_cache_entries=1,
+                    ),
+                )
+            self.assertEqual(2, resolver.call_count)

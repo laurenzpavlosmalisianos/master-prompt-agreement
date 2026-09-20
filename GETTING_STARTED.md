@@ -20,6 +20,10 @@ names, but they contain target-specific authority and framework references.
 Core lifecycle scripts require Python 3.14 or newer and the POSIX transaction
 primitives reported by `scripts/check_prereqs.py`, including descriptor-relative
 no-follow file access, advisory locking, and directory-safe synchronization.
+Git-backed evidence and repository-inspection commands require a root-owned,
+non-group/world-writable platform-default Git 2.45.0 or newer. Those commands
+fail closed before running a Git repository query when the executable identity
+or version cannot be established safely.
 Support is capability-based: use only an environment where the prerequisite
 report exits successfully and sets `runner_usable` to `true`, then qualify the
 first bounded lifecycle transaction on the selected project filesystem.
@@ -104,7 +108,11 @@ downstream repository. The instance receipt uses
 the retained contract effective date and does not accumulate refresh timestamps
 or history. Its `contract_root` field locates the retained input, authority, and
 state when an explicitly selected layout keeps those surfaces in a nested
-directory.
+directory. Its closed `authority_module_digests` records exactly bind every
+active project-file Annex A-C module and the project `SECURITY.md` Annex D
+module by canonical label, a path unique to that one owner record, and SHA-256;
+the referenced module files remain outside generated managed and immutable
+outputs.
 
 Optional files such as `FINDINGS.md`, `REVIEWER_LANE_FEEDBACK.md`, `FRAMEWORK_FEEDBACK.md`, `PRECEDENTS.md`, `SOURCE_PACKS.md`, `SOURCE_UPDATE.md`, `SOURCE_MONITOR_RESEARCHER.md`, `SECURITY_VERIFICATION.md`, and `AUTOMATION_ORDERS.json` are selected during initial setup or a later approved candidate-input refresh only when the project needs them. The source-monitor brief is generated immutable procedure from retained configuration; the other listed optional surfaces are retained mutable state. Procedures may update a receipt-declared mutable surface while preserving its origin marker, but project-specific monitor additions belong in the declared source/state/overlay owners rather than edits to the generated brief. Do not create, copy, rename, or delete an optional generated surface ad hoc. A candidate-disabled optional surface is retired only through the exact plan-bound `RETIRE-IMMUTABLE-####` or `RETIRE-MUTABLE-####` action matching its receipt partition, a path-specific warning, and the applicable verified exact-preimage controls.
 
@@ -140,7 +148,7 @@ setup input. The profile fills absent reusable fields; confirmed project answers
 replace profile fields atomically. Keep identity, scope, stack, architecture,
 commands, deliverables, and project paths in the project answers. Use the same
 `--setup-profile <profile-json>` in the dry run and approved write command, and review
-the applied/overridden field report before writing.
+each reported applied or overridden value and its source provenance before writing.
 Start from `examples/project_bootstrap_profile.example.json` when you need the
 neutral profile shape. Do not add project facts to that reusable profile.
 
@@ -195,7 +203,7 @@ revision policy explicitly:
 <runner> -- "<framework-checkout-as-visible-to-runner>/scripts/project_bootstrap.py" --dry-run --answers <temporary-answers-json> --project-root /abs/path/to/project --contract-root <contract-root-ref> <contract-root-create-flag> --runtime <codex|claude-code|generic> --framework-revision-policy <live|pinned>
 ```
 
-Stop after the dry run. Review the resolved target and contract root, exact input and optional-profile digests, runtime and wrappers, framework reference, revision policy and captured identity, ordered warnings and informational `warnings_sha256`, planned outputs, rendered-output digests, and `write_plan_sha256`. Continue only by rerunning the same bootstrap command without `--dry-run`, preserving the reviewed arguments and adding `--approve-write-plan-sha256 <reviewed-write-plan-sha256>`. This option is required for every write, including a plan with no warnings. Its domain-separated digest binds the complete rendered plan; any input, profile, target, warning, framework, runtime, wrapper, or output change requires a new dry run and review. Missing, malformed, stale, or repeated approvals fail before the writer is called. Plan approval does not approve conformance warnings or relax the strict initial acceptance performed inside the write transaction.
+Stop after the dry run. Review the resolved target and contract root, every inode or approved-absence record in `write_target_binding`, exact input and optional-profile digests, runtime and wrappers, framework reference, revision policy and captured identity, ordered warnings and informational `warnings_sha256`, every `rendered_outputs` project-relative path with its exact JSON-encoded text and matching SHA-256, and `write_plan_sha256`. Continue only by rerunning the same bootstrap command without `--dry-run`, preserving the reviewed arguments and adding `--approve-write-plan-sha256 <reviewed-write-plan-sha256>`. This option is required for every write, including a plan with no warnings. Its domain-separated digest binds the complete rendered plan, including the target-directory identities and exact preview bytes; any input, profile, target, warning, framework, runtime, wrapper, or output change requires a new dry run and review. Missing, malformed, stale, or repeated approvals fail before the writer is called. Plan approval does not approve conformance warnings or relax the strict initial acceptance performed inside the write transaction.
 
 Use `uv run python -E -S -B` only when it actually invoked the successful prerequisite diagnostic in the approved environment. Otherwise retain the exact tested interpreter and flags reported by that diagnostic; do not replace them with a discovered `uv`, `python3`, or `py` spelling. `py -3 -E -S -B` is not a native-Windows support claim. Do not install `uv`, download Python, resolve dependencies, or create environments during bootstrap unless the user approves that state-changing setup step. Record the project-specific command form in the SOW.
 
@@ -226,6 +234,20 @@ reset as an update path. If any of
 `.mpa-bootstrap-recovery.tmp` exists at the project root, stop before loading
 generated project authority and follow the inspection-gated exact-ID recovery
 route.
+
+For a structurally valid current schema-6 instance whose only recorded-preimage
+failure is an intentional authority-module digest change, review the new module
+bytes and use refresh `plan --rebind-authority-modules` with
+`--accept-no-post-apply-backout`, then complete the normal exact plan digest,
+`REBIND-AUTHORITY-MODULES` action, warning, and apply approvals. Authority
+modules are external to managed outputs, so this narrow route cannot offer an
+exact-preimage semantic backout. Missing, extra, duplicate, redirected, or
+otherwise malformed authority records—and every noncurrent receipt—still route
+to a separately reviewed project-specific manual update; never hand-edit the
+receipt. This is a receipt-only recovery route: restore the previously recorded
+authority bytes and complete any other input, generated-output, retirement, or
+framework refresh separately before reviewing and rebinding the intentional
+module-byte change.
 
 Framework-rendered mutable and optional project-state files carry a closed
 origin marker. Current-instance validation requires that marker, and bounded

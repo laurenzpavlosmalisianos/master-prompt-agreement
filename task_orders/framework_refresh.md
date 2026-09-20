@@ -43,6 +43,12 @@ Authority And Data Boundary
   `AGENT_PROJECT.md` first and consult `STATEMENT_OF_WORK.md` for canonical
   project authority. The SOW governs until a revised contract is installed and
   verified.
+- `.mpa-bootstrap-recovery.previous` is transaction-internal preservation state,
+  not a fourth independent public startup-gate member. The transaction invariant
+  requires it always to coexist with the durable `.mpa-bootstrap.lock`, and lock
+  retirement must refuse while it exists; an orphaned `.previous` artifact is
+  invalid recovery state. The public three-member gate is complete only while
+  those mechanical invariants remain enforced and tested.
 - Prefer a native prelaunch transaction-control gate when the harness can
   enforce one. Otherwise require a self-contained entrypoint that checks the
   complete closed set before explicit authority reads. Treat that portable
@@ -94,11 +100,19 @@ Procedure
    - runtime or optional-surface revision: candidate input changes managed surfaces;
      disabling an optional surface proposes exact receipt-owned retirement under
      its recorded mutable or immutable partition rather than authorizing ad hoc deletion
+   - authority-module digest rebind: a structurally valid current schema-6
+     instance has only intentional byte drift in receipt-recorded external
+     authority modules; inspection reports the distinct non-error lifecycle
+     status `authority-module-rebind-required` with its exact drift evidence and
+     eligibility, so review those exact bytes and use the receipt-only route in
+     step 5 without a candidate input or any other refresh change
    - unsupported or inconsistent retained instance: current retained input or
      receipt is absent while any generated framework surface exists, only one
      member exists, either schema is older or unrecognized, or any recorded
-     input, receipt-parity, digest, or managed-file preimage invariant fails;
-     stop for reviewed manual update
+     input, receipt-parity, managed-file preimage, or authority-module structure,
+     coverage, path, redirect, or missing-file invariant fails; stop for reviewed
+     manual update. Intentional authority-module byte drift qualifies only for
+     the closed current-schema route above
    - newer format: a retained input or receipt declares a schema newer than this
      checkout supports; stop and select a supporting newer checkout
    - invalid inspection evidence: transaction-control or selected-checkout
@@ -124,8 +138,14 @@ Procedure
    Stop on unresolved recovery state, unsafe paths, invalid retained input,
    receipt mismatch, managed-file drift, or unavailable runner. Classify every
    retained-instance inconsistency—including receipt/contract-root placement,
-   digest drift, and missing managed files—through the reviewed manual-update
-   boundary above. Do not silently repair drift or switch environments.
+   managed-file digest drift, malformed authority evidence, and missing managed
+   files—through the reviewed manual-update boundary above. The sole exception
+   is inspection status `authority-module-rebind-required` for exact authority-
+   module-digest-only drift in a structurally valid current schema-6 receipt.
+   That status has an empty `errors` list and reports exact drift evidence plus
+   `rebind_eligible`; it is not generic `manual-update-required`. Do not edit the
+   receipt; review the changed module bytes and use the receipt-only route in
+   step 5. Do not silently repair other drift or switch environments.
 
    Distinguish downstream-effective drift from distribution-only drift. The
    effective identity covers generation, operative behavior, and acceptance
@@ -171,6 +191,7 @@ Procedure
 
    - framework-only refresh with unchanged retained input: `<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/project_refresh.py" plan --project-root <project-root> [--contract-root <matching-contract-root>] --backout-root <absolute-private-backout-root>`
    - contract, runtime, or optional-surface revision: `<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/project_refresh.py" plan --project-root <project-root> [--contract-root <matching-contract-root>] --candidate-input <temporary-candidate-input> --backout-root <absolute-private-backout-root>`
+   - intentional authority-module-digest-only rebind: `<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/project_refresh.py" plan --project-root <project-root> [--contract-root <matching-contract-root>] --rebind-authority-modules --accept-no-post-apply-backout`
 
    Capture stdout in an approved temporary plan file outside managed project
    surfaces. Planning is read-only and creates no durable project log. The
@@ -183,16 +204,42 @@ Procedure
    partition, one exact path-specific content-addressed warning, and one
    `remove` operation binding current digest and POSIX rwx mode to an absent target.
 
+   The authority-module route is deliberately current-only and receipt-only.
+   The current receipt must already use its exact canonical on-disk JSON bytes;
+   semantically equivalent whitespace, key-order, or escape drift is unrelated
+   receipt drift and is not absorbed by this route.
+   It must change only root `PROJECT_INSTANCE.json` by replacing the exact
+   canonical label/path/SHA-256 records for authority modules whose reviewed
+   bytes changed. It requires the named `REBIND-AUTHORITY-MODULES` and
+   `ACCEPT-NO-POST-APPLY-BACKOUT` actions plus its content-addressed warning.
+   Because those modules remain outside managed outputs, the route cannot claim
+   a post-success semantic backout. Any candidate-input change, framework or
+   generated-output change, retirement, malformed record, missing/extra module,
+   noncanonical path spelling, redirect, or unrelated receipt change invalidates
+   this route. Restore the previously recorded authority bytes and complete such
+   changes separately before planning the digest rebind.
+
+   A normal schema-6 plan stores the reviewed current-receipt snapshots in
+   `current_authority_modules` and target-receipt snapshots in
+   `authority_modules`. Each list uses unique canonical paths and one owner label
+   per path. Apply asserts the union of both sets throughout installation so an
+   authority-path transition cannot leave the displaced or replacement module
+   unbound. The rebind route deliberately leaves `current_authority_modules`
+   empty because the superseded recorded bytes are unavailable; its target list
+   binds the exact live bytes reviewed for rebind.
+
    Before approving any mutating plan, run the no-project-write semantic
    preview and review every changed authority/runtime file:
 
    `<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/project_refresh.py" preview --project-root <project-root> --plan <temporary-plan>`
 
    The preview must bind its exact current/target text, unified diffs, digests,
-   and POSIX rwx modes to the plan. Retain it only in an approved private
-   temporary location. A plan digest alone is not evidence that regenerated
-   policy text was semantically reviewed. Any stale or mismatched preview
-   invalidates the plan.
+   and POSIX rwx modes to the plan. It must also reproduce both
+   `current_authority_modules` and `authority_modules` as exact UTF-8 text with
+   canonical label, path, SHA-256, and POSIX rwx mode. Retain it only in an
+   approved private temporary location. A plan digest alone is not evidence that
+   regenerated policy text was semantically reviewed. Any stale or mismatched
+   preview invalidates the plan.
 
    The normal mutating path uses `--backout-root`. The root must already exist as
    an absolute, current-user-owned, non-symlink directory outside the project
@@ -252,6 +299,8 @@ Procedure
    - the exact bundle manifest and successful project-preimage verification for
      the normal path
    - warnings and named action approvals
+   - for an authority-module rebind, the exact reviewed module bytes and the
+     receipt-only label/path/SHA-256 delta with no other changed operation
    - the deterministic `refresh_transaction_id`
    - the exact `plan_sha256`
 
@@ -353,10 +402,12 @@ Procedure
     `<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/project_refresh.py" backout-restore --project-root <project-root> --plan <temporary-plan> --backout-root <absolute-private-backout-root> --approve-plan-sha256 <digest> --approve-refresh-transaction-id <refresh-transaction-id>`
 
    The restore command refuses to overwrite later byte or POSIX-mode changes
-   and transactionally verifies the exact bounded prior preimage. After restore,
-   verify the recorded preimage and inspect its relationship to the selected
-   checkout; a correct historical restore need not be current against newer
-   framework bytes.
+   and transactionally verifies the exact bounded prior preimage. It binds and
+   asserts the union of displaced target `authority_modules` and restored
+   `current_authority_modules` before, during, and after restoration. After
+   restore, verify the recorded preimage and inspect its relationship to the
+   selected checkout; a correct historical restore need not be current against
+   newer framework bytes.
 
 Unsupported-Format Boundary
 
@@ -385,6 +436,10 @@ Acceptance Criteria
   requires a supporting checkout.
 - A selected-framework effective change requires the named
   `ACCEPT-SELECTED-FRAMEWORK-CHANGE` approval.
+- Exact schema-6 authority-only drift reports
+  `authority-module-rebind-required`, not generic manual-update status; ordinary
+  path transitions bind both `current_authority_modules` and
+  `authority_modules` through apply and restore.
 - Approval binds the exact canonical plan digest and every required action or
   warning identifier; it does not waive strict conformance or later warnings.
 - A normal mutating plan has a closed, verified exact-preimage bundle bound to

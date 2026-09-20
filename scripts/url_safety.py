@@ -27,6 +27,14 @@ LOCAL_USE_SUFFIXES = tuple(f".{name}" for name in LOCAL_USE_HOSTNAMES)
 ALLOWED_EXTERNAL_SCHEMES = {"https"}
 SAFE_URLOPEN_LOCK = threading.Lock()
 _RESOLVER_SLOT = threading.BoundedSemaphore(1)
+DEFAULT_HOSTNAME_RESOLUTION_TIMEOUT_SECONDS = 5.0
+MAX_HOSTNAME_RESOLUTION_TIMEOUT_SECONDS = 30.0
+
+HostnameResolutionCache = dict[
+    tuple[str, int | None],
+    tuple[str, ...],
+]
+_HOSTNAME_RESOLUTION_TERMINAL_CACHE_KEY = ("\0", None)
 
 
 class _NetworkDeadline:
@@ -219,6 +227,33 @@ def _resolve_with_deadline(
     return result[0]
 
 
+def validated_hostname_resolution_timeout_seconds(value: object) -> float:
+    """Return a finite hostname-resolution timeout within the hard bound."""
+
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        raise ValueError(
+            "hostname resolution timeout must be a positive finite number "
+            f"at most {MAX_HOSTNAME_RESOLUTION_TIMEOUT_SECONDS:g}s"
+        )
+    try:
+        normalized = float(value)
+    except (OverflowError, TypeError, ValueError) as exc:
+        raise ValueError(
+            "hostname resolution timeout must be a positive finite number "
+            f"at most {MAX_HOSTNAME_RESOLUTION_TIMEOUT_SECONDS:g}s"
+        ) from exc
+    if (
+        not math.isfinite(normalized)
+        or normalized <= 0
+        or normalized > MAX_HOSTNAME_RESOLUTION_TIMEOUT_SECONDS
+    ):
+        raise ValueError(
+            "hostname resolution timeout must be a positive finite number "
+            f"at most {MAX_HOSTNAME_RESOLUTION_TIMEOUT_SECONDS:g}s"
+        )
+    return normalized
+
+
 def _deadline_create_connection(
     address: tuple[str, int],
     _timeout: object,
@@ -402,12 +437,45 @@ def resolved_address_issues_from_records(records: list[tuple]) -> list[str]:
     return sorted(set(issues))
 
 
-def resolved_address_issues(hostname: str, port: int | None) -> list[str]:
+def resolved_address_issues(
+    hostname: str,
+    port: int | None,
+    *,
+    timeout_seconds: float = DEFAULT_HOSTNAME_RESOLUTION_TIMEOUT_SECONDS,
+    cache: HostnameResolutionCache | None = None,
+) -> list[str]:
+    timeout = validated_hostname_resolution_timeout_seconds(timeout_seconds)
+    normalized_host = hostname.rstrip(".").casefold()
+    cache_key = (normalized_host, port)
+    if cache is not None:
+        if _HOSTNAME_RESOLUTION_TERMINAL_CACHE_KEY in cache:
+            return list(cache[_HOSTNAME_RESOLUTION_TERMINAL_CACHE_KEY])
+        if cache_key in cache:
+            return list(cache[cache_key])
+
+    deadline = _NetworkDeadline(timeout)
     try:
-        records = socket.getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
+        records = _resolve_with_deadline(
+            socket.getaddrinfo,
+            (hostname, port, 0, socket.SOCK_STREAM, 0, 0),
+            deadline,
+        )
+    except TimeoutError as exc:
+        issues = [f"external URL hostname resolution failed: {exc}"]
+        if cache is not None:
+            # A resolver that outlives its deadline retains the sole bounded
+            # worker slot.  Fail the rest of this audit immediately instead
+            # of charging the same capacity timeout to every distinct host.
+            cache[_HOSTNAME_RESOLUTION_TERMINAL_CACHE_KEY] = tuple(issues)
     except OSError as exc:
-        return [f"external URL hostname resolution failed: {exc}"]
-    return resolved_address_issues_from_records(records)
+        issues = [f"external URL hostname resolution failed: {exc}"]
+    else:
+        issues = resolved_address_issues_from_records(records)
+    finally:
+        deadline.cancel()
+    if cache is not None:
+        cache[cache_key] = tuple(issues)
+    return issues
 
 
 def safe_urlsplit(url: str):
@@ -422,7 +490,15 @@ def safe_urlsplit(url: str):
     return parsed, None
 
 
-def blocked_external_url_reason(url: str, *, resolve_hostname: bool = False) -> str | None:
+def blocked_external_url_reason(
+    url: str,
+    *,
+    resolve_hostname: bool = False,
+    hostname_resolution_timeout_seconds: float = (
+        DEFAULT_HOSTNAME_RESOLUTION_TIMEOUT_SECONDS
+    ),
+    hostname_resolution_cache: HostnameResolutionCache | None = None,
+) -> str | None:
     if any(
         unicodedata.category(character) in {"Cc", "Cf", "Cs", "Zl", "Zp"}
         for character in url
@@ -452,7 +528,12 @@ def blocked_external_url_reason(url: str, *, resolve_hostname: bool = False) -> 
     if literal_reason:
         return literal_reason
     if resolve_hostname:
-        issues = resolved_address_issues(normalized_host, parsed.port)
+        issues = resolved_address_issues(
+            normalized_host,
+            parsed.port or 443,
+            timeout_seconds=hostname_resolution_timeout_seconds,
+            cache=hostname_resolution_cache,
+        )
         if issues:
             return "; ".join(issues)
     return None

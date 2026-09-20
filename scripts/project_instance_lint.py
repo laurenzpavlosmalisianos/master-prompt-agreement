@@ -43,6 +43,7 @@ MANIFEST_KEYS = frozenset(
         "input_source",
         "input_sha256",
         "active_profiles",
+        "authority_module_digests",
         "managed_files",
         "immutable_files",
         "mutable_files",
@@ -610,13 +611,6 @@ def _load_and_validate_input(
             "framework_verification_runner",
         )
     )
-    errors.extend(
-        "retained project input answers: " + error
-        for error in project_bootstrap.referenced_project_file_errors(
-            answers,
-            context.project_root,
-        )
-    )
     if manifest.get("contract_effective_date") != answers.get("date"):
         errors.append(
             "project instance manifest contract_effective_date must exactly match retained "
@@ -825,6 +819,219 @@ def _validate_recorded_file_sets(
                 f"project instance manifest {label} must exactly match retained project input"
             )
     return managed_values, immutable_values, mutable_values
+
+
+def _validate_recorded_authority_module_digests(
+    context: LintContext,
+    manifest: dict[str, Any],
+    payload: dict[str, object] | None,
+    managed_files: list[str],
+    errors: list[str],
+) -> list[str]:
+    """Validate exact retained authority coverage and live bounded digests."""
+
+    drift_errors: list[str] = []
+    value = manifest.get("authority_module_digests")
+    if not isinstance(value, list):
+        errors.append(
+            "project instance manifest authority_module_digests must be a list"
+        )
+        return drift_errors
+
+    answers = payload.get("answers") if isinstance(payload, dict) else None
+    expected: list[tuple[str, str]] = []
+    expected_labels: set[str] = set()
+    expected_paths: set[str] = set()
+    if isinstance(answers, dict):
+        for canonical_label, raw_path in project_bootstrap.project_module_references(
+            answers
+        ):
+            try:
+                canonical_path = safe_paths.normalize_repo_relative_path(
+                    raw_path,
+                    context.project_root,
+                    description=f"authority module {canonical_label}",
+                )
+            except ValueError as exc:
+                errors.append(
+                    "retained project input authority module path is unsafe: "
+                    + str(exc)
+                )
+                continue
+            if canonical_label in expected_labels:
+                errors.append(
+                    "retained project input derives a duplicate authority module "
+                    f"label: {canonical_label}"
+                )
+                continue
+            if canonical_path in expected_paths:
+                errors.append(
+                    "retained project input derives a duplicate authority module "
+                    f"path: {canonical_path}"
+                )
+                continue
+            expected_labels.add(canonical_label)
+            expected_paths.add(canonical_path)
+            expected.append((canonical_label, canonical_path))
+
+    actual: list[tuple[str, str]] = []
+    valid_records: list[tuple[str, str, str]] = []
+    seen_labels: set[str] = set()
+    seen_paths: set[str] = set()
+    for index, record in enumerate(value):
+        record_label = f"authority_module_digests[{index}]"
+        if not isinstance(record, dict):
+            errors.append(f"{record_label} must be an object")
+            continue
+        unknown = sorted(
+            set(record) - project_bootstrap.AUTHORITY_MODULE_DIGEST_KEYS
+        )
+        missing = sorted(
+            project_bootstrap.AUTHORITY_MODULE_DIGEST_KEYS - set(record)
+        )
+        if unknown:
+            errors.append(
+                f"{record_label} has unknown keys: {', '.join(unknown)}"
+            )
+        if missing:
+            errors.append(
+                f"{record_label} is missing keys: {', '.join(missing)}"
+            )
+
+        canonical_label = record.get("label")
+        raw_path = record.get("path")
+        digest = record.get("sha256")
+        if not isinstance(canonical_label, str) or not canonical_label:
+            errors.append(f"{record_label}.label must be a non-empty string")
+        elif canonical_label in seen_labels:
+            errors.append(
+                f"project instance authority module label is duplicated: "
+                f"{canonical_label}"
+            )
+        else:
+            seen_labels.add(canonical_label)
+
+        normalized_path: str | None = None
+        if not isinstance(raw_path, str):
+            errors.append(f"{record_label}.path must be a string")
+        else:
+            path_errors = _recorded_relative_path_errors(
+                raw_path,
+                f"{record_label}.path",
+            )
+            errors.extend(path_errors)
+            try:
+                normalized_path = safe_paths.normalize_repo_relative_path(
+                    raw_path,
+                    context.project_root,
+                    description=f"{record_label}.path",
+                )
+            except ValueError as exc:
+                errors.append(
+                    f"authority module redirect or unsafe path is forbidden: {exc}"
+                )
+            else:
+                if normalized_path != raw_path:
+                    errors.append(
+                        f"{record_label}.path must use canonical repo-relative form"
+                    )
+                if normalized_path in seen_paths:
+                    errors.append(
+                        "project instance authority module path is duplicated: "
+                        f"{normalized_path}"
+                    )
+                else:
+                    seen_paths.add(normalized_path)
+
+        digest_errors = validate_digest(digest, f"{record_label}.sha256")
+        errors.extend(digest_errors)
+        if isinstance(canonical_label, str) and isinstance(raw_path, str):
+            actual.append((canonical_label, raw_path))
+        if (
+            not unknown
+            and not missing
+            and isinstance(canonical_label, str)
+            and canonical_label
+            and normalized_path is not None
+            and normalized_path == raw_path
+            and isinstance(digest, str)
+            and SHA256_RE.fullmatch(digest)
+        ):
+            valid_records.append((canonical_label, normalized_path, digest))
+
+    expected_set = set(expected)
+    actual_set = set(actual)
+    for canonical_label, path in sorted(expected_set - actual_set):
+        errors.append(
+            "project instance authority_module_digests is missing derived module: "
+            f"{canonical_label}: {path}"
+        )
+    for canonical_label, path in sorted(actual_set - expected_set):
+        errors.append(
+            "project instance authority_module_digests has an extra or non-canonical "
+            f"module: {canonical_label}: {path}"
+        )
+    if actual_set == expected_set and actual != expected:
+        errors.append(
+            "project instance authority_module_digests must use canonical derived order"
+        )
+
+    forbidden_paths = {
+        *managed_files,
+        MANIFEST_NAME,
+        project_bootstrap.project_relative_output(
+            context.contract_root_ref,
+            project_input.INPUT_NAME,
+        ),
+    }
+    for canonical_label, path, digest in valid_records:
+        colliding_output = next(
+            (
+                output
+                for output in sorted(forbidden_paths)
+                if project_bootstrap.repo_relative_paths_overlap(path, output)
+            ),
+            None,
+        )
+        if colliding_output is not None:
+            errors.append(
+                "authority modules must remain outside managed, immutable, and "
+                "lifecycle metadata output paths and their ancestors or descendants: "
+                f"{canonical_label}: {path} conflicts with {colliding_output}"
+            )
+            continue
+        spelling_errors = safe_paths.exact_relative_path_spelling_errors(
+            context.project_root,
+            Path(path),
+            description=f"authority module {canonical_label}",
+        )
+        if spelling_errors:
+            errors.extend(spelling_errors)
+            continue
+        try:
+            raw = safe_paths.read_regular_file_bytes(
+                context.project_root / path,
+                description=f"authority module {canonical_label}",
+                max_bytes=project_bootstrap.AUTHORITY_MODULE_MAX_BYTES,
+            )
+            raw.decode("utf-8")
+        except FileNotFoundError:
+            errors.append(
+                f"authority module is missing: {canonical_label}: {path}"
+            )
+            continue
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
+            errors.append(
+                "authority module redirect, non-UTF-8 content, or unsafe bounded "
+                "read was rejected: "
+                f"{canonical_label}: {path}: {exc}"
+            )
+            continue
+        if hashlib.sha256(raw).hexdigest() != digest:
+            drift = f"authority module digest drift: {canonical_label}: {path}"
+            errors.append(drift)
+            drift_errors.append(drift)
+    return drift_errors
 
 
 def _validate_mutable_state_origins(
@@ -1252,6 +1459,7 @@ def _preimage_result(
     managed_files: list[str] | None = None,
     immutable_files: list[str] | None = None,
     mutable_files: list[str] | None = None,
+    authority_module_drift_errors: list[str] | None = None,
 ) -> dict[str, object]:
     """Return the closed stage-A result consumed by refresh and conformance."""
 
@@ -1265,6 +1473,7 @@ def _preimage_result(
         "managed_files": managed_files or [],
         "immutable_files": immutable_files or [],
         "mutable_files": mutable_files or [],
+        "authority_module_drift_errors": authority_module_drift_errors or [],
     }
 
 
@@ -1379,6 +1588,13 @@ def validate_recorded_preimage(
         retained_input,
         errors,
     )
+    authority_module_drift_errors = _validate_recorded_authority_module_digests(
+        context,
+        manifest,
+        retained_input,
+        managed_files,
+        errors,
+    )
     _validate_mutable_state_origins(context, mutable_files, errors)
     _validate_unreceipted_generated_state(context, managed_files, errors)
     _validate_string_list(
@@ -1408,6 +1624,7 @@ def validate_recorded_preimage(
         managed_files=managed_files,
         immutable_files=immutable_files,
         mutable_files=mutable_files,
+        authority_module_drift_errors=authority_module_drift_errors,
     )
 
 

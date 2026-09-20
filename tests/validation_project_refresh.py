@@ -29,8 +29,10 @@ import integration_registry  # noqa: E402
 import project_bootstrap  # noqa: E402
 import project_contract_model  # noqa: E402
 import project_input  # noqa: E402
+import project_instance_lint  # noqa: E402
 import project_refresh  # noqa: E402
 import project_state_identity  # noqa: E402
+import safe_paths  # noqa: E402
 
 
 def _materialize_project(
@@ -82,6 +84,21 @@ def _materialize_project(
         contract_root_ref=contract_root_ref,
         runtime_wrappers=runtime_wrappers,
     )
+    authority_module_digests, authority_errors = (
+        project_bootstrap.authority_module_digest_records(
+            answers,
+            project_root,
+            forbidden_paths=frozenset(
+                {
+                    *managed,
+                    input_name,
+                    project_bootstrap.INSTANCE_MANIFEST,
+                }
+            ),
+        )
+    )
+    if authority_errors:
+        raise AssertionError(authority_errors)
     outputs[project_bootstrap.INSTANCE_MANIFEST] = (
         project_bootstrap.render_instance_manifest(
             input_bytes=input_text.encode("utf-8"),
@@ -105,6 +122,7 @@ def _materialize_project(
                 project_kind="downstream",
             ),
             effective_date="2026-07-14",
+            authority_module_digests=authority_module_digests,
         )
     )
     for name, content in outputs.items():
@@ -1489,6 +1507,853 @@ class ProjectRefreshLifecycleTests(unittest.TestCase):
             ),
             planned.errors,
         )
+
+    def test_schema6_authority_module_receipt_and_reviewed_rebind_route(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            authority_path = project_root / "AUTHORITY.md"
+            authority_path.write_text("# Approved authority\n", encoding="utf-8")
+            _materialize_project(
+                project_root,
+                answer_overrides={
+                    "annexes": {"authority": "AUTHORITY.md"}
+                },
+            )
+            receipt_path = project_root / project_bootstrap.INSTANCE_MANIFEST
+            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+            records = receipt["authority_module_digests"]
+            self.assertEqual(
+                [
+                    {
+                        "label": "Annex C — Scope of Authority (AUTHORITY.md)",
+                        "path": "AUTHORITY.md",
+                        "sha256": hashlib.sha256(
+                            b"# Approved authority\n"
+                        ).hexdigest(),
+                    }
+                ],
+                records,
+            )
+            self.assertNotIn("AUTHORITY.md", receipt["managed_files"])
+            self.assertNotIn("AUTHORITY.md", receipt["immutable_files"])
+            self.assertEqual(
+                [],
+                project_instance_lint.validate_recorded_preimage(project_root)[
+                    "errors"
+                ],
+            )
+
+            revised_bytes = b"# Intentionally revised authority\n"
+            authority_path.write_bytes(revised_bytes)
+            inspected = project_refresh.inspect_project(project_root)
+            blocked = project_refresh.build_plan(project_root)
+            candidate_input = json.loads(
+                (project_root / project_input.INPUT_NAME).read_text(encoding="utf-8")
+            )
+            candidate_input["answers"]["project_name"] = "Combined revision"
+            combined = project_refresh.build_plan(
+                project_root,
+                candidate_input=candidate_input,
+                post_apply_backout={"kind": "none"},
+                rebind_authority_modules=True,
+            )
+            expected_authority_mode = stat.S_IMODE(authority_path.stat().st_mode)
+            built = project_refresh.build_plan(
+                project_root,
+                post_apply_backout={"kind": "none"},
+                rebind_authority_modules=True,
+            )
+            self.assertIsNotNone(built.payload, built.errors)
+            assert built.payload is not None
+            target_receipt = json.loads(
+                built.target_outputs[project_bootstrap.INSTANCE_MANIFEST]
+            )
+            preview_code, preview = project_refresh.preview_plan(
+                project_root,
+                built.payload,
+            )
+            apply_code, applied = project_refresh.apply_plan(
+                project_root,
+                built.payload,
+                approved_digest=str(built.payload["plan_sha256"]),
+                approved_actions=set(
+                    cast(list[str], built.payload["required_actions"])
+                ),
+                approved_warnings=set(_warning_ids(built.payload)),
+            )
+            after = project_refresh.inspect_project(project_root)
+
+        self.assertEqual(
+            "authority-module-rebind-required",
+            inspected["status"],
+            inspected,
+        )
+        self.assertEqual([], inspected["errors"], inspected)
+        self.assertTrue(inspected["rebind_eligible"], inspected)
+        self.assertTrue(inspected["authority_module_drift"], inspected)
+        self.assertIsNone(blocked.payload)
+        self.assertIn("--rebind-authority-modules", blocked.errors[0])
+        self.assertIsNone(combined.payload)
+        self.assertIn("receipt-only recovery route", combined.errors[0])
+        self.assertEqual(
+            [
+                "ACCEPT-NO-POST-APPLY-BACKOUT",
+                "REBIND-AUTHORITY-MODULES",
+            ],
+            built.payload["required_actions"],
+        )
+        self.assertTrue(
+            any(
+                "authority-module digest rebind" in warning["message"]
+                and "no post-apply semantic backout" in warning["message"]
+                for warning in cast(list[dict[str, str]], built.payload["warnings"])
+            ),
+            built.payload["warnings"],
+        )
+        self.assertEqual(
+            hashlib.sha256(revised_bytes).hexdigest(),
+            target_receipt["authority_module_digests"][0]["sha256"],
+        )
+        self.assertEqual(0, preview_code, preview)
+        self.assertEqual([], preview["current_authority_modules"])
+        self.assertEqual(
+            [
+                {
+                    "label": "Annex C — Scope of Authority (AUTHORITY.md)",
+                    "path": "AUTHORITY.md",
+                    "sha256": hashlib.sha256(revised_bytes).hexdigest(),
+                    "mode": expected_authority_mode,
+                    "text": revised_bytes.decode("utf-8"),
+                }
+            ],
+            preview["authority_modules"],
+        )
+        self.assertEqual(0, apply_code, applied)
+        self.assertEqual("applied", applied["status"])
+        self.assertNotIn("AUTHORITY.md", cast(list[str], applied["written"]))
+        self.assertEqual("current", after["status"], after)
+
+    def test_authority_module_rebind_rejects_unrelated_receipt_serialization_drift(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            authority_path = project_root / "AUTHORITY.md"
+            authority_path.write_text("# Approved authority\n", encoding="utf-8")
+            _materialize_project(
+                project_root,
+                answer_overrides={"annexes": {"authority": "AUTHORITY.md"}},
+            )
+            receipt_path = project_root / project_bootstrap.INSTANCE_MANIFEST
+            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+            receipt_path.write_text(
+                json.dumps(receipt, sort_keys=False) + "\n",
+                encoding="utf-8",
+            )
+            authority_path.write_text("# Revised authority\n", encoding="utf-8")
+
+            built = project_refresh.build_plan(
+                project_root,
+                post_apply_backout={"kind": "none"},
+                rebind_authority_modules=True,
+            )
+
+        self.assertIsNone(built.payload)
+        self.assertIn("canonical serialization", " ".join(built.errors))
+
+    def test_authority_module_receipt_rejects_coverage_duplicates_redirects_and_drift(
+        self,
+    ) -> None:
+        cases = (
+            "missing-record",
+            "missing-file",
+            "extra-record",
+            "duplicate-record",
+            "redirect",
+            "oversize",
+            "invalid-utf8",
+            "digest-drift",
+        )
+        for case in cases:
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as temp_dir:
+                project_root = Path(temp_dir)
+                authority_path = project_root / "AUTHORITY.md"
+                authority_path.write_text("# Authority\n", encoding="utf-8")
+                _materialize_project(
+                    project_root,
+                    answer_overrides={
+                        "annexes": {"authority": "AUTHORITY.md"}
+                    },
+                )
+                receipt_path = project_root / project_bootstrap.INSTANCE_MANIFEST
+                receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+                if case == "missing-record":
+                    receipt["authority_module_digests"] = []
+                elif case == "missing-file":
+                    authority_path.unlink()
+                elif case == "extra-record":
+                    extra_path = project_root / "EXTRA.md"
+                    extra_path.write_text("extra\n", encoding="utf-8")
+                    receipt["authority_module_digests"].append(
+                        {
+                            "label": "Non-canonical extra module",
+                            "path": "EXTRA.md",
+                            "sha256": hashlib.sha256(b"extra\n").hexdigest(),
+                        }
+                    )
+                elif case == "duplicate-record":
+                    receipt["authority_module_digests"].append(
+                        dict(receipt["authority_module_digests"][0])
+                    )
+                elif case == "redirect":
+                    outside = project_root / "redirect-target.md"
+                    outside.write_text("redirected\n", encoding="utf-8")
+                    authority_path.unlink()
+                    authority_path.symlink_to(outside)
+                elif case == "oversize":
+                    authority_path.write_bytes(
+                        b"x" * (project_bootstrap.AUTHORITY_MODULE_MAX_BYTES + 1)
+                    )
+                elif case == "invalid-utf8":
+                    authority_path.write_bytes(b"authority:\xff\n")
+                else:
+                    authority_path.write_text("# Drifted authority\n", encoding="utf-8")
+                if case in {"missing-record", "extra-record", "duplicate-record"}:
+                    receipt_path.write_text(
+                        json.dumps(receipt, indent=2, sort_keys=True) + "\n",
+                        encoding="utf-8",
+                    )
+
+                preimage = project_instance_lint.validate_recorded_preimage(
+                    project_root
+                )
+                errors = cast(list[str], preimage["errors"])
+
+                self.assertTrue(errors, preimage)
+                expected_fragment = {
+                    "missing-record": "missing derived module",
+                    "missing-file": "authority module is missing",
+                    "extra-record": "extra or non-canonical module",
+                    "duplicate-record": "duplicated",
+                    "redirect": "redirect",
+                    "oversize": "bounded read",
+                    "invalid-utf8": "non-UTF-8",
+                    "digest-drift": "digest drift",
+                }[case]
+                self.assertTrue(
+                    any(expected_fragment in error for error in errors),
+                    errors,
+                )
+
+    def test_authority_modules_require_exact_directory_entry_spelling(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            (project_root / "AUTHORITY.md").write_text(
+                "# Authority\n",
+                encoding="utf-8",
+            )
+            answers = {
+                "annexes": {"authority": "AUTHORITY.md"},
+            }
+            exact_spelling_error = [
+                "authority module must use exact path spelling 'AUTHORITY.md'"
+            ]
+
+            with mock.patch.object(
+                safe_paths,
+                "exact_relative_path_spelling_errors",
+                return_value=exact_spelling_error,
+            ):
+                records, bootstrap_errors = (
+                    project_bootstrap.authority_module_digest_records(
+                        answers,
+                        project_root,
+                    )
+                )
+
+            self.assertEqual([], records)
+            self.assertEqual(exact_spelling_error, bootstrap_errors)
+
+            _materialize_project(
+                project_root,
+                answer_overrides=answers,
+            )
+            with mock.patch.object(
+                safe_paths,
+                "exact_relative_path_spelling_errors",
+                return_value=exact_spelling_error,
+            ):
+                preimage = project_instance_lint.validate_recorded_preimage(
+                    project_root
+                )
+
+            self.assertTrue(
+                any(
+                    "must use exact path spelling" in error
+                    for error in cast(list[str], preimage["errors"])
+                ),
+                preimage,
+            )
+
+    def test_authority_module_paths_have_one_canonical_owner(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            shared_path = project_root / "SHARED.md"
+            shared_path.write_text("# Shared module\n", encoding="utf-8")
+            _materialize_project(project_root)
+            candidate = json.loads(
+                (project_root / project_input.INPUT_NAME).read_text(encoding="utf-8")
+            )
+            answers = cast(dict[str, object], candidate["answers"])
+            answers["annexes"] = {
+                "soul": "SHARED.md",
+                "authority": "SHARED.md",
+            }
+
+            validation_errors = project_bootstrap.validate_answers(answers)
+            records, capture_errors = (
+                project_bootstrap.authority_module_digest_records(
+                    answers,
+                    project_root,
+                )
+            )
+            built = project_refresh.build_plan(
+                project_root,
+                candidate_input=candidate,
+                post_apply_backout={"kind": "none"},
+            )
+            schema = project_contract_model.answer_json_schema()
+            annex_schema = cast(
+                dict[str, object],
+                cast(dict[str, object], schema["properties"])["annexes"],
+            )
+
+        expected = "authority module path must have one canonical owner: SHARED.md"
+        self.assertTrue(
+            any(expected in error for error in validation_errors),
+            validation_errors,
+        )
+        self.assertEqual(["SHARED.md"], [record["path"] for record in records])
+        self.assertTrue(
+            any(expected in error for error in capture_errors),
+            capture_errors,
+        )
+        self.assertIsNone(built.payload)
+        self.assertTrue(any(expected in error for error in built.errors), built.errors)
+        self.assertIn(
+            "one path cannot have multiple owner labels",
+            str(annex_schema["description"]),
+        )
+
+    def test_authority_module_rebind_rechecks_exact_bytes_at_transaction_boundary(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            authority_path = project_root / "AUTHORITY.md"
+            authority_path.write_text("# Original authority\n", encoding="utf-8")
+            _materialize_project(
+                project_root,
+                answer_overrides={"annexes": {"authority": "AUTHORITY.md"}},
+            )
+            receipt_path = project_root / project_bootstrap.INSTANCE_MANIFEST
+            receipt_before = receipt_path.read_bytes()
+            authority_path.write_text("# Reviewed revision\n", encoding="utf-8")
+            built = project_refresh.build_plan(
+                project_root,
+                post_apply_backout={"kind": "none"},
+                rebind_authority_modules=True,
+            )
+            self.assertIsNotNone(built.payload, built.errors)
+            assert built.payload is not None
+            real_transaction = (
+                project_refresh.bootstrap_transaction.transactional_write_outputs
+            )
+            injected = False
+
+            def mutate_at_transaction_boundary(
+                target_root: Path,
+                outputs: list[tuple[str, str]],
+                **kwargs: Any,
+            ) -> bootstrap_transaction.BootstrapWriteResult:
+                nonlocal injected
+                authority_path.write_text("# Unreviewed race\n", encoding="utf-8")
+                injected = True
+                return real_transaction(target_root, outputs, **kwargs)
+
+            with mock.patch.object(
+                project_refresh.bootstrap_transaction,
+                "transactional_write_outputs",
+                side_effect=mutate_at_transaction_boundary,
+            ):
+                apply_code, applied = project_refresh.apply_plan(
+                    project_root,
+                    built.payload,
+                    approved_digest=str(built.payload["plan_sha256"]),
+                    approved_actions=set(
+                        cast(list[str], built.payload["required_actions"])
+                    ),
+                    approved_warnings=set(_warning_ids(built.payload)),
+                )
+
+            self.assertTrue(injected)
+            self.assertEqual(project_refresh.EXIT_ROLLED_BACK, apply_code, applied)
+            self.assertEqual("rolled-back", applied["status"])
+            self.assertIn(
+                "bootstrap asserted preimage changed after plan inspection",
+                " ".join(cast(list[str], applied["errors"])),
+            )
+            self.assertEqual(receipt_before, receipt_path.read_bytes())
+            self.assertEqual("# Unreviewed race\n", authority_path.read_text(encoding="utf-8"))
+            self.assertFalse(
+                (project_root / bootstrap_transaction.TRANSACTION_LOCK_NAME).exists()
+            )
+            self.assertFalse(
+                (project_root / bootstrap_transaction.RECOVERY_JOURNAL_NAME).exists()
+            )
+
+    def test_authority_path_transition_asserts_displaced_module_at_apply_boundary(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            old_path = project_root / "OLD.md"
+            new_path = project_root / "NEW.md"
+            old_path.write_text("# Reviewed old authority\n", encoding="utf-8")
+            new_path.write_text("# Reviewed new authority\n", encoding="utf-8")
+            _materialize_project(
+                project_root,
+                answer_overrides={"annexes": {"authority": "OLD.md"}},
+            )
+            receipt_path = project_root / project_bootstrap.INSTANCE_MANIFEST
+            receipt_before = receipt_path.read_bytes()
+            candidate = json.loads(
+                (project_root / project_input.INPUT_NAME).read_text(encoding="utf-8")
+            )
+            candidate["answers"]["annexes"]["authority"] = "NEW.md"
+            built = project_refresh.build_plan(
+                project_root,
+                candidate_input=candidate,
+                post_apply_backout={"kind": "none"},
+            )
+            self.assertIsNotNone(built.payload, built.errors)
+            assert built.payload is not None
+            plan = built.payload
+            self.assertEqual(
+                ["OLD.md"],
+                [
+                    record["path"]
+                    for record in cast(
+                        list[dict[str, object]],
+                        plan["current_authority_modules"],
+                    )
+                ],
+            )
+            self.assertEqual(
+                ["NEW.md"],
+                [
+                    record["path"]
+                    for record in cast(
+                        list[dict[str, object]],
+                        plan["authority_modules"],
+                    )
+                ],
+            )
+            real_transaction = (
+                project_refresh.bootstrap_transaction.transactional_write_outputs
+            )
+            injected = False
+
+            def mutate_displaced_module(
+                target_root: Path,
+                outputs: list[tuple[str, str]],
+                **kwargs: Any,
+            ) -> bootstrap_transaction.BootstrapWriteResult:
+                nonlocal injected
+                old_path.write_text("# Unreviewed old mutation\n", encoding="utf-8")
+                injected = True
+                return real_transaction(target_root, outputs, **kwargs)
+
+            with mock.patch.object(
+                project_refresh.bootstrap_transaction,
+                "transactional_write_outputs",
+                side_effect=mutate_displaced_module,
+            ):
+                apply_code, applied = project_refresh.apply_plan(
+                    project_root,
+                    plan,
+                    approved_digest=str(plan["plan_sha256"]),
+                    approved_actions=set(cast(list[str], plan["required_actions"])),
+                    approved_warnings=set(_warning_ids(plan)),
+                )
+
+            self.assertTrue(injected)
+            self.assertEqual(project_refresh.EXIT_ROLLED_BACK, apply_code, applied)
+            self.assertEqual("rolled-back", applied["status"])
+            self.assertIn(
+                "bootstrap asserted preimage changed after plan inspection",
+                " ".join(cast(list[str], applied["errors"])),
+            )
+            self.assertEqual(receipt_before, receipt_path.read_bytes())
+            self.assertEqual(
+                "# Unreviewed old mutation\n",
+                old_path.read_text(encoding="utf-8"),
+            )
+            self.assertEqual(
+                "clean",
+                bootstrap_transaction.transaction_recovery_status(project_root).state,
+            )
+
+    def test_authority_path_transition_restore_asserts_both_module_snapshots(
+        self,
+    ) -> None:
+        for mutated_name in ("OLD.md", "NEW.md"):
+            with (
+                self.subTest(mutated_name=mutated_name),
+                tempfile.TemporaryDirectory() as temp_dir,
+            ):
+                root = Path(temp_dir)
+                project_root = root / "project"
+                project_root.mkdir()
+                old_path = project_root / "OLD.md"
+                new_path = project_root / "NEW.md"
+                old_path.write_text("# Reviewed old authority\n", encoding="utf-8")
+                new_path.write_text("# Reviewed new authority\n", encoding="utf-8")
+                _materialize_project(
+                    project_root,
+                    answer_overrides={"annexes": {"authority": "OLD.md"}},
+                )
+                candidate = json.loads(
+                    (project_root / project_input.INPUT_NAME).read_text(
+                        encoding="utf-8"
+                    )
+                )
+                candidate["answers"]["annexes"]["authority"] = "NEW.md"
+                backout_root = root / "private-backouts"
+                backout_root.mkdir(mode=0o700)
+                built = project_refresh.build_plan(
+                    project_root,
+                    candidate_input=candidate,
+                    post_apply_backout={
+                        "kind": "exact-preimage-bundle",
+                        "root": str(backout_root.resolve()),
+                    },
+                )
+                self.assertIsNotNone(built.payload, built.errors)
+                assert built.payload is not None
+                plan = built.payload
+                create_code, created = project_refresh.create_backout_bundle(
+                    project_root,
+                    plan,
+                    backout_root,
+                )
+                self.assertEqual(0, create_code, created)
+                apply_code, applied = project_refresh.apply_plan(
+                    project_root,
+                    plan,
+                    approved_digest=str(plan["plan_sha256"]),
+                    approved_actions=set(cast(list[str], plan["required_actions"])),
+                    approved_warnings=set(_warning_ids(plan)),
+                )
+                self.assertEqual(0, apply_code, applied)
+                receipt_path = project_root / project_bootstrap.INSTANCE_MANIFEST
+                post_apply_receipt = receipt_path.read_bytes()
+                mutated_path = project_root / mutated_name
+                mutation = f"# Unreviewed restore mutation: {mutated_name}\n"
+                real_transaction = (
+                    project_refresh.bootstrap_transaction.transactional_write_outputs
+                )
+                injected = False
+
+                def mutate_at_restore_boundary(
+                    target_root: Path,
+                    outputs: list[tuple[str, str]],
+                    **kwargs: Any,
+                ) -> bootstrap_transaction.BootstrapWriteResult:
+                    nonlocal injected
+                    mutated_path.write_text(mutation, encoding="utf-8")
+                    injected = True
+                    return real_transaction(target_root, outputs, **kwargs)
+
+                with mock.patch.object(
+                    project_refresh.bootstrap_transaction,
+                    "transactional_write_outputs",
+                    side_effect=mutate_at_restore_boundary,
+                ):
+                    restore_code, restored = (
+                        project_refresh.restore_backout_bundle(
+                            project_root,
+                            plan,
+                            backout_root,
+                            approved_digest=str(plan["plan_sha256"]),
+                            approved_transaction_id=str(
+                                plan["refresh_transaction_id"]
+                            ),
+                        )
+                    )
+
+                self.assertTrue(injected)
+                self.assertEqual(
+                    project_refresh.EXIT_ROLLED_BACK,
+                    restore_code,
+                    restored,
+                )
+                self.assertEqual("rolled-back", restored["status"])
+                self.assertIn(
+                    "bootstrap asserted preimage changed after plan inspection",
+                    " ".join(cast(list[str], restored["errors"])),
+                )
+                self.assertEqual(post_apply_receipt, receipt_path.read_bytes())
+                self.assertEqual(mutation, mutated_path.read_text(encoding="utf-8"))
+                self.assertEqual(
+                    "clean",
+                    bootstrap_transaction.transaction_recovery_status(
+                        project_root
+                    ).state,
+                )
+
+    def test_refresh_plan_rejects_cloned_root_and_contract_directory_replacement(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+
+            with self.subTest("project root"):
+                project_root = root / "root-bound-project"
+                project_root.mkdir()
+                _materialize_project(project_root)
+                built = project_refresh.build_plan(project_root)
+                self.assertIsNotNone(built.payload, built.errors)
+                assert built.payload is not None
+                reviewed_identity = cast(
+                    dict[str, object],
+                    built.payload["target_directory_binding"],
+                )["project_root_identity"]
+                displaced = root / "reviewed-project-root"
+                project_root.rename(displaced)
+                shutil.copytree(displaced, project_root)
+                code, report = project_refresh.apply_plan(
+                    project_root,
+                    built.payload,
+                    approved_digest=str(built.payload["plan_sha256"]),
+                    approved_actions=set(),
+                    approved_warnings=set(),
+                )
+                self.assertEqual(project_refresh.EXIT_BLOCKED, code, report)
+                self.assertEqual("stale-plan", report["status"])
+                self.assertNotEqual(
+                    reviewed_identity,
+                    project_bootstrap.target_directory_identity(project_root),
+                )
+
+            with self.subTest("nested contract parent"):
+                project_root = root / "contract-bound-project"
+                project_root.mkdir()
+                _materialize_project(
+                    project_root,
+                    contract_root_ref="governance/current",
+                )
+                built = project_refresh.build_plan(
+                    project_root,
+                    "governance/current",
+                )
+                self.assertIsNotNone(built.payload, built.errors)
+                assert built.payload is not None
+                reviewed_directories = cast(
+                    dict[str, object],
+                    built.payload["target_directory_binding"],
+                )["directory_identities"]
+                displaced = root / "reviewed-governance-tree"
+                (project_root / "governance").rename(displaced)
+                shutil.copytree(displaced, project_root / "governance")
+                code, report = project_refresh.apply_plan(
+                    project_root,
+                    built.payload,
+                    approved_digest=str(built.payload["plan_sha256"]),
+                    approved_actions=set(),
+                    approved_warnings=set(),
+                )
+                self.assertEqual(project_refresh.EXIT_BLOCKED, code, report)
+                self.assertEqual("stale-plan", report["status"])
+                self.assertNotEqual(
+                    reviewed_directories,
+                    project_bootstrap.target_directory_identity_bindings(
+                        project_root,
+                        project_root / "governance" / "current",
+                    ),
+                )
+
+    def test_backout_restore_rechecks_authority_after_post_install_validation(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            project_root = root / "project"
+            project_root.mkdir()
+            authority_path = project_root / "AUTHORITY.md"
+            authority_path.write_text("# Stable authority\n", encoding="utf-8")
+            _materialize_project(
+                project_root,
+                answer_overrides={"annexes": {"authority": "AUTHORITY.md"}},
+            )
+            candidate = json.loads(
+                (project_root / project_input.INPUT_NAME).read_text(encoding="utf-8")
+            )
+            candidate["answers"]["project_name"] = "Applied candidate"
+            backout_root = root / "private-backouts"
+            backout_root.mkdir(mode=0o700)
+            built = project_refresh.build_plan(
+                project_root,
+                candidate_input=candidate,
+                post_apply_backout={
+                    "kind": "exact-preimage-bundle",
+                    "root": str(backout_root.resolve()),
+                },
+            )
+            self.assertIsNotNone(built.payload, built.errors)
+            assert built.payload is not None
+            plan = built.payload
+            create_code, created = project_refresh.create_backout_bundle(
+                project_root,
+                plan,
+                backout_root,
+            )
+            self.assertEqual(0, create_code, created)
+            apply_code, applied = project_refresh.apply_plan(
+                project_root,
+                plan,
+                approved_digest=str(plan["plan_sha256"]),
+                approved_actions=set(cast(list[str], plan["required_actions"])),
+                approved_warnings=set(_warning_ids(plan)),
+            )
+            self.assertEqual(0, apply_code, applied)
+            post_apply_receipt = (
+                project_root / project_bootstrap.INSTANCE_MANIFEST
+            ).read_bytes()
+            real_validate = project_instance_lint.validate_recorded_preimage
+            mutated = False
+
+            def validate_then_mutate(
+                target_root: Path,
+                contract_root_ref: str = ".",
+                **kwargs: Any,
+            ) -> dict[str, object]:
+                nonlocal mutated
+                result = real_validate(target_root, contract_root_ref, **kwargs)
+                if not mutated and not result["errors"]:
+                    authority_path.write_text(
+                        "# Raced after validation\n",
+                        encoding="utf-8",
+                    )
+                    mutated = True
+                return result
+
+            with mock.patch.object(
+                project_refresh.project_instance_lint,
+                "validate_recorded_preimage",
+                side_effect=validate_then_mutate,
+            ):
+                restore_code, restored = project_refresh.restore_backout_bundle(
+                    project_root,
+                    plan,
+                    backout_root,
+                    approved_digest=str(plan["plan_sha256"]),
+                    approved_transaction_id=str(plan["refresh_transaction_id"]),
+                )
+
+            self.assertTrue(mutated)
+            self.assertEqual(project_refresh.EXIT_ROLLED_BACK, restore_code, restored)
+            self.assertEqual("rolled-back", restored["status"])
+            self.assertIn(
+                "authority module changed during restore",
+                " ".join(cast(list[str], restored["errors"])),
+            )
+            self.assertEqual(
+                post_apply_receipt,
+                (project_root / project_bootstrap.INSTANCE_MANIFEST).read_bytes(),
+            )
+            self.assertEqual(
+                "# Raced after validation\n",
+                authority_path.read_text(encoding="utf-8"),
+            )
+            self.assertEqual(
+                "clean",
+                bootstrap_transaction.transaction_recovery_status(project_root).state,
+            )
+
+    def test_backout_restore_uses_reviewed_contract_directory_identities(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            project_root = root / "project"
+            project_root.mkdir()
+            contract_root_ref = "governance/current"
+            _materialize_project(
+                project_root,
+                contract_root_ref=contract_root_ref,
+            )
+            input_path = project_root / project_bootstrap.project_relative_output(
+                contract_root_ref,
+                project_input.INPUT_NAME,
+            )
+            candidate = json.loads(input_path.read_text(encoding="utf-8"))
+            candidate["answers"]["project_name"] = "Applied candidate"
+            backout_root = root / "private-backouts"
+            backout_root.mkdir(mode=0o700)
+            built = project_refresh.build_plan(
+                project_root,
+                contract_root_ref,
+                candidate_input=candidate,
+                post_apply_backout={
+                    "kind": "exact-preimage-bundle",
+                    "root": str(backout_root.resolve()),
+                },
+            )
+            self.assertIsNotNone(built.payload, built.errors)
+            assert built.payload is not None
+            plan = built.payload
+            create_code, created = project_refresh.create_backout_bundle(
+                project_root,
+                plan,
+                backout_root,
+            )
+            self.assertEqual(0, create_code, created)
+            apply_code, applied = project_refresh.apply_plan(
+                project_root,
+                plan,
+                approved_digest=str(plan["plan_sha256"]),
+                approved_actions=set(cast(list[str], plan["required_actions"])),
+                approved_warnings=set(_warning_ids(plan)),
+            )
+            self.assertEqual(0, apply_code, applied)
+            post_apply_receipt = (
+                project_root / project_bootstrap.INSTANCE_MANIFEST
+            ).read_bytes()
+
+            displaced = root / "reviewed-governance-tree-after-apply"
+            (project_root / "governance").rename(displaced)
+            shutil.copytree(displaced, project_root / "governance")
+            restore_code, restored = project_refresh.restore_backout_bundle(
+                project_root,
+                plan,
+                backout_root,
+                approved_digest=str(plan["plan_sha256"]),
+                approved_transaction_id=str(plan["refresh_transaction_id"]),
+            )
+
+            self.assertEqual(project_refresh.EXIT_ROLLED_BACK, restore_code, restored)
+            self.assertEqual("rolled-back", restored["status"])
+            self.assertIn(
+                "approved project-relative directory identity changed",
+                " ".join(cast(list[str], restored["errors"])),
+            )
+            self.assertEqual(
+                post_apply_receipt,
+                (project_root / project_bootstrap.INSTANCE_MANIFEST).read_bytes(),
+            )
+            self.assertEqual(
+                "clean",
+                bootstrap_transaction.transaction_recovery_status(project_root).state,
+            )
 
     def test_explicit_contract_root_cannot_bypass_a_missing_current_receipt(
         self,

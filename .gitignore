@@ -31,6 +31,7 @@ Thumbs.db
 /.mpa-bootstrap.lock
 /.mpa-bootstrap-recovery.json
 /.mpa-bootstrap-recovery.tmp
+/.mpa-bootstrap-recovery.previous
 **/.mpa-bootstrap-transaction-*/
 /ARBITRATION.md
 /AUTOMATION_ORDERS.json

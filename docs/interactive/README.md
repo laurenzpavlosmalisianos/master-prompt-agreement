@@ -65,6 +65,12 @@ already available, approved compiler at that recorded baseline; do not fetch a
 compiler or run a package-manager installer merely to verify this presentation
 layer.
 
+Use the commands below to verify the compiler version, type-check without
+writing files, and compare a fresh temporary emit with the checked-in script.
+The sole emitted file must be `app.js`; the tracked tree is never a verification
+emit destination. A missing or different compiler, failed compile, unexpected
+output, or byte drift fails verification.
+
 The compiler version and JavaScript target answer different questions.
 TypeScript 7.0.2 is the source-analysis and reproducibility baseline;
 `target: ES2025` is the reviewed emitted-syntax policy and is not a quality
@@ -72,7 +78,7 @@ ranking over older targets. The current source deliberately avoids a dependency
 on an ES2025-only feature. Change the target only with an explicit browser
 compatibility baseline and rendered regression evidence.
 
-First type-check without writing generated files:
+For focused diagnosis, first type-check without writing generated files:
 
 ```bash
 tsc --version
@@ -95,13 +101,19 @@ target is a reviewed source change. If the recorded compiler is unavailable,
 disclose the verification gap instead of downloading a different version or
 overwriting the tracked script with unreviewed output.
 
-Then run the repository-level validation profile documented by the checkout
-that owns this source. This presentation layer does not define a second
-framework-validation route.
+Then run the applicable repository checks described in
+[`CONFORMANCE.md`](../../CONFORMANCE.md).
 
 Before treating a visual change as final, inspect both `file://` and HTTP loads
 at 320, 375, 768, 1280, and 1920 CSS-pixel widths. Check light, dark, increased
 contrast, forced colors where available, keyboard-only operation, and a
-JavaScript-disabled load. Confirm that the page has no body-level horizontal
-overflow, console or policy errors, failed local resources, or layout shift
-during initial rendering.
+JavaScript-disabled load. For the framework-map tabs, check a direct panel
+fragment load, pointer and Enter activation, Arrow/Home/End/Space activation,
+copy and reload, Back and Forward traversal, an empty fragment, an unknown
+fragment, and a valid fragment outside the tab panels. Confirm that every panel
+fragment, selected tab, visible tabpanel, focus, and history entry agree without
+an unexpected scroll. Empty and unknown fragments must be replaced in place by
+the default tab fragment; a valid fragment outside the tab panels must remain
+intact without changing the current tab. Also confirm that the page has no
+body-level horizontal overflow, console or policy errors, failed local
+resources, or layout shift during initial rendering.

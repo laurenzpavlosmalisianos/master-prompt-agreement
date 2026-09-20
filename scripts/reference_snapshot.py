@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 from pathlib import PurePosixPath
 import re
+import unicodedata
 import urllib.parse
 import urllib.request
 from urllib.error import HTTPError, URLError
@@ -24,6 +25,11 @@ from url_safety import blocked_external_url_reason, safe_urlopen
 GITHUB_REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 GIT_SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 PROMPT_BOUNDARY_RE = re.compile(r"</?(?:system|developer|user|assistant|tool)\b", re.IGNORECASE)
+COMMONMARK_METADATA_DELIMITER_RE = re.compile(r"([!()*\[\]\\_~])")
+COMMONMARK_CHARACTER_REFERENCE_RE = re.compile(
+    r"&(?=(?:#[0-9]+|#[xX][0-9A-Fa-f]+|[A-Za-z][A-Za-z0-9]+);)"
+)
+REJECTED_METADATA_CATEGORIES = frozenset({"Cc", "Cf", "Cs", "Zl", "Zp"})
 MAX_SNAPSHOT_BYTES = 2_000_000
 
 
@@ -155,15 +161,22 @@ def markdown_fence(content: str) -> str:
 
 
 def render_snapshot(title: str, source: str, content: str, retrieved: str) -> str:
+    safe_title = commonmark_escape_metadata(
+        validate_plain_label("snapshot title", title)
+    )
+    safe_source = commonmark_escape_metadata(
+        validate_plain_label("snapshot source", source, allow_url=True)
+    )
+    safe_retrieved = commonmark_escape_metadata(retrieved_date(retrieved))
     digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
     fence = markdown_fence(content)
     return "\n".join(
         [
-            f"# {title}",
+            f"# {safe_title}",
             "",
-            f"Source: {source}",
-            f"Retrieved: {retrieved}",
-            f"Reviewed: {retrieved}",
+            f"Source: {safe_source}",
+            f"Retrieved: {safe_retrieved}",
+            f"Reviewed: {safe_retrieved}",
             f"Content SHA256: {digest}",
             "",
             "## Summary Stub",
@@ -180,7 +193,18 @@ def render_snapshot(title: str, source: str, content: str, retrieved: str) -> st
     )
 
 
+def commonmark_escape_metadata(value: str) -> str:
+    """Escape inline Markdown delimiters while preserving URL/date punctuation."""
+
+    escaped = COMMONMARK_METADATA_DELIMITER_RE.sub(r"\\\1", value)
+    return COMMONMARK_CHARACTER_REFERENCE_RE.sub(r"\\&", escaped)
+
+
 def validate_plain_label(label_name: str, label: str, *, allow_url: bool = False, allow_absolute_path: bool = False) -> str:
+    if any(unicodedata.category(char) in REJECTED_METADATA_CATEGORIES for char in label):
+        raise SystemExit(
+            f"{label_name} must not contain control, format, surrogate, or line-separator characters"
+        )
     value = label.strip()
     if not value:
         raise SystemExit(f"{label_name} must not be empty")
@@ -243,6 +267,11 @@ def main() -> int:
         default_title = Path(args.github_path).name
 
     output = Path(args.output)
+    source_label = validate_plain_label(
+        "source label",
+        source_label,
+        allow_url=bool(args.url or args.github_repo),
+    )
     title = validate_plain_label("--title" if args.title else "default title", args.title or default_title)
     try:
         safe_paths.write_text(

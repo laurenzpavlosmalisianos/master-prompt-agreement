@@ -701,13 +701,13 @@ def stable_file_metadata(metadata: os.stat_result) -> tuple[int, ...]:
     )
 
 
-def read_regular_file_bytes(
+def _read_regular_file_snapshot(
     path: Path,
     *,
     description: str,
     max_bytes: int = DEFAULT_JSON_INPUT_MAX_BYTES,
     require_single_link: bool = True,
-) -> bytes:
+) -> tuple[bytes, os.stat_result]:
     """Read one stable bounded file through a no-follow descriptor walk.
 
     Every parent and the final file are opened relative to an already-bound
@@ -805,7 +805,26 @@ def read_regular_file_bytes(
             raise ValueError(
                 f"{description} changed while it was being read: {lexical_absolute}"
             )
-        return raw
+        try:
+            named_after = os.stat(
+                components[-1],
+                dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError as exc:
+            raise ValueError(
+                f"{description} pathname disappeared while it was being read: "
+                f"{lexical_absolute}"
+            ) from exc
+        if (
+            not stat.S_ISREG(named_after.st_mode)
+            or stable_file_metadata(named_after) != stable_file_metadata(after)
+        ):
+            raise ValueError(
+                f"{description} pathname was replaced while it was being read: "
+                f"{lexical_absolute}"
+            )
+        return raw, after
     except OSError as exc:
         unsafe_symlinks = [
             component
@@ -830,6 +849,47 @@ def read_regular_file_bytes(
             ),
             primary=sys.exception(),
         )
+
+
+def read_regular_file_bytes(
+    path: Path,
+    *,
+    description: str,
+    max_bytes: int = DEFAULT_JSON_INPUT_MAX_BYTES,
+    require_single_link: bool = True,
+) -> bytes:
+    """Read one stable bounded file and rebind its final pathname."""
+
+    raw, _metadata = _read_regular_file_snapshot(
+        path,
+        description=description,
+        max_bytes=max_bytes,
+        require_single_link=require_single_link,
+    )
+    return raw
+
+
+def read_regular_file_bytes_and_mode(
+    path: Path,
+    *,
+    description: str,
+    max_bytes: int = DEFAULT_JSON_INPUT_MAX_BYTES,
+    require_single_link: bool = True,
+) -> tuple[bytes, int]:
+    """Read stable bytes and their exact bound POSIX rwx mode."""
+
+    raw, metadata = _read_regular_file_snapshot(
+        path,
+        description=description,
+        max_bytes=max_bytes,
+        require_single_link=require_single_link,
+    )
+    mode = stat.S_IMODE(metadata.st_mode)
+    if mode & ~0o777:
+        raise ValueError(
+            f"{description} uses unsupported special permission bits: {path}"
+        )
+    return raw, mode
 
 
 def validate_directory_no_follow(path: Path, *, description: str) -> None:
@@ -1303,6 +1363,143 @@ def ensure_directory(path: Path, *, root: Path | None = None) -> None:
         os.fsync(binding.descriptor)
 
 
+def _atomic_output_inode_identity(metadata: os.stat_result) -> tuple[int, ...]:
+    """Return staging identity fields stable across link/install operations."""
+
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        stat.S_IFMT(metadata.st_mode),
+        metadata.st_uid,
+        metadata.st_gid,
+    )
+
+
+def _atomic_output_install_identity(metadata: os.stat_result) -> tuple[int, ...]:
+    """Return the completed inode and payload metadata required after install."""
+
+    return (
+        *_atomic_output_inode_identity(metadata),
+        stat.S_IMODE(metadata.st_mode),
+        metadata.st_size,
+        metadata.st_mtime_ns,
+    )
+
+
+def _require_named_staging_identity(
+    parent_descriptor: int,
+    staging_name: str,
+    staging_descriptor: int,
+    expected_identity: tuple[int, ...],
+    *,
+    expected_links: int | None,
+) -> None:
+    """Require a staging pathname to retain the exact opened inode."""
+
+    try:
+        named = os.stat(
+            staging_name,
+            dir_fd=parent_descriptor,
+            follow_symlinks=False,
+        )
+    except FileNotFoundError as exc:
+        raise OSError("atomic output staging file disappeared") from exc
+    held = os.fstat(staging_descriptor)
+    if (
+        not stat.S_ISREG(named.st_mode)
+        or not stat.S_ISREG(held.st_mode)
+        or (
+            expected_links is not None
+            and (
+                named.st_nlink != expected_links
+                or held.st_nlink != expected_links
+            )
+        )
+        or _atomic_output_inode_identity(named) != expected_identity
+        or _atomic_output_inode_identity(held) != expected_identity
+    ):
+        raise OSError("atomic output staging file was replaced")
+
+
+def _unlink_exact_atomic_name(
+    parent_descriptor: int,
+    name: str,
+    expected_identity: tuple[int, ...],
+) -> bool:
+    """Unlink only the exact inode observed at one atomic-install name."""
+
+    try:
+        current = os.stat(
+            name,
+            dir_fd=parent_descriptor,
+            follow_symlinks=False,
+        )
+    except FileNotFoundError:
+        return False
+    if _atomic_output_inode_identity(current) != expected_identity:
+        return False
+    os.unlink(name, dir_fd=parent_descriptor)
+    return True
+
+
+def _restore_atomic_backup(
+    parent_descriptor: int,
+    target_name: str,
+    backup_name: str,
+    backup_identity: tuple[int, ...],
+    installed_identity: tuple[int, ...] | None,
+) -> bool:
+    """Restore an exact same-directory backup without overwriting new work."""
+
+    try:
+        backup = os.stat(
+            backup_name,
+            dir_fd=parent_descriptor,
+            follow_symlinks=False,
+        )
+    except OSError:
+        return False
+    if _atomic_output_inode_identity(backup) != backup_identity:
+        return False
+    current = None
+    try:
+        current = os.stat(
+            target_name,
+            dir_fd=parent_descriptor,
+            follow_symlinks=False,
+        )
+    except FileNotFoundError:
+        pass
+    if current is not None:
+        current_identity = _atomic_output_inode_identity(current)
+        if current_identity == backup_identity:
+            _unlink_exact_atomic_name(
+                parent_descriptor,
+                backup_name,
+                backup_identity,
+            )
+            return True
+        if installed_identity is None or current_identity != installed_identity:
+            return False
+        os.unlink(target_name, dir_fd=parent_descriptor)
+    os.link(
+        backup_name,
+        target_name,
+        src_dir_fd=parent_descriptor,
+        dst_dir_fd=parent_descriptor,
+        follow_symlinks=False,
+    )
+    restored = os.stat(
+        target_name,
+        dir_fd=parent_descriptor,
+        follow_symlinks=False,
+    )
+    if _atomic_output_inode_identity(restored) != backup_identity:
+        return False
+    os.unlink(backup_name, dir_fd=parent_descriptor)
+    return True
+
+
 def write_bytes(
     path: Path,
     content: bytes,
@@ -1339,6 +1536,13 @@ def write_bytes(
     parent_descriptor: int | None = None
     staging_descriptor: int | None = None
     staging_name = ""
+    staging_identity: tuple[int, ...] | None = None
+    staging_install_identity: tuple[int, ...] | None = None
+    backup_name = ""
+    backup_identity: tuple[int, ...] | None = None
+    rollback_available = False
+    rollback_forbidden = False
+    installed_observed_identity: tuple[int, ...] | None = None
     target_name = components[-1]
     try:
         parent_descriptor = _open_output_directory_chain(
@@ -1372,10 +1576,13 @@ def write_bytes(
                     0o666,
                     dir_fd=parent_descriptor,
                 )
+                staging_identity = _atomic_output_inode_identity(
+                    os.fstat(staging_descriptor)
+                )
                 break
             except FileExistsError:
                 continue
-        if staging_descriptor is None:
+        if staging_descriptor is None or staging_identity is None:
             raise OSError("could not allocate a unique output staging file")
         if existing is not None:
             os.fchmod(staging_descriptor, stat.S_IMODE(existing.st_mode))
@@ -1394,8 +1601,53 @@ def write_bytes(
             or staged.st_size != len(content)
         ):
             raise OSError("atomic output staging file has invalid metadata")
+        if _atomic_output_inode_identity(staged) != staging_identity:
+            raise OSError("atomic output staging descriptor identity changed")
+        staging_install_identity = _atomic_output_install_identity(staged)
 
-        if force:
+        if existing is not None:
+            for _attempt in range(32):
+                backup_name = f".{target_name}.bak-{secrets.token_hex(16)}"
+                try:
+                    os.link(
+                        target_name,
+                        backup_name,
+                        src_dir_fd=parent_descriptor,
+                        dst_dir_fd=parent_descriptor,
+                        follow_symlinks=False,
+                    )
+                    break
+                except FileExistsError:
+                    backup_name = ""
+                    continue
+            if not backup_name:
+                raise OSError("could not allocate a unique atomic output backup")
+            current_existing = os.stat(
+                target_name,
+                dir_fd=parent_descriptor,
+                follow_symlinks=False,
+            )
+            backup = os.stat(
+                backup_name,
+                dir_fd=parent_descriptor,
+                follow_symlinks=False,
+            )
+            backup_identity = _atomic_output_inode_identity(backup)
+            if (
+                backup_identity != _atomic_output_inode_identity(existing)
+                or _atomic_output_inode_identity(current_existing) != backup_identity
+                or _atomic_output_install_identity(current_existing)
+                != _atomic_output_install_identity(existing)
+            ):
+                raise OSError("atomic output preimage changed while it was backed up")
+            rollback_available = True
+            _require_named_staging_identity(
+                parent_descriptor,
+                staging_name,
+                staging_descriptor,
+                staging_identity,
+                expected_links=1,
+            )
             os.replace(
                 staging_name,
                 target_name,
@@ -1403,7 +1655,15 @@ def write_bytes(
                 dst_dir_fd=parent_descriptor,
             )
             staging_name = ""
+            installed_observed_identity = staging_identity
         else:
+            _require_named_staging_identity(
+                parent_descriptor,
+                staging_name,
+                staging_descriptor,
+                staging_identity,
+                expected_links=1,
+            )
             try:
                 os.link(
                     staging_name,
@@ -1417,6 +1677,21 @@ def write_bytes(
                     "refusing to overwrite output that appeared during atomic "
                     f"installation: {path}"
                 ) from exc
+            installed_observed_identity = staging_identity
+            linked = os.stat(
+                target_name,
+                dir_fd=parent_descriptor,
+                follow_symlinks=False,
+            )
+            if _atomic_output_inode_identity(linked) != staging_identity:
+                raise OSError("atomically linked output does not match staging inode")
+            _require_named_staging_identity(
+                parent_descriptor,
+                staging_name,
+                staging_descriptor,
+                staging_identity,
+                expected_links=2,
+            )
             os.unlink(staging_name, dir_fd=parent_descriptor)
             staging_name = ""
         os.fsync(parent_descriptor)
@@ -1429,13 +1704,76 @@ def write_bytes(
             not stat.S_ISREG(installed.st_mode)
             or installed.st_nlink != 1
             or installed.st_size != len(content)
+            or _atomic_output_inode_identity(installed) != staging_identity
+            or _atomic_output_install_identity(installed)
+            != staging_install_identity
         ):
             raise OSError("atomically installed output has invalid metadata")
+        if backup_name and backup_identity is not None:
+            # Removing the last rollback link is the commit boundary.  A later
+            # cleanup/fsync error must retain the installed candidate rather
+            # than delete it without a recoverable preimage.
+            rollback_available = False
+            rollback_forbidden = True
+            if not _unlink_exact_atomic_name(
+                parent_descriptor,
+                backup_name,
+                backup_identity,
+            ):
+                raise OSError("atomic output backup changed before cleanup")
+            backup_name = ""
+        os.fsync(parent_descriptor)
+    except BaseException as primary:
+        if parent_descriptor is not None:
+            try:
+                if not rollback_forbidden:
+                    if (
+                        rollback_available
+                        and backup_name
+                        and backup_identity is not None
+                    ):
+                        if not _restore_atomic_backup(
+                            parent_descriptor,
+                            target_name,
+                            backup_name,
+                            backup_identity,
+                            installed_observed_identity,
+                        ):
+                            raise OSError(
+                                "atomic output rollback retained its exact backup because "
+                                "the destination contains unrelated bytes"
+                            )
+                        backup_name = ""
+                    elif installed_observed_identity is not None:
+                        if not _unlink_exact_atomic_name(
+                            parent_descriptor,
+                            target_name,
+                            installed_observed_identity,
+                        ):
+                            raise OSError(
+                                "atomic output rollback could not remove the exact "
+                                "failed installation"
+                            )
+                os.fsync(parent_descriptor)
+            except BaseException as rollback:
+                primary.add_note(f"atomic output rollback failure: {rollback}")
+        raise
     finally:
         active_failure = sys.exception()
         cleanup_primary = active_failure
         if staging_name and parent_descriptor is not None:
             try:
+                if staging_descriptor is None or staging_identity is None:
+                    raise OSError(
+                        "atomic output staging cleanup lacks bound inode evidence"
+                    )
+                _require_named_staging_identity(
+                    parent_descriptor,
+                    staging_name,
+                    staging_descriptor,
+                    staging_identity,
+                    expected_links=None,
+                )
                 os.unlink(staging_name, dir_fd=parent_descriptor)
                 os.fsync(parent_descriptor)
             except FileNotFoundError:
@@ -1446,6 +1784,29 @@ def write_bytes(
                 else:
                     cleanup_primary.add_note(
                         f"atomic output staging cleanup failure: {cleanup}"
+                    )
+        if (
+            active_failure is None
+            and backup_name
+            and backup_identity is not None
+            and parent_descriptor is not None
+        ):
+            try:
+                if not _unlink_exact_atomic_name(
+                    parent_descriptor,
+                    backup_name,
+                    backup_identity,
+                ):
+                    raise OSError(
+                        "atomic output exact backup was retained for manual recovery"
+                    )
+                os.fsync(parent_descriptor)
+            except BaseException as cleanup:
+                if cleanup_primary is None:
+                    cleanup_primary = cleanup
+                else:
+                    cleanup_primary.add_note(
+                        f"atomic output backup cleanup failure: {cleanup}"
                     )
         _cleanup_descriptors(
             tuple(

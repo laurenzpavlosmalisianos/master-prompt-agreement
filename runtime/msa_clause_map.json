@@ -1,7 +1,7 @@
 {
   "schema_version": 4,
-  "msa_version": "1.0.18",
-  "reviewed_on": "2026-07-18",
+  "msa_version": "1.0.19",
+  "reviewed_on": "2026-09-21",
   "allowed_dispositions": [
     "projected",
     "task-scoped",
@@ -623,7 +623,8 @@
         "10.4.12",
         "10.4.13",
         "10.4.14",
-        "10.4.15"
+        "10.4.15",
+        "10.4.16"
       ]
     },
     {
@@ -821,5 +822,5 @@
     }
   ],
   "msa_digest_algorithm": "sha256-v2-utf8-strict-crlf-cr-to-lf-line-rstrip-ascii-sp-htab-drop-terminal-empty-lines-single-final-lf",
-  "msa_digest_sha256": "fdf7f9d445f05f0d8fd41d8ac87141adf42ff96e2b21aaca17233d4168afc348"
+  "msa_digest_sha256": "9a6414cf3e6180fd1572edcc143e2e5a8b49f6a9c1d4ff3fb23fedc7f8f04d5d"
 }

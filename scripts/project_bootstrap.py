@@ -158,7 +158,7 @@ from project_contract_model import (
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 INSTANCE_MANIFEST = "PROJECT_INSTANCE.json"
-PROJECT_INSTANCE_SCHEMA_VERSION = 5
+PROJECT_INSTANCE_SCHEMA_VERSION = 6
 EXIT_RECOVERY_REQUIRED = 4
 FRAMEWORK_REVISION_POLICIES = frozenset({"live", "pinned"})
 SETUP_PROFILE_SCHEMA_VERSION = 1
@@ -213,8 +213,10 @@ MSA_VERSION_RE = re.compile(
     re.MULTILINE,
 )
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+AUTHORITY_MODULE_DIGEST_KEYS = frozenset({"label", "path", "sha256"})
+AUTHORITY_MODULE_MAX_BYTES = 4 * 1024 * 1024
 BOOTSTRAP_WRITE_PLAN_APPROVAL_DOMAIN = (
-    "master-prompt-agreement/bootstrap-write-plan-approval/v1"
+    "master-prompt-agreement/bootstrap-write-plan-approval/v2"
 )
 
 
@@ -314,6 +316,40 @@ def _bootstrap_target_identity(path: Path) -> dict[str, int] | None:
         "inode": metadata.st_ino,
         "file_type": stat.S_IFMT(metadata.st_mode),
     }
+
+
+def target_directory_identity(path: Path) -> dict[str, int] | None:
+    """Return one closed directory identity for plan-to-transaction binding."""
+
+    identity = _bootstrap_target_identity(path)
+    if identity is not None and identity["file_type"] != stat.S_IFDIR:
+        raise ValueError(f"approved directory identity is not a directory: {path}")
+    return identity
+
+
+def target_directory_identity_bindings(
+    project_root: Path,
+    target_directory: Path,
+) -> dict[str, dict[str, int] | None]:
+    """Bind every existing target-path edge and its first approved absence."""
+
+    try:
+        relative = target_directory.relative_to(project_root)
+    except ValueError as exc:
+        raise ValueError(
+            "approved directory must remain inside the target project root"
+        ) from exc
+    if not relative.parts:
+        return {".": target_directory_identity(project_root)}
+    bindings: dict[str, dict[str, int] | None] = {}
+    for depth in range(1, len(relative.parts) + 1):
+        parts = relative.parts[:depth]
+        relative_path = Path(*parts).as_posix()
+        identity = target_directory_identity(project_root.joinpath(*parts))
+        bindings[relative_path] = identity
+        if identity is None:
+            break
+    return bindings
 
 
 def _framework_inventory_sha256(paths: Iterable[Path], framework_root: Path) -> str:
@@ -1344,6 +1380,7 @@ def validate_remaining_structured_answers(
                         f"annexes key '{key}'",
                     )
                 )
+    errors.extend(authority_module_reference_identity_errors(answers))
     if isinstance(answers.get("automation_orders"), dict):
         errors.extend(
             f"unknown automation_orders key: {key}"
@@ -2049,11 +2086,132 @@ def project_module_references(answers: dict) -> list[tuple[str, str]]:
     return references
 
 
+def authority_module_reference_identity_errors(
+    answers: Mapping[str, object],
+) -> list[str]:
+    """Require one canonical owner label for each authority-module path."""
+
+    owners: dict[str, str] = {}
+    errors: list[str] = []
+    for label, raw_path in project_module_references(dict(answers)):
+        try:
+            path = safe_paths.normalize_repo_relative_path(
+                raw_path,
+                Path("/__mpa_authority_modules__"),
+                description=f"authority module {label}",
+            )
+        except ValueError:
+            # The ordinary reference validators own malformed-path diagnostics.
+            continue
+        prior = owners.get(path)
+        if prior is not None:
+            errors.append(
+                "authority module path must have one canonical owner: "
+                f"{path} is assigned to both {prior} and {label}"
+            )
+            continue
+        owners[path] = label
+    return errors
+
+
+def repo_relative_paths_overlap(left: str, right: str) -> bool:
+    """Return whether two canonical repo-relative paths contain one another."""
+
+    left_parts = tuple(left.split("/"))
+    right_parts = tuple(right.split("/"))
+    common = min(len(left_parts), len(right_parts))
+    return left_parts[:common] == right_parts[:common]
+
+
+def authority_module_digest_records(
+    answers: Mapping[str, object],
+    project_root: Path,
+    *,
+    forbidden_paths: AbstractSet[str] = frozenset(),
+) -> tuple[list[dict[str, str]], list[str]]:
+    """Capture exact bounded digests for every incorporated authority module."""
+
+    records: list[dict[str, str]] = []
+    errors: list[str] = []
+    seen_labels: set[str] = set()
+    path_owners: dict[str, str] = {}
+    for label, raw_path in project_module_references(dict(answers)):
+        if label in seen_labels:
+            errors.append(f"duplicate authority module label: {label}")
+            continue
+        seen_labels.add(label)
+        try:
+            path = safe_paths.normalize_repo_relative_path(
+                raw_path,
+                project_root,
+                description=f"authority module {label}",
+            )
+        except ValueError as exc:
+            errors.append(str(exc))
+            continue
+        spelling_errors = safe_paths.exact_relative_path_spelling_errors(
+            project_root,
+            Path(path),
+            description=f"authority module {label}",
+        )
+        if spelling_errors:
+            errors.extend(spelling_errors)
+            continue
+        prior_owner = path_owners.get(path)
+        if prior_owner is not None:
+            errors.append(
+                "authority module path must have one canonical owner: "
+                f"{path} is assigned to both {prior_owner} and {label}"
+            )
+            continue
+        path_owners[path] = label
+        colliding_output = next(
+            (
+                output
+                for output in sorted(forbidden_paths)
+                if repo_relative_paths_overlap(path, output)
+            ),
+            None,
+        )
+        if colliding_output is not None:
+            errors.append(
+                "authority modules must remain outside generated managed and "
+                "metadata output paths and their ancestors or descendants: "
+                f"{path} conflicts with {colliding_output}"
+            )
+            continue
+        try:
+            raw = safe_paths.read_regular_file_bytes(
+                project_root / path,
+                description=f"authority module {label}",
+                max_bytes=AUTHORITY_MODULE_MAX_BYTES,
+            )
+            raw.decode("utf-8")
+        except FileNotFoundError:
+            errors.append(
+                f"{label} references missing project file: {path}. Create and "
+                "review the file first, or omit or change the owning configuration."
+            )
+            continue
+        except (OSError, UnicodeDecodeError, ValueError) as exc:
+            errors.append(
+                f"authority module could not be read as bounded no-follow UTF-8 "
+                f"project file: {path}: {exc}"
+            )
+            continue
+        records.append(
+            {
+                "label": label,
+                "path": path,
+                "sha256": sha256_bytes(raw),
+            }
+        )
+    return records, errors
+
+
 def referenced_project_file_errors(answers: dict, project_root: Path) -> list[str]:
-    return project_file_reference_errors(
-        project_root,
-        project_module_references(answers),
-    )
+    _records, errors = authority_module_digest_records(answers, project_root)
+    return errors
 
 
 def optional_state_names(answers: dict) -> list[str]:
@@ -3162,6 +3320,7 @@ def render_instance_manifest(
     active_profiles: list[str],
     effective_date: str,
     framework_identity: FrameworkIdentity | None = None,
+    authority_module_digests: list[dict[str, str]] | None = None,
 ) -> str:
     generation_sources: dict[str, list[dict[str, str]]] = {}
     for output in immutable_files:
@@ -3182,6 +3341,40 @@ def render_instance_manifest(
         else framework_identity
     )
     effective_file_digests = identity.effective_file_digest_map()
+    authority_records = (
+        []
+        if authority_module_digests is None
+        else [dict(record) for record in authority_module_digests]
+    )
+    seen_authority_labels: set[str] = set()
+    seen_authority_paths: set[str] = set()
+    for record in authority_records:
+        if set(record) != AUTHORITY_MODULE_DIGEST_KEYS:
+            raise ValueError(
+                "authority module digest records must use the exact "
+                "label/path/sha256 schema"
+            )
+        label = record.get("label")
+        path = record.get("path")
+        digest = record.get("sha256")
+        if (
+            not isinstance(label, str)
+            or not label
+            or not isinstance(path, str)
+            or not path
+            or not isinstance(digest, str)
+            or SHA256_RE.fullmatch(digest) is None
+        ):
+            raise ValueError(
+                "authority module digest records require a canonical label, "
+                "project-relative path, and lowercase SHA-256"
+            )
+        if label in seen_authority_labels or path in seen_authority_paths:
+            raise ValueError(
+                "authority module digest records must not duplicate labels or paths"
+            )
+        seen_authority_labels.add(label)
+        seen_authority_paths.add(path)
     payload = {
         "schema_version": PROJECT_INSTANCE_SCHEMA_VERSION,
         "project_input_schema_version": project_input.SCHEMA_VERSION,
@@ -3201,6 +3394,7 @@ def render_instance_manifest(
         "input_source": input_source,
         "input_sha256": project_input.project_input_sha256(input_bytes),
         "active_profiles": active_profiles,
+        "authority_module_digests": authority_records,
         "managed_files": managed_files,
         "immutable_files": immutable_files,
         "mutable_files": mutable_files,
@@ -3210,7 +3404,55 @@ def render_instance_manifest(
         },
         "generation_sources": generation_sources,
     }
-    return json.dumps(payload, indent=2, sort_keys=True) + "\n"
+    return canonical_instance_manifest_bytes(payload).decode("utf-8")
+
+
+def canonical_instance_manifest_bytes(payload: object) -> bytes:
+    """Render the one canonical on-disk project-instance receipt form."""
+
+    return (
+        json.dumps(
+            payload,
+            indent=2,
+            sort_keys=True,
+            allow_nan=False,
+        )
+        + "\n"
+    ).encode("utf-8")
+
+
+def authority_module_digest_map_from_manifest(
+    manifest: Mapping[str, object],
+) -> dict[str, str]:
+    """Return one closed path-to-digest assertion map from a schema-6 receipt."""
+
+    raw_records = manifest.get("authority_module_digests")
+    if not isinstance(raw_records, list):
+        raise ValueError(
+            "project instance authority_module_digests must be a list"
+        )
+    result: dict[str, str] = {}
+    seen_labels: set[str] = set()
+    for index, raw_record in enumerate(raw_records):
+        label = f"authority_module_digests[{index}]"
+        if not isinstance(raw_record, dict) or set(raw_record) != AUTHORITY_MODULE_DIGEST_KEYS:
+            raise ValueError(f"{label} must use the exact label/path/sha256 schema")
+        canonical_label = raw_record.get("label")
+        path = raw_record.get("path")
+        digest = raw_record.get("sha256")
+        if not isinstance(canonical_label, str) or not canonical_label:
+            raise ValueError(f"{label}.label must be a non-empty string")
+        if canonical_label in seen_labels:
+            raise ValueError(f"{label}.label is duplicated")
+        seen_labels.add(canonical_label)
+        if not isinstance(path, str) or not path:
+            raise ValueError(f"{label}.path must be a non-empty string")
+        if path in result:
+            raise ValueError(f"{label}.path is duplicated")
+        if not isinstance(digest, str) or SHA256_RE.fullmatch(digest) is None:
+            raise ValueError(f"{label}.sha256 must be a lowercase SHA-256 digest")
+        result[path] = digest
+    return result
 
 
 def placeholder_answer_warnings(payload: object, path: str = "answers") -> list[str]:
@@ -4881,12 +5123,28 @@ def bootstrap_validation_errors(inputs: BootstrapInputs) -> list[str]:
         )
     )
     if isinstance(effective_answers, dict):
-        errors.extend(
-            referenced_project_file_errors(
-                effective_answers,
-                inputs.project_root,
-            )
+        forbidden_authority_paths: set[str] = set()
+        if not policy.manages_runtime_entrypoint or options.runtime is not None:
+            try:
+                forbidden_authority_paths.update(
+                    planned_output_names(
+                        effective_answers,
+                        options.runtime,
+                        project_kind=options.project_kind,
+                        contract_root_ref=inputs.contract_root_ref,
+                        runtime_wrappers=tuple(sorted(options.runtime_wrappers)),
+                    )
+                )
+            except (KeyError, ValueError) as exc:
+                errors.append(
+                    f"authority-module output separation could not be derived: {exc}"
+                )
+        _authority_records, authority_errors = authority_module_digest_records(
+            effective_answers,
+            inputs.project_root,
+            forbidden_paths=frozenset(forbidden_authority_paths),
         )
+        errors.extend(error for error in authority_errors if error not in errors)
     if not inputs.project_root.exists():
         errors.append(
             f"target project root does not exist: {inputs.project_root}. Create and approve the project root before running bootstrap; lifecycle transactions do not create it."
@@ -4923,11 +5181,79 @@ def bootstrap_setup_profile_summary(
 ) -> dict[str, object] | None:
     if inputs.setup_profile_bytes is None:
         return None
+    profile_digest = sha256_bytes(inputs.setup_profile_bytes)
+    defaults = (
+        inputs.setup_profile.get("defaults")
+        if isinstance(inputs.setup_profile, dict)
+        else None
+    )
+    answers = inputs.answers if isinstance(inputs.answers, dict) else {}
+    default_values = defaults if isinstance(defaults, dict) else {}
     return {
         "applied_fields": inputs.profile_applied,
         "overridden_fields": inputs.profile_overridden,
-        "sha256": sha256_bytes(inputs.setup_profile_bytes),
+        "applied_values": [
+            {
+                "field": field,
+                "value": default_values[field],
+                "provenance": {
+                    "kind": "setup-profile-default",
+                    "source_path": str(inputs.setup_profile_path),
+                    "source_sha256": profile_digest,
+                    "source_field": f"defaults.{field}",
+                },
+            }
+            for field in inputs.profile_applied
+        ],
+        "overridden_values": [
+            {
+                "field": field,
+                "profile_value": default_values[field],
+                "effective_value": answers[field],
+                "provenance": {
+                    "profile": "setup-profile-default",
+                    "effective": "bootstrap-answers",
+                    "source_path": str(inputs.setup_profile_path),
+                    "source_sha256": profile_digest,
+                    "source_field": f"defaults.{field}",
+                },
+            }
+            for field in inputs.profile_overridden
+        ],
+        "source_path": str(inputs.setup_profile_path),
+        "sha256": profile_digest,
     }
+
+
+def bootstrap_rendered_output_previews(
+    outputs: Mapping[str, str],
+    ordered_names: Iterable[str],
+) -> list[dict[str, str]]:
+    """Return exact JSON-safe text previews bound to their UTF-8 digests."""
+
+    previews: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for name in ordered_names:
+        if name in seen:
+            raise ValueError(f"duplicate rendered bootstrap preview path: {name}")
+        seen.add(name)
+        text = outputs.get(name)
+        if not isinstance(text, str):
+            raise ValueError(f"rendered bootstrap preview text is missing: {name}")
+        raw = text.encode("utf-8")
+        digest = sha256_bytes(raw)
+        previews.append({"path": name, "text": text, "sha256": digest})
+        if sha256_bytes(previews[-1]["text"].encode("utf-8")) != digest:
+            raise ValueError(
+                f"rendered bootstrap preview bytes do not match their digest: {name}"
+            )
+    unexpected = sorted(set(outputs) - seen)
+    if unexpected:
+        raise ValueError(
+            "rendered bootstrap preview set contains unexpected outputs: "
+            + ", ".join(unexpected)
+        )
+    return previews
 
 
 def _bootstrap_write_plan_approval_payload(
@@ -4967,14 +5293,20 @@ def _bootstrap_write_plan_approval_payload(
             "rendered bootstrap outputs do not exactly match the planned output set"
             + (": " + "; ".join(details) if details else "")
         )
+    previews = bootstrap_rendered_output_previews(outputs, names)
+    target_directory_identities = target_directory_identity_bindings(
+        inputs.project_root,
+        inputs.contract_root,
+    )
     return {
         "domain": BOOTSTRAP_WRITE_PLAN_APPROVAL_DOMAIN,
         "target": {
             "project_root": str(inputs.project_root),
-            "project_root_identity": _bootstrap_target_identity(inputs.project_root),
+            "project_root_identity": target_directory_identity(inputs.project_root),
             "contract_root": str(inputs.contract_root),
             "contract_root_ref": inputs.contract_root_ref,
-            "contract_root_identity": _bootstrap_target_identity(inputs.contract_root),
+            "contract_root_identity": target_directory_identity(inputs.contract_root),
+            "directory_identities": target_directory_identities,
             "create_contract_root": inputs.options.create_contract_root,
         },
         "project": {
@@ -5001,15 +5333,10 @@ def _bootstrap_write_plan_approval_payload(
                 if inputs.setup_profile_bytes is None
                 else sha256_bytes(inputs.setup_profile_bytes)
             ),
+            "setup_profile": bootstrap_setup_profile_summary(inputs),
         },
         "warnings": list(warnings),
-        "outputs": [
-            {
-                "path": name,
-                "sha256": sha256_bytes(outputs[name].encode("utf-8")),
-            }
-            for name in names
-        ],
+        "outputs": previews,
     }
 
 
@@ -5134,6 +5461,21 @@ def render_bootstrap_write_outputs(
         contract_root_ref=inputs.contract_root_ref,
         runtime_wrappers=tuple(sorted(options.runtime_wrappers)),
     )
+    authority_records, authority_errors = authority_module_digest_records(
+        materialized_answers,
+        inputs.project_root,
+        forbidden_paths=frozenset(
+            planned_output_names(
+                materialized_answers,
+                options.runtime,
+                project_kind=options.project_kind,
+                contract_root_ref=inputs.contract_root_ref,
+                runtime_wrappers=tuple(sorted(options.runtime_wrappers)),
+            )
+        ),
+    )
+    if authority_errors:
+        raise ValueError("; ".join(authority_errors))
     manifest_name = INSTANCE_MANIFEST
     outputs[manifest_name] = render_instance_manifest(
         input_bytes=input_text.encode("utf-8"),
@@ -5162,6 +5504,7 @@ def render_bootstrap_write_outputs(
         ),
         effective_date=effective_date,
         framework_identity=framework_identity,
+        authority_module_digests=authority_records,
     )
     return outputs
 
@@ -5172,6 +5515,11 @@ def write_bootstrap_outputs(
     outputs: dict[str, str],
     *,
     framework_identity: FrameworkIdentity,
+    approved_project_root_identity: Mapping[str, object] | None = None,
+    approved_directory_identities: Mapping[
+        str,
+        Mapping[str, object] | None,
+    ] | None = None,
 ) -> bootstrap_transaction.BootstrapWriteResult:
     names = planned_output_names(
         answers,
@@ -5181,6 +5529,28 @@ def write_bootstrap_outputs(
         runtime_wrappers=tuple(sorted(inputs.options.runtime_wrappers)),
     )
     expected_preimages: dict[str, str | None] = {name: None for name in names}
+    try:
+        manifest = safe_paths.loads_json_no_duplicates(outputs[INSTANCE_MANIFEST])
+    except (KeyError, json.JSONDecodeError, ValueError) as exc:
+        raise ValueError(
+            f"rendered project instance receipt is invalid before write: {exc}"
+        ) from exc
+    if not isinstance(manifest, dict):
+        raise ValueError("rendered project instance receipt must be an object")
+    authority_assertions = authority_module_digest_map_from_manifest(manifest)
+    root_identity = (
+        target_directory_identity(inputs.project_root)
+        if approved_project_root_identity is None
+        else approved_project_root_identity
+    )
+    directory_identities = (
+        target_directory_identity_bindings(
+            inputs.project_root,
+            inputs.contract_root,
+        )
+        if approved_directory_identities is None
+        else dict(approved_directory_identities)
+    )
 
     def verify_installed_project() -> None:
         before = capture_framework_identity(inputs.framework_root)
@@ -5245,6 +5615,16 @@ def write_bootstrap_outputs(
         [(name, outputs[name]) for name in names],
         force=False,
         expected_preimages=expected_preimages,
+        assert_preimages=(authority_assertions or None),
+        assert_preimage_max_bytes=(
+            {
+                name: AUTHORITY_MODULE_MAX_BYTES
+                for name in authority_assertions
+            }
+            or None
+        ),
+        expected_project_root_identity=root_identity,
+        expected_directory_identities=directory_identities,
         post_install_verifier=verify_installed_project,
     )
 
@@ -5370,13 +5750,14 @@ def main(argv: list[str] | None = None) -> int:
             framework_identity=plan.framework_identity,
         )
         warnings = plan.summary.get("warnings")
-        write_plan_sha256 = bootstrap_write_plan_sha256(
+        approval_payload = _bootstrap_write_plan_approval_payload(
             inputs,
             outputs,
             plan.framework_identity,
             warnings,
             effective_date=plan.effective_date,
         )
+        write_plan_sha256 = canonical_json_digest(approval_payload)
     except (OSError, ValueError) as exc:
         print(
             json.dumps(
@@ -5398,6 +5779,11 @@ def main(argv: list[str] | None = None) -> int:
         name: sha256_bytes(content.encode("utf-8"))
         for name, content in outputs.items()
     }
+    plan.summary["rendered_outputs"] = approval_payload["outputs"]
+    plan.summary["rendered_outputs_sha256"] = canonical_json_digest(
+        approval_payload["outputs"]
+    )
+    plan.summary["write_target_binding"] = approval_payload["target"]
     plan.summary["write_plan_sha256"] = write_plan_sha256
     approval_errors = bootstrap_write_plan_approval_errors(
         write_plan_sha256,
@@ -5418,12 +5804,15 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     try:
         current_framework_identity = capture_framework_identity(inputs.framework_root)
-        current_write_plan_sha256 = bootstrap_write_plan_sha256(
+        current_approval_payload = _bootstrap_write_plan_approval_payload(
             inputs,
             outputs,
             current_framework_identity,
             warnings,
             effective_date=plan.effective_date,
+        )
+        current_write_plan_sha256 = canonical_json_digest(
+            current_approval_payload
         )
     except (OSError, ValueError) as exc:
         print(
@@ -5466,11 +5855,47 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
     try:
+        approved_target = approval_payload.get("target")
+        if not isinstance(approved_target, dict):
+            raise ValueError("approved bootstrap target identity is unavailable")
+        approved_project_root_identity = approved_target.get(
+            "project_root_identity"
+        )
+        approved_contract_root_identity = approved_target.get(
+            "contract_root_identity"
+        )
+        approved_directory_identities = approved_target.get(
+            "directory_identities"
+        )
+        if not isinstance(approved_project_root_identity, dict):
+            raise ValueError(
+                "approved bootstrap project root identity is unavailable"
+            )
+        if (
+            approved_contract_root_identity is not None
+            and not isinstance(approved_contract_root_identity, dict)
+        ):
+            raise ValueError(
+                "approved bootstrap contract root identity is malformed"
+            )
+        if not isinstance(approved_directory_identities, dict) or any(
+            not isinstance(path, str)
+            or (
+                identity is not None
+                and not isinstance(identity, dict)
+            )
+            for path, identity in approved_directory_identities.items()
+        ):
+            raise ValueError(
+                "approved bootstrap directory identity bindings are malformed"
+            )
         write_result = write_bootstrap_outputs(
             inputs,
             effective_answers,
             outputs,
             framework_identity=plan.framework_identity,
+            approved_project_root_identity=approved_project_root_identity,
+            approved_directory_identities=approved_directory_identities,
         )
     except (OSError, ValueError) as exc:
         print(
