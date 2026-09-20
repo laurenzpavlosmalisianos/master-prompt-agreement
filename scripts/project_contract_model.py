@@ -3756,7 +3756,13 @@ def _base_field_schema(spec: AnswerFieldSpec) -> dict[str, object]:
             ),
         }
     if spec.kind == "annexes":
-        return _closed_object({key: text for key in sorted(ANNEX_KEYS)})
+        schema = _closed_object({key: text for key in sorted(ANNEX_KEYS)})
+        schema["description"] = (
+            "Each selected Annex A-C key must identify a different canonical "
+            "project-relative authority-module path; one path cannot have multiple "
+            "owner labels."
+        )
+        return schema
     if spec.kind == "automation_orders":
         return _closed_object(
             {

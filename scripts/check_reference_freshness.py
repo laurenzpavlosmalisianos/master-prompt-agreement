@@ -6,18 +6,25 @@ import argparse
 from dataclasses import dataclass
 from datetime import date, timedelta
 import json
-import os
+import math
 from pathlib import Path
 import re
-import stat
 import sys
+import time
+import unicodedata
 from urllib.parse import ParseResult, urlparse
 
 import markdown_structure
 import safe_paths
 import product_manifest
 import source_registry_files
-from url_safety import blocked_external_url_reason
+from url_safety import (
+    DEFAULT_HOSTNAME_RESOLUTION_TIMEOUT_SECONDS,
+    MAX_HOSTNAME_RESOLUTION_TIMEOUT_SECONDS,
+    HostnameResolutionCache,
+    blocked_external_url_reason,
+    validated_hostname_resolution_timeout_seconds,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -44,6 +51,17 @@ PRODUCT_DOCUMENTATION_ROOTS = (
 )
 PRODUCT_DOCUMENTATION_MAX_ENTRIES = 16_384
 PRODUCT_DOCUMENTATION_MAX_DEPTH = 32
+DEFAULT_MAX_SOURCE_FILES = source_registry_files.DEFAULT_MAX_REGISTRY_FILES
+DEFAULT_MAX_SOURCE_BYTES = source_registry_files.DEFAULT_MAX_REGISTRY_BYTES
+DEFAULT_MAX_UNIQUE_HOSTS = 2_048
+MAX_UNIQUE_HOSTS = 100_000
+DEFAULT_MAX_HOSTNAME_RESOLUTION_REQUESTS = 4_096
+MAX_HOSTNAME_RESOLUTION_REQUESTS = 100_000
+DEFAULT_MAX_HOSTNAME_RESOLUTION_CACHE_ENTRIES = 4_097
+MAX_HOSTNAME_RESOLUTION_CACHE_ENTRIES = 100_001
+DEFAULT_RUN_DEADLINE_SECONDS = 300.0
+MAX_RUN_DEADLINE_SECONDS = 3_600.0
+MAX_SOURCE_INPUT_DIAGNOSTIC_CHARS = 512
 REVIEWED_RE = re.compile(r"^Reviewed:\s*(\d{4}-\d{2}-\d{2})\s*$", re.MULTILINE)
 ISO_DATE_RE = re.compile(r"\b20\d{2}-\d{2}-\d{2}\b")
 URL_RE = re.compile(r"https?://\S+")
@@ -259,6 +277,268 @@ class Issue:
         }
 
 
+class FreshnessLimitError(ValueError):
+    """Fail-closed aggregate-work limit failure."""
+
+
+def _bounded_source_input_diagnostic(prefix: str, exc: BaseException) -> str:
+    """Return one control-safe, length-bounded CLI diagnostic line."""
+
+    rendered: list[str] = []
+    for character in f"{prefix}: {exc}":
+        codepoint = ord(character)
+        category = unicodedata.category(character)
+        if category not in {"Cc", "Cf", "Cs", "Zl", "Zp"}:
+            rendered.append(character)
+        elif codepoint <= 0xFF:
+            rendered.append(f"\\x{codepoint:02x}")
+        elif codepoint <= 0xFFFF:
+            rendered.append(f"\\u{codepoint:04x}")
+        else:
+            rendered.append(f"\\U{codepoint:08x}")
+    detail = "".join(rendered)
+    if len(detail) <= MAX_SOURCE_INPUT_DIAGNOSTIC_CHARS:
+        return detail
+    return detail[: MAX_SOURCE_INPUT_DIAGNOSTIC_CHARS - 1] + "…"
+
+
+def _validate_positive_int(value: int, *, label: str, maximum: int) -> None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(f"{label} must be an integer")
+    if not 1 <= value <= maximum:
+        raise ValueError(f"{label} must be between 1 and {maximum}")
+
+
+def _validate_positive_float(
+    value: int | float,
+    *,
+    label: str,
+    maximum: float,
+) -> None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError(f"{label} must be numeric")
+    if not math.isfinite(value) or not 0 < value <= maximum:
+        raise ValueError(f"{label} must be greater than 0 and at most {maximum:g}")
+
+
+@dataclass(frozen=True)
+class FreshnessLimits:
+    """Conservative whole-run limits shared by CLI and Python callers."""
+
+    max_source_files: int = DEFAULT_MAX_SOURCE_FILES
+    max_source_bytes: int = DEFAULT_MAX_SOURCE_BYTES
+    max_unique_hosts: int = DEFAULT_MAX_UNIQUE_HOSTS
+    max_hostname_resolution_requests: int = (
+        DEFAULT_MAX_HOSTNAME_RESOLUTION_REQUESTS
+    )
+    max_hostname_resolution_cache_entries: int = (
+        DEFAULT_MAX_HOSTNAME_RESOLUTION_CACHE_ENTRIES
+    )
+    run_deadline_seconds: float = DEFAULT_RUN_DEADLINE_SECONDS
+
+    def __post_init__(self) -> None:
+        source_registry_files.RegistryFileLimits(
+            max_files=self.max_source_files,
+            max_aggregate_bytes=self.max_source_bytes,
+        )
+        _validate_positive_int(
+            self.max_unique_hosts,
+            label="max_unique_hosts",
+            maximum=MAX_UNIQUE_HOSTS,
+        )
+        _validate_positive_int(
+            self.max_hostname_resolution_requests,
+            label="max_hostname_resolution_requests",
+            maximum=MAX_HOSTNAME_RESOLUTION_REQUESTS,
+        )
+        _validate_positive_int(
+            self.max_hostname_resolution_cache_entries,
+            label="max_hostname_resolution_cache_entries",
+            maximum=MAX_HOSTNAME_RESOLUTION_CACHE_ENTRIES,
+        )
+        _validate_positive_float(
+            self.run_deadline_seconds,
+            label="run_deadline_seconds",
+            maximum=MAX_RUN_DEADLINE_SECONDS,
+        )
+
+    @property
+    def registry_file_limits(self) -> source_registry_files.RegistryFileLimits:
+        return source_registry_files.RegistryFileLimits(
+            max_files=self.max_source_files,
+            max_aggregate_bytes=self.max_source_bytes,
+        )
+
+
+DEFAULT_FRESHNESS_LIMITS = FreshnessLimits()
+
+
+class FreshnessDeadline:
+    """One monotonic deadline shared by inventory, parsing, and DNS work."""
+
+    def __init__(self, seconds: float) -> None:
+        _validate_positive_float(
+            seconds,
+            label="deadline seconds",
+            maximum=MAX_RUN_DEADLINE_SECONDS,
+        )
+        self.seconds = float(seconds)
+        self._started_at = time.monotonic()
+        self._expires_at = self._started_at + self.seconds
+
+    def remaining(self, *, phase: str) -> float:
+        now = time.monotonic()
+        remaining = self._expires_at - now
+        if remaining <= 0:
+            elapsed = max(0.0, now - self._started_at)
+            raise FreshnessLimitError(
+                "whole-run monotonic deadline exceeded "
+                f"during {phase} (limit={self.seconds:g}, "
+                f"observed_at_least={elapsed:g})"
+            )
+        return remaining
+
+    def check(self, *, phase: str) -> None:
+        self.remaining(phase=phase)
+
+
+class _BoundedHostnameResolutionCache(
+    dict[tuple[str, int | None], tuple[str, ...]]
+):
+    """Dict-compatible DNS cache that rejects a new key before overgrowth."""
+
+    def __init__(self, max_entries: int) -> None:
+        super().__init__()
+        self._max_entries = max_entries
+
+    def __setitem__(
+        self,
+        key: tuple[str, int | None],
+        value: tuple[str, ...],
+    ) -> None:
+        if key not in self and len(self) >= self._max_entries:
+            raise FreshnessLimitError(
+                "hostname resolution cache entry limit exceeded "
+                f"(limit={self._max_entries}, observed_at_least={len(self) + 1})"
+            )
+        super().__setitem__(key, value)
+
+
+class FreshnessWorkBudget:
+    """Shared deadline and hostname-resolution accounting for one run."""
+
+    def __init__(
+        self,
+        limits: FreshnessLimits,
+        *,
+        deadline: FreshnessDeadline | None = None,
+    ) -> None:
+        if not isinstance(limits, FreshnessLimits):
+            raise TypeError("limits must be a FreshnessLimits instance")
+        self.limits = limits
+        self.deadline = (
+            FreshnessDeadline(limits.run_deadline_seconds)
+            if deadline is None
+            else deadline
+        )
+        if not isinstance(self.deadline, FreshnessDeadline):
+            raise TypeError("deadline must be a FreshnessDeadline")
+        if self.deadline.seconds > limits.run_deadline_seconds:
+            raise ValueError("deadline must not exceed the selected run deadline limit")
+        self.hostname_resolution_cache: HostnameResolutionCache = (
+            _BoundedHostnameResolutionCache(
+                limits.max_hostname_resolution_cache_entries
+            )
+        )
+        self._unique_hosts: set[str] = set()
+        self._resolution_requests: set[tuple[str, int]] = set()
+
+    def check(self, *, phase: str) -> None:
+        self.deadline.check(phase=phase)
+
+    def prepare_hostname_resolution(
+        self,
+        value: str,
+        requested_timeout_seconds: float,
+    ) -> float:
+        """Reserve one potential uncached host/port lookup before resolving."""
+
+        remaining = self.deadline.remaining(phase="hostname resolution")
+        parsed = parse_clean_url(value)
+        if parsed is None or parsed.hostname is None:
+            return min(requested_timeout_seconds, remaining)
+        hostname = parsed.hostname.casefold().rstrip(".")
+        if hostname not in self._unique_hosts:
+            observed_hosts = len(self._unique_hosts) + 1
+            if observed_hosts > self.limits.max_unique_hosts:
+                raise FreshnessLimitError(
+                    "unique hostname limit exceeded "
+                    f"(limit={self.limits.max_unique_hosts}, "
+                    f"observed_at_least={observed_hosts})"
+                )
+            self._unique_hosts.add(hostname)
+        try:
+            port = parsed.port or 443
+        except ValueError:
+            return min(requested_timeout_seconds, remaining)
+        request_key = (hostname, port)
+        if (
+            request_key not in self._resolution_requests
+            and request_key not in self.hostname_resolution_cache
+        ):
+            observed_requests = len(self._resolution_requests) + 1
+            if observed_requests > self.limits.max_hostname_resolution_requests:
+                raise FreshnessLimitError(
+                    "hostname resolution request limit exceeded "
+                    f"(limit={self.limits.max_hostname_resolution_requests}, "
+                    f"observed_at_least={observed_requests})"
+                )
+            self._resolution_requests.add(request_key)
+        return min(requested_timeout_seconds, remaining)
+
+
+def _bounded_positive_int_argument(
+    value: str,
+    *,
+    label: str,
+    maximum: int,
+) -> int:
+    try:
+        parsed = int(value, 10)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"{label} must be an integer") from exc
+    try:
+        _validate_positive_int(parsed, label=label, maximum=maximum)
+    except (TypeError, ValueError) as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+    return parsed
+
+
+def _bounded_positive_float_argument(
+    value: str,
+    *,
+    label: str,
+    maximum: float,
+) -> float:
+    try:
+        parsed = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"{label} must be numeric") from exc
+    try:
+        _validate_positive_float(parsed, label=label, maximum=maximum)
+    except (TypeError, ValueError) as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+    return parsed
+
+
+def parse_hostname_resolution_timeout_seconds(value: str) -> float:
+    try:
+        parsed = float(value)
+        return validated_hostname_resolution_timeout_seconds(parsed)
+    except (OverflowError, TypeError, ValueError) as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
@@ -291,6 +571,95 @@ def build_parser() -> argparse.ArgumentParser:
         "--resolve-hostnames",
         action="store_true",
         help="Resolve source URL hostnames and reject hosts that resolve to non-public addresses.",
+    )
+    parser.add_argument(
+        "--hostname-resolution-timeout-seconds",
+        type=parse_hostname_resolution_timeout_seconds,
+        default=DEFAULT_HOSTNAME_RESOLUTION_TIMEOUT_SECONDS,
+        help=(
+            "Deadline for each uncached hostname resolution in seconds "
+            f"(greater than 0, at most {MAX_HOSTNAME_RESOLUTION_TIMEOUT_SECONDS:g}; "
+            f"default: {DEFAULT_HOSTNAME_RESOLUTION_TIMEOUT_SECONDS:g})."
+        ),
+    )
+    parser.add_argument(
+        "--max-source-files",
+        type=lambda value: _bounded_positive_int_argument(
+            value,
+            label="--max-source-files",
+            maximum=source_registry_files.MAX_REGISTRY_FILES,
+        ),
+        default=DEFAULT_MAX_SOURCE_FILES,
+        help=(
+            "Maximum aggregate Markdown inputs across registries and selected "
+            f"public documentation (default: {DEFAULT_MAX_SOURCE_FILES})."
+        ),
+    )
+    parser.add_argument(
+        "--max-source-bytes",
+        type=lambda value: _bounded_positive_int_argument(
+            value,
+            label="--max-source-bytes",
+            maximum=source_registry_files.MAX_REGISTRY_BYTES,
+        ),
+        default=DEFAULT_MAX_SOURCE_BYTES,
+        help=(
+            "Maximum aggregate input bytes across registries and selected public "
+            f"documentation (default: {DEFAULT_MAX_SOURCE_BYTES})."
+        ),
+    )
+    parser.add_argument(
+        "--max-unique-hosts",
+        type=lambda value: _bounded_positive_int_argument(
+            value,
+            label="--max-unique-hosts",
+            maximum=MAX_UNIQUE_HOSTS,
+        ),
+        default=DEFAULT_MAX_UNIQUE_HOSTS,
+        help=(
+            "Maximum unique hostnames considered when hostname resolution is enabled "
+            f"(default: {DEFAULT_MAX_UNIQUE_HOSTS})."
+        ),
+    )
+    parser.add_argument(
+        "--max-hostname-resolution-requests",
+        type=lambda value: _bounded_positive_int_argument(
+            value,
+            label="--max-hostname-resolution-requests",
+            maximum=MAX_HOSTNAME_RESOLUTION_REQUESTS,
+        ),
+        default=DEFAULT_MAX_HOSTNAME_RESOLUTION_REQUESTS,
+        help=(
+            "Maximum distinct uncached hostname/port resolutions "
+            f"(default: {DEFAULT_MAX_HOSTNAME_RESOLUTION_REQUESTS})."
+        ),
+    )
+    parser.add_argument(
+        "--max-hostname-resolution-cache-entries",
+        type=lambda value: _bounded_positive_int_argument(
+            value,
+            label="--max-hostname-resolution-cache-entries",
+            maximum=MAX_HOSTNAME_RESOLUTION_CACHE_ENTRIES,
+        ),
+        default=DEFAULT_MAX_HOSTNAME_RESOLUTION_CACHE_ENTRIES,
+        help=(
+            "Maximum retained hostname-resolution cache entries, including a "
+            f"terminal timeout marker (default: {DEFAULT_MAX_HOSTNAME_RESOLUTION_CACHE_ENTRIES})."
+        ),
+    )
+    parser.add_argument(
+        "--run-deadline",
+        type=lambda value: _bounded_positive_float_argument(
+            value,
+            label="--run-deadline",
+            maximum=MAX_RUN_DEADLINE_SECONDS,
+        ),
+        default=DEFAULT_RUN_DEADLINE_SECONDS,
+        help=(
+            "Whole-run monotonic deadline in seconds "
+            f"(default: {DEFAULT_RUN_DEADLINE_SECONDS:g}, "
+            f"maximum: {MAX_RUN_DEADLINE_SECONDS:g})."
+        ),
     )
     parser.add_argument(
         "--reference-dir",
@@ -366,104 +735,32 @@ def source_update_markdown_files(root: Path) -> list[Path]:
     return source_registry_files.project_registry_markdown_files(root, (PROJECT_SOURCE_UPDATE,))
 
 
-def existing_product_markdown_files(root: Path) -> list[Path]:
-    """Inventory existing Markdown in the closed product documentation scope.
+def existing_product_markdown_files(
+    root: Path,
+    *,
+    progress_check: source_registry_files.ProgressCheck | None = None,
+) -> list[Path]:
+    """Snapshot the closed optional documentation scope and return its paths."""
 
-    This is a content scan, not a product-completeness check.  A downstream
-    project or a focused fixture may contain only a subset of these locations,
-    so absent locations are ignored.  Existing documentation directories are
-    walked through no-follow descriptors with explicit depth and entry bounds;
-    symlinks fail closed instead of redirecting the scan.
-    """
-
-    paths: set[Path] = set()
-    for relative in PRODUCT_ROOT_MARKDOWN_FILES:
-        candidate = safe_paths.safe_relative_child(
+    try:
+        snapshots = source_registry_files.documentation_markdown_snapshots(
             root,
-            relative,
-            description="product documentation file",
+            PRODUCT_ROOT_MARKDOWN_FILES,
+            PRODUCT_DOCUMENTATION_ROOTS,
+            limits=source_registry_files.RegistryFileLimits(
+                max_visited_entries=PRODUCT_DOCUMENTATION_MAX_ENTRIES,
+            ),
+            progress_check=progress_check,
+            max_depth=PRODUCT_DOCUMENTATION_MAX_DEPTH,
         )
-        if not candidate.exists():
-            continue
-        if not candidate.is_file():
-            raise ValueError(
-                "product documentation file must be a regular file: "
-                f"{relative.as_posix()}"
-            )
-        paths.add(candidate)
-
-    directory_flags = (
-        os.O_RDONLY
-        | getattr(os, "O_DIRECTORY", 0)
-        | getattr(os, "O_NOFOLLOW", 0)
-        | getattr(os, "O_CLOEXEC", 0)
-    )
-    observed_entries = 0
-
-    def walk(directory_fd: int, relative_directory: Path, depth: int) -> None:
-        nonlocal observed_entries
-        if depth > PRODUCT_DOCUMENTATION_MAX_DEPTH:
-            raise ValueError(
-                "product documentation inventory exceeds the "
-                f"{PRODUCT_DOCUMENTATION_MAX_DEPTH}-level depth limit"
-            )
-        with os.scandir(directory_fd) as entries:
-            for entry in entries:
-                observed_entries += 1
-                if observed_entries > PRODUCT_DOCUMENTATION_MAX_ENTRIES:
-                    raise ValueError(
-                        "product documentation inventory exceeds the "
-                        f"{PRODUCT_DOCUMENTATION_MAX_ENTRIES}-entry limit"
-                    )
-                relative = relative_directory / entry.name
-                metadata = entry.stat(follow_symlinks=False)
-                if stat.S_ISLNK(metadata.st_mode):
-                    raise ValueError(
-                        "product documentation scope must not contain symlinks: "
-                        f"{relative.as_posix()}"
-                    )
-                if stat.S_ISDIR(metadata.st_mode):
-                    child_fd = os.open(entry.name, directory_flags, dir_fd=directory_fd)
-                    try:
-                        opened = os.fstat(child_fd)
-                        if (
-                            opened.st_dev != metadata.st_dev
-                            or opened.st_ino != metadata.st_ino
-                            or not stat.S_ISDIR(opened.st_mode)
-                        ):
-                            raise ValueError(
-                                "product documentation directory changed during inventory: "
-                                f"{relative.as_posix()}"
-                            )
-                        walk(child_fd, relative, depth + 1)
-                    finally:
-                        os.close(child_fd)
-                elif relative.suffix == ".md":
-                    if not stat.S_ISREG(metadata.st_mode):
-                        raise ValueError(
-                            "product documentation Markdown must be a regular file: "
-                            f"{relative.as_posix()}"
-                        )
-                    paths.add(root / relative)
-
-    for relative in PRODUCT_DOCUMENTATION_ROOTS:
-        directory = safe_paths.safe_relative_child(
-            root,
-            relative,
-            description="product documentation directory",
-        )
-        if not directory.exists() and not directory.is_symlink():
-            continue
-        safe_paths.validate_directory_no_follow(
-            directory,
-            description="product documentation directory",
-        )
-        directory_fd = os.open(directory, directory_flags)
-        try:
-            walk(directory_fd, relative, 0)
-        finally:
-            os.close(directory_fd)
-    return sorted(paths)
+    except source_registry_files.RegistryLimitError as exc:
+        if exc.code != "source_registry_entry_limit_exceeded":
+            raise
+        raise ValueError(
+            "product documentation inventory exceeds the "
+            f"{exc.limit}-entry limit"
+        ) from exc
+    return [snapshot.path for snapshot in snapshots]
 
 
 def iter_public_markdown_files(
@@ -471,11 +768,19 @@ def iter_public_markdown_files(
     include_non_reference_docs: bool,
     reference_dirs: tuple[Path, ...] = REFERENCE_DIRS,
 ) -> list[Path]:
-    paths = set(reference_markdown_files(root, reference_dirs))
-    paths.update(source_update_markdown_files(root))
-    if include_non_reference_docs:
-        paths.update(existing_product_markdown_files(root))
-    return sorted(paths)
+    snapshots = source_registry_files.registry_markdown_snapshots(
+        root,
+        reference_dirs,
+        project_files=(PROJECT_SOURCE_PACKS, PROJECT_SOURCE_UPDATE),
+        documentation_files=(
+            PRODUCT_ROOT_MARKDOWN_FILES if include_non_reference_docs else ()
+        ),
+        documentation_directories=(
+            PRODUCT_DOCUMENTATION_ROOTS if include_non_reference_docs else ()
+        ),
+        documentation_max_depth=PRODUCT_DOCUMENTATION_MAX_DEPTH,
+    )
+    return [snapshot.path for snapshot in snapshots]
 
 
 def strip_fenced_code(text: str) -> list[tuple[int, str]]:
@@ -605,12 +910,23 @@ def source_claim_issues(
     reference_file: bool,
     resolve_hostnames: bool = False,
     text: str | None = None,
+    *,
+    hostname_resolution_timeout_seconds: float = (
+        DEFAULT_HOSTNAME_RESOLUTION_TIMEOUT_SECONDS
+    ),
+    hostname_resolution_cache: HostnameResolutionCache | None = None,
+    work_budget: FreshnessWorkBudget | None = None,
 ) -> list[Issue]:
     text = _snapshot_text(root, path, text)
     rel = rel_path(root, path)
     declared_state_template = is_declared_project_state_template(root, path)
     issues: list[Issue] = []
+    resolution_cache = hostname_resolution_cache
+    if resolve_hostnames and resolution_cache is None:
+        resolution_cache = {}
     for line_no, block in paragraph_blocks(text):
+        if work_budget is not None:
+            work_budget.check(phase="source-claim parsing")
         section = section_for_line(text, line_no)
         if section.startswith("working rules"):
             continue
@@ -623,7 +939,15 @@ def source_claim_issues(
             continue
         severity = "error" if reference_file else "warning"
         for match in URL_RE.finditer(block):
-            issue = source_url_issue(match.group(0), resolve_hostname=resolve_hostnames)
+            issue = source_url_issue(
+                match.group(0),
+                resolve_hostname=resolve_hostnames,
+                hostname_resolution_timeout_seconds=(
+                    hostname_resolution_timeout_seconds
+                ),
+                hostname_resolution_cache=resolution_cache,
+                work_budget=work_budget,
+            )
             if issue:
                 issues.append(Issue(severity, rel, line_no, issue))
         invalid_dates = invalid_iso_dates(block)
@@ -933,16 +1257,27 @@ def source_update_state_issues(
     max_age_days: int,
     resolve_hostnames: bool = False,
     text: str | None = None,
+    *,
+    hostname_resolution_timeout_seconds: float = (
+        DEFAULT_HOSTNAME_RESOLUTION_TIMEOUT_SECONDS
+    ),
+    hostname_resolution_cache: HostnameResolutionCache | None = None,
+    work_budget: FreshnessWorkBudget | None = None,
 ) -> list[Issue]:
     text = _snapshot_text(root, path, text)
     rel = rel_path(root, path)
     issues: list[Issue] = []
+    resolution_cache = hostname_resolution_cache
+    if resolve_hostnames and resolution_cache is None:
+        resolution_cache = {}
     table_rows, table_errors = source_update_table_rows(text)
     issues.extend(
         Issue("error", rel, line_no, message)
         for line_no, message in table_errors
     )
     for line_no, row in table_rows:
+        if work_budget is not None:
+            work_budget.check(phase="source-update parsing")
         source = row.get("source") or row.get("feed") or ""
         surface = row.get("surface") or ""
         if placeholder_cell(surface) or placeholder_cell(source):
@@ -1001,7 +1336,15 @@ def source_update_state_issues(
         if not urls and row.get("access policy", "").strip().casefold() != "approved local source":
             issues.append(Issue("error", rel, line_no, "source update row Source or Feed must contain an https URL"))
         for url in urls:
-            url_issue = source_url_issue(url, resolve_hostname=resolve_hostnames)
+            url_issue = source_url_issue(
+                url,
+                resolve_hostname=resolve_hostnames,
+                hostname_resolution_timeout_seconds=(
+                    hostname_resolution_timeout_seconds
+                ),
+                hostname_resolution_cache=resolution_cache,
+                work_budget=work_budget,
+            )
             if url_issue:
                 issues.append(Issue("error", rel, line_no, url_issue))
                 continue
@@ -1230,8 +1573,32 @@ def parse_clean_url(value: str) -> ParseResult | None:
         return None
 
 
-def source_url_issue(value: str, *, resolve_hostname: bool = False) -> str | None:
-    reason = blocked_external_url_reason(clean_url(value), resolve_hostname=resolve_hostname)
+def source_url_issue(
+    value: str,
+    *,
+    resolve_hostname: bool = False,
+    hostname_resolution_timeout_seconds: float = (
+        DEFAULT_HOSTNAME_RESOLUTION_TIMEOUT_SECONDS
+    ),
+    hostname_resolution_cache: HostnameResolutionCache | None = None,
+    work_budget: FreshnessWorkBudget | None = None,
+) -> str | None:
+    selected_timeout = hostname_resolution_timeout_seconds
+    selected_cache = hostname_resolution_cache
+    if resolve_hostname and work_budget is not None:
+        selected_timeout = work_budget.prepare_hostname_resolution(
+            value,
+            hostname_resolution_timeout_seconds,
+        )
+        selected_cache = work_budget.hostname_resolution_cache
+    reason = blocked_external_url_reason(
+        clean_url(value),
+        resolve_hostname=resolve_hostname,
+        hostname_resolution_timeout_seconds=selected_timeout,
+        hostname_resolution_cache=selected_cache,
+    )
+    if work_budget is not None:
+        work_budget.check(phase="hostname resolution result")
     if reason == "external URL must use https":
         return "external source URL must use https"
     return reason
@@ -1771,40 +2138,62 @@ def collect_issues(
     reference_dirs: tuple[Path, ...] = REFERENCE_DIRS,
     audit_monitor_roots: bool = False,
     resolve_hostnames: bool = False,
+    hostname_resolution_timeout_seconds: float = (
+        DEFAULT_HOSTNAME_RESOLUTION_TIMEOUT_SECONDS
+    ),
+    limits: FreshnessLimits = DEFAULT_FRESHNESS_LIMITS,
+    deadline: FreshnessDeadline | None = None,
 ) -> list[Issue]:
-    reference_snapshots = source_registry_files.reference_directory_markdown_snapshots(
+    if not isinstance(limits, FreshnessLimits):
+        raise TypeError("limits must be a FreshnessLimits instance")
+    work_budget = FreshnessWorkBudget(limits, deadline=deadline)
+    resolution_timeout = DEFAULT_HOSTNAME_RESOLUTION_TIMEOUT_SECONDS
+    resolution_cache: HostnameResolutionCache | None = None
+    if resolve_hostnames:
+        resolution_timeout = validated_hostname_resolution_timeout_seconds(
+            hostname_resolution_timeout_seconds
+        )
+        resolution_cache = work_budget.hostname_resolution_cache
+    all_snapshots = source_registry_files.registry_markdown_snapshots(
         root,
         reference_dirs,
-    )
-    project_snapshots = source_registry_files.project_registry_markdown_snapshots(
-        root,
-        (PROJECT_SOURCE_PACKS, PROJECT_SOURCE_UPDATE),
+        project_files=(PROJECT_SOURCE_PACKS, PROJECT_SOURCE_UPDATE),
+        limits=limits.registry_file_limits,
+        progress_check=lambda: work_budget.check(phase="Markdown input inventory"),
+        documentation_files=(
+            PRODUCT_ROOT_MARKDOWN_FILES if include_non_reference_docs else ()
+        ),
+        documentation_directories=(
+            PRODUCT_DOCUMENTATION_ROOTS if include_non_reference_docs else ()
+        ),
+        documentation_max_depth=PRODUCT_DOCUMENTATION_MAX_DEPTH,
+        documentation_progress_check=lambda: work_budget.check(
+            phase="public documentation inventory"
+        ),
     )
     snapshots = {
         snapshot.path: snapshot
-        for snapshot in (*reference_snapshots, *project_snapshots)
+        for snapshot in all_snapshots
     }
-    reference_paths = {snapshot.path for snapshot in reference_snapshots}
+    reference_roots = tuple(root / relative for relative in reference_dirs)
+    reference_paths = {
+        snapshot.path
+        for snapshot in all_snapshots
+        if any(
+            snapshot.path == reference_root
+            or snapshot.path.is_relative_to(reference_root)
+            for reference_root in reference_roots
+        )
+    }
     source_update_paths = {
         snapshot.path
-        for snapshot in project_snapshots
+        for snapshot in all_snapshots
         if snapshot.path == root / PROJECT_SOURCE_UPDATE
     }
-    if include_non_reference_docs:
-        for path in existing_product_markdown_files(root):
-            if path in snapshots:
-                continue
-            snapshot = source_registry_files.read_markdown_snapshot(
-                root,
-                path,
-                description="public source-claim Markdown input",
-            )
-            if snapshot is None:  # pragma: no cover - missing_ok is false above
-                raise RuntimeError("required public Markdown snapshot unexpectedly missing")
-            snapshots[path] = snapshot
 
     issues: list[Issue] = []
     for path in sorted(snapshots):
+        work_budget.check(phase="freshness issue collection")
         text = snapshots[path].text
         reference_file = path in reference_paths
         if path == root / PROJECT_SOURCE_PACKS:
@@ -1820,6 +2209,9 @@ def collect_issues(
                     max_age_days,
                     resolve_hostnames,
                     text,
+                    hostname_resolution_timeout_seconds=resolution_timeout,
+                    hostname_resolution_cache=resolution_cache,
+                    work_budget=work_budget,
                 )
             )
         if reference_file:
@@ -1834,8 +2226,12 @@ def collect_issues(
                 reference_file,
                 resolve_hostnames,
                 text,
+                hostname_resolution_timeout_seconds=resolution_timeout,
+                hostname_resolution_cache=resolution_cache,
+                work_budget=work_budget,
             )
         )
+    work_budget.check(phase="freshness completion")
     return sorted(issues, key=lambda item: (item.severity != "error", item.path, item.line, item.message))
 
 
@@ -1863,20 +2259,54 @@ def main() -> int:
         print("FAIL")
         print("- --today must be YYYY-MM-DD")
         return 1
-    root = args.root.resolve()
     reference_dirs = tuple(args.reference_dir) if args.reference_dir else REFERENCE_DIRS
     try:
+        root = args.root.resolve()
         issues = collect_issues(
             root,
             today,
             args.max_age_days,
             args.include_non_reference_docs,
-            reference_dirs,
-            args.audit_monitor_roots,
-            args.resolve_hostnames,
+            reference_dirs=reference_dirs,
+            audit_monitor_roots=args.audit_monitor_roots,
+            resolve_hostnames=args.resolve_hostnames,
+            hostname_resolution_timeout_seconds=(
+                args.hostname_resolution_timeout_seconds
+            ),
+            limits=FreshnessLimits(
+                max_source_files=args.max_source_files,
+                max_source_bytes=args.max_source_bytes,
+                max_unique_hosts=args.max_unique_hosts,
+                max_hostname_resolution_requests=(
+                    args.max_hostname_resolution_requests
+                ),
+                max_hostname_resolution_cache_entries=(
+                    args.max_hostname_resolution_cache_entries
+                ),
+                run_deadline_seconds=args.run_deadline,
+            ),
         )
+    except safe_paths.OutputDirectoryBindingError as exc:
+        issues = [
+            Issue(
+                "error",
+                "<source-input>",
+                1,
+                _bounded_source_input_diagnostic(
+                    "source path binding rejected",
+                    exc,
+                ),
+            )
+        ]
     except (OSError, UnicodeError, ValueError) as exc:
-        issues = [Issue("error", "<source-input>", 1, f"source input rejected: {exc}")]
+        issues = [
+            Issue(
+                "error",
+                "<source-input>",
+                1,
+                _bounded_source_input_diagnostic("source input rejected", exc),
+            )
+        ]
     errors = [item for item in issues if item.severity == "error"]
     warnings = [item for item in issues if item.severity == "warning"]
     if args.format == "json":

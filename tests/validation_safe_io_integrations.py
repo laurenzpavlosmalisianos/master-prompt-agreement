@@ -1217,15 +1217,32 @@ class SafeIoIntegrationTests(unittest.TestCase):
                     candidate.write_bytes(b"replacement")
                 return descriptor
 
-            with mock.patch.object(safe_paths.os, "open", side_effect=intercept_open):
-                raw = safe_paths.read_regular_file_bytes(
+            with (
+                mock.patch.object(safe_paths.os, "open", side_effect=intercept_open),
+                self.assertRaisesRegex(ValueError, "pathname was replaced"),
+            ):
+                safe_paths.read_regular_file_bytes(
                     candidate,
                     description="test input",
                     max_bytes=32,
                 )
 
             self.assertTrue(substituted)
-            self.assertEqual(b"original", raw)
+
+    def test_safe_file_mode_read_rejects_special_permission_bits(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            candidate = Path(temp_dir) / "authority.md"
+            candidate.write_text("authority\n", encoding="utf-8")
+            candidate.chmod(0o4755)
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "unsupported special permission bits",
+            ):
+                safe_paths.read_regular_file_bytes_and_mode(
+                    candidate,
+                    description="authority module",
+                )
 
     def test_safe_file_read_rejects_concurrent_same_inode_change(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -2000,6 +2017,268 @@ class SafeIoIntegrationTests(unittest.TestCase):
             self.assertEqual(0o640, stat.S_IMODE(target.stat().st_mode))
             self.assertEqual([], list(root.glob(".output.bin.tmp-*")))
 
+    def test_safe_write_bytes_force_creates_absent_target_without_overwriting_a_race(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            target = root / "new.bin"
+            safe_paths.write_bytes(target, b"created", force=True, root=root)
+            self.assertEqual(b"created", target.read_bytes())
+
+            raced_target = root / "raced.bin"
+            real_link = safe_paths.os.link
+
+            def appear_then_link(*args: Any, **kwargs: Any) -> None:
+                raced_target.write_bytes(b"concurrent work")
+                real_link(*args, **kwargs)
+
+            with (
+                mock.patch.object(safe_paths.os, "link", side_effect=appear_then_link),
+                self.assertRaisesRegex(FileExistsError, "appeared during atomic"),
+            ):
+                safe_paths.write_bytes(raced_target, b"candidate", force=True, root=root)
+            self.assertEqual(b"concurrent work", raced_target.read_bytes())
+            self.assertEqual(["new.bin", "raced.bin"], sorted(path.name for path in root.iterdir()))
+
+    def test_safe_write_bytes_rejects_equal_size_staging_name_replacement(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            target = root / "output.bin"
+            target.write_bytes(b"trusted-old")
+            original_check = safe_paths._require_named_staging_identity
+            injected_names: list[str] = []
+
+            def replace_before_check(
+                parent_descriptor: int,
+                staging_name: str,
+                staging_descriptor: int,
+                expected_identity: tuple[int, ...],
+                *,
+                expected_links: int | None,
+            ) -> None:
+                if not injected_names:
+                    held_name = staging_name + ".held"
+                    os.rename(
+                        staging_name,
+                        held_name,
+                        src_dir_fd=parent_descriptor,
+                        dst_dir_fd=parent_descriptor,
+                    )
+                    replacement = os.open(
+                        staging_name,
+                        os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                        0o600,
+                        dir_fd=parent_descriptor,
+                    )
+                    try:
+                        self.assertEqual(
+                            len(b"trusted-new"),
+                            os.write(replacement, b"attacker!!!"),
+                        )
+                        os.fsync(replacement)
+                    finally:
+                        os.close(replacement)
+                    injected_names.extend((staging_name, held_name))
+                original_check(
+                    parent_descriptor,
+                    staging_name,
+                    staging_descriptor,
+                    expected_identity,
+                    expected_links=expected_links,
+                )
+
+            with (
+                mock.patch.object(
+                    safe_paths,
+                    "_require_named_staging_identity",
+                    side_effect=replace_before_check,
+                ),
+                self.assertRaisesRegex(OSError, "staging file was replaced"),
+            ):
+                safe_paths.write_bytes(
+                    target,
+                    b"trusted-new",
+                    force=True,
+                    root=root,
+                )
+
+            self.assertEqual(b"trusted-old", target.read_bytes())
+            self.assertEqual(2, len(injected_names))
+            self.assertEqual(b"attacker!!!", (root / injected_names[0]).read_bytes())
+            self.assertEqual(b"trusted-new", (root / injected_names[1]).read_bytes())
+
+    def test_safe_write_bytes_rejects_staging_swap_at_install_syscall(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+
+            with self.subTest("replace existing target"):
+                target = root / "forced.bin"
+                target.write_bytes(b"trusted-old")
+                real_replace = safe_paths.os.replace
+                held_names: list[str] = []
+
+                def swap_then_replace(
+                    source: str,
+                    destination: str,
+                    *,
+                    src_dir_fd: int,
+                    dst_dir_fd: int,
+                ) -> None:
+                    held_name = source + ".held"
+                    os.rename(
+                        source,
+                        held_name,
+                        src_dir_fd=src_dir_fd,
+                        dst_dir_fd=src_dir_fd,
+                    )
+                    replacement = os.open(
+                        source,
+                        os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                        0o600,
+                        dir_fd=src_dir_fd,
+                    )
+                    try:
+                        self.assertEqual(
+                            len(b"attacker!!!"),
+                            os.write(replacement, b"attacker!!!"),
+                        )
+                        os.fsync(replacement)
+                    finally:
+                        os.close(replacement)
+                    held_names.append(held_name)
+                    real_replace(
+                        source,
+                        destination,
+                        src_dir_fd=src_dir_fd,
+                        dst_dir_fd=dst_dir_fd,
+                    )
+
+                with (
+                    mock.patch.object(
+                        safe_paths.os,
+                        "replace",
+                        side_effect=swap_then_replace,
+                    ),
+                    self.assertRaisesRegex(
+                        OSError,
+                        "atomically installed output has invalid metadata",
+                    ),
+                ):
+                    safe_paths.write_bytes(
+                        target,
+                        b"trusted-new",
+                        force=True,
+                        root=root,
+                    )
+
+                self.assertEqual(1, len(held_names))
+                self.assertEqual(b"attacker!!!", target.read_bytes())
+                self.assertEqual(b"trusted-new", (root / held_names[0]).read_bytes())
+                backups = list(root.glob(".forced.bin.bak-*"))
+                self.assertEqual(1, len(backups), backups)
+                self.assertEqual(b"trusted-old", backups[0].read_bytes())
+
+            with self.subTest("link new target"):
+                target = root / "new.bin"
+                real_link = safe_paths.os.link
+                held_names = []
+
+                def swap_then_link(
+                    source: str,
+                    destination: str,
+                    *,
+                    src_dir_fd: int,
+                    dst_dir_fd: int,
+                    follow_symlinks: bool,
+                ) -> None:
+                    held_name = source + ".held"
+                    os.rename(
+                        source,
+                        held_name,
+                        src_dir_fd=src_dir_fd,
+                        dst_dir_fd=src_dir_fd,
+                    )
+                    replacement = os.open(
+                        source,
+                        os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                        0o600,
+                        dir_fd=src_dir_fd,
+                    )
+                    try:
+                        self.assertEqual(
+                            len(b"attacker!!!"),
+                            os.write(replacement, b"attacker!!!"),
+                        )
+                        os.fsync(replacement)
+                    finally:
+                        os.close(replacement)
+                    held_names.append(held_name)
+                    real_link(
+                        source,
+                        destination,
+                        src_dir_fd=src_dir_fd,
+                        dst_dir_fd=dst_dir_fd,
+                        follow_symlinks=follow_symlinks,
+                    )
+
+                with (
+                    mock.patch.object(
+                        safe_paths.os,
+                        "link",
+                        side_effect=swap_then_link,
+                    ),
+                    self.assertRaisesRegex(
+                        OSError,
+                        "atomically linked output does not match staging inode",
+                    ),
+                ):
+                    safe_paths.write_bytes(
+                        target,
+                        b"trusted-new",
+                        root=root,
+                    )
+
+                self.assertEqual(1, len(held_names))
+                self.assertEqual(b"attacker!!!", target.read_bytes())
+                self.assertEqual(b"trusted-new", (root / held_names[0]).read_bytes())
+
+    def test_safe_write_bytes_retains_candidate_after_backup_commit_cleanup_failure(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            target = root / "output.bin"
+            target.write_bytes(b"trusted-old")
+            real_fsync = safe_paths.os.fsync
+            calls = 0
+
+            def fail_commit_fsync(descriptor: int) -> None:
+                nonlocal calls
+                calls += 1
+                if calls == 3:
+                    raise OSError("injected post-commit directory fsync failure")
+                real_fsync(descriptor)
+
+            with (
+                mock.patch.object(
+                    safe_paths.os,
+                    "fsync",
+                    side_effect=fail_commit_fsync,
+                ),
+                self.assertRaisesRegex(
+                    OSError,
+                    "injected post-commit directory fsync failure",
+                ),
+            ):
+                safe_paths.write_bytes(
+                    target,
+                    b"trusted-new",
+                    force=True,
+                    root=root,
+                )
+
+            self.assertEqual(b"trusted-new", target.read_bytes())
+            self.assertEqual([], list(root.glob(".output.bin.bak-*")))
+
     def test_output_directory_binding_rejects_substituted_ancestor(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             base = Path(temp_dir) / "base"
@@ -2495,14 +2774,13 @@ class SafeIoIntegrationTests(unittest.TestCase):
                     ],
                 ),
                 mock.patch("sys.stdout", new_callable=io.StringIO),
+                self.assertRaisesRegex(SystemExit, "pathname was replaced"),
             ):
-                self.assertEqual(0, reference_snapshot.main())
+                reference_snapshot.main()
 
-            rendered = output.read_text(encoding="utf-8")
             self.assertTrue(substituted)
             self.assertTrue(source.is_symlink())
-            self.assertIn("BENIGN-SOURCE-CONTENT", rendered)
-            self.assertNotIn("PRIVATE-SENTINEL-MUST-NOT-LEAK", rendered)
+            self.assertFalse(output.exists())
 
     def test_reference_snapshot_requires_safe_label_for_outside_source_file(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -2550,6 +2828,84 @@ class SafeIoIntegrationTests(unittest.TestCase):
             reference_snapshot.validate_plain_label("--title", "</system>")
         with self.assertRaises(SystemExit):
             reference_snapshot.validate_plain_label("--source-label", "https://example.com/source")
+        with self.assertRaises(SystemExit):
+            reference_snapshot.validate_plain_label("--title", "https://example.com/title")
+
+    def test_reference_snapshot_rejects_every_unsafe_unicode_metadata_category(self) -> None:
+        cases = {
+            "escape": "safe\x1bunsafe",
+            "c1-control": "safe\x9bunsafe",
+            "bidi-format": "safe\u202eunsafe",
+            "line-separator": "safe\u2028unsafe",
+            "paragraph-separator": "safe\u2029unsafe",
+            "surrogate": "safe\ud800unsafe",
+        }
+        for case_id, value in cases.items():
+            with self.subTest(case_id=case_id), self.assertRaises(SystemExit):
+                reference_snapshot.validate_plain_label("metadata", value)
+
+    def test_reference_snapshot_commonmark_escapes_direct_api_metadata(self) -> None:
+        rendered = reference_snapshot.render_snapshot(
+            "![title](relative-target)",
+            "[source](https://attacker.invalid/source)",
+            "trusted body",
+            "2026-06-19",
+        )
+
+        self.assertIn(r"# \!\[title\]\(relative-target\)", rendered)
+        self.assertIn(
+            r"Source: \[source\]\(https://attacker.invalid/source\)",
+            rendered,
+        )
+        self.assertNotIn("![title](", rendered)
+        self.assertNotIn("[source](", rendered)
+
+    def test_reference_snapshot_rejects_derived_newline_label_before_output(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            unsafe_parent = root / "line\nbreak"
+            unsafe_parent.mkdir()
+            source = unsafe_parent / "source.md"
+            source.write_text("source\n", encoding="utf-8")
+            output = root / "snapshot.md"
+
+            with (
+                mock.patch(
+                    "sys.argv",
+                    [
+                        "reference_snapshot.py",
+                        "--source-file",
+                        str(source),
+                        "--output",
+                        str(output),
+                    ],
+                ),
+                mock.patch.object(reference_snapshot.Path, "cwd", return_value=root),
+                mock.patch.object(reference_snapshot.safe_paths, "write_text") as writer,
+                self.assertRaises(SystemExit),
+            ):
+                reference_snapshot.main()
+
+            writer.assert_not_called()
+            self.assertFalse(output.exists())
+
+    def test_reference_snapshot_render_sink_rejects_control_metadata(self) -> None:
+        for field, args in (
+            (
+                "title",
+                ("unsafe\x1btitle", "source.md", "body", "2026-06-19"),
+            ),
+            (
+                "source",
+                ("title", "unsafe\u202esource", "body", "2026-06-19"),
+            ),
+            (
+                "retrieved",
+                ("title", "source.md", "body", "2026-06-19\u2028forged"),
+            ),
+        ):
+            with self.subTest(field=field), self.assertRaises(SystemExit):
+                reference_snapshot.render_snapshot(*args)
 
     def test_reference_snapshot_uses_source_date_epoch_in_utc(self) -> None:
         with mock.patch.dict(reference_snapshot.os.environ, {"SOURCE_DATE_EPOCH": "86399"}, clear=False):

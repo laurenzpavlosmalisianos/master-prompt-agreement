@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 import json
 import os
 from pathlib import Path
+import stat
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest import mock
-from typing import cast
+from typing import Any, cast
 
 from tests.validation_test_support import (
     REPO_ROOT,
@@ -378,7 +381,10 @@ class BootstrapEndToEndTests(unittest.TestCase):
             receipt = json.loads(
                 (project_root / "PROJECT_INSTANCE.json").read_text(encoding="utf-8")
             )
-            self.assertEqual(5, receipt["schema_version"])
+            self.assertEqual(
+                project_bootstrap.PROJECT_INSTANCE_SCHEMA_VERSION,
+                receipt["schema_version"],
+            )
             self.assertEqual(contract_root_ref, receipt["contract_root"])
             self.assertEqual(
                 f"{contract_root_ref}/PROJECT_INPUT.json",
@@ -500,6 +506,586 @@ class BootstrapEndToEndTests(unittest.TestCase):
                 raced_target.read_text(encoding="utf-8"),
             )
             self.assertEqual(["TODO.md"], [path.name for path in project_root.iterdir()])
+
+    def test_transaction_rejects_replaced_approved_directory_identities_before_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+
+            with self.subTest("existing project root"):
+                project_root = root / "existing-project"
+                project_root.mkdir()
+                approved_root = project_bootstrap.target_directory_identity(
+                    project_root
+                )
+                project_root.rename(root / "approved-project-inode")
+                project_root.mkdir()
+                with self.assertRaises(
+                    bootstrap_transaction.BootstrapTransactionError
+                ):
+                    bootstrap_transaction.transactional_write_outputs(
+                        project_root,
+                        [("output.txt", "planned\n")],
+                        force=False,
+                        expected_preimages={"output.txt": None},
+                        expected_project_root_identity=approved_root,
+                    )
+                self.assertFalse((project_root / "output.txt").exists())
+                self.assertFalse(
+                    (project_root / bootstrap_transaction.TRANSACTION_LOCK_NAME).exists()
+                )
+
+            with self.subTest("existing nested contract root"):
+                project_root = root / "nested-project"
+                contract_root = project_root / "contracts" / "current"
+                contract_root.mkdir(parents=True)
+                approved_root = project_bootstrap.target_directory_identity(
+                    project_root
+                )
+                approved_directories = (
+                    project_bootstrap.target_directory_identity_bindings(
+                        project_root,
+                        contract_root,
+                    )
+                )
+                (project_root / "contracts").rename(
+                    project_root / "approved-contract-tree"
+                )
+                contract_root.mkdir(parents=True)
+                with self.assertRaises(
+                    bootstrap_transaction.BootstrapTransactionError
+                ):
+                    bootstrap_transaction.transactional_write_outputs(
+                        project_root,
+                        [("contracts/current/output.txt", "planned\n")],
+                        force=False,
+                        expected_preimages={
+                            "contracts/current/output.txt": None
+                        },
+                        expected_project_root_identity=approved_root,
+                        expected_directory_identities=approved_directories,
+                    )
+                self.assertFalse((contract_root / "output.txt").exists())
+                self.assertFalse(
+                    (project_root / bootstrap_transaction.TRANSACTION_LOCK_NAME).exists()
+                )
+
+            with self.subTest("approved absent nested contract root"):
+                project_root = root / "absent-project"
+                project_root.mkdir()
+                approved_root = project_bootstrap.target_directory_identity(
+                    project_root
+                )
+                appeared = project_root / "nested" / "contracts"
+                approved_directories = (
+                    project_bootstrap.target_directory_identity_bindings(
+                        project_root,
+                        appeared,
+                    )
+                )
+                appeared.mkdir(parents=True)
+                with self.assertRaises(
+                    bootstrap_transaction.BootstrapTransactionError
+                ):
+                    bootstrap_transaction.transactional_write_outputs(
+                        project_root,
+                        [("nested/contracts/output.txt", "planned\n")],
+                        force=False,
+                        expected_preimages={
+                            "nested/contracts/output.txt": None
+                        },
+                        expected_project_root_identity=approved_root,
+                        expected_directory_identities=approved_directories,
+                    )
+                self.assertFalse((appeared / "output.txt").exists())
+                self.assertFalse(
+                    (project_root / bootstrap_transaction.TRANSACTION_LOCK_NAME).exists()
+                )
+
+            with self.subTest("approved absent edge appears after journal open"):
+                project_root = root / "late-absent-project"
+                project_root.mkdir()
+                approved_root = project_bootstrap.target_directory_identity(
+                    project_root
+                )
+                approved_directories = (
+                    project_bootstrap.target_directory_identity_bindings(
+                        project_root,
+                        project_root / "late" / "contracts",
+                    )
+                )
+                original_journal_write = (
+                    bootstrap_transaction._write_recovery_journal
+                )
+                injected = False
+
+                def write_journal_then_appear(
+                    bound_root: bootstrap_transaction._DirectoryBinding,
+                    payload: dict[str, object],
+                    **kwargs: Any,
+                ) -> None:
+                    nonlocal injected
+                    original_journal_write(bound_root, payload, **kwargs)
+                    if not injected and kwargs.get("require_absent") is True:
+                        (project_root / "late").mkdir()
+                        injected = True
+
+                with (
+                    mock.patch.object(
+                        bootstrap_transaction,
+                        "_write_recovery_journal",
+                        side_effect=write_journal_then_appear,
+                    ),
+                    self.assertRaises(
+                        bootstrap_transaction.BootstrapTransactionError
+                    ),
+                ):
+                    bootstrap_transaction.transactional_write_outputs(
+                        project_root,
+                        [("late/contracts/output.txt", "planned\n")],
+                        force=False,
+                        expected_preimages={
+                            "late/contracts/output.txt": None
+                        },
+                        expected_project_root_identity=approved_root,
+                        expected_directory_identities=approved_directories,
+                    )
+                self.assertTrue(injected)
+                self.assertTrue((project_root / "late").is_dir())
+                self.assertFalse((project_root / "late" / "contracts").exists())
+                self.assertFalse(
+                    (project_root / bootstrap_transaction.TRANSACTION_LOCK_NAME).exists()
+                )
+                self.assertFalse(
+                    (project_root / bootstrap_transaction.RECOVERY_JOURNAL_NAME).exists()
+                )
+
+            with self.subTest("approved absent descendant appears during creation"):
+                project_root = root / "late-descendant-project"
+                project_root.mkdir()
+                approved_root = project_bootstrap.target_directory_identity(
+                    project_root
+                )
+                approved_directories = (
+                    project_bootstrap.target_directory_identity_bindings(
+                        project_root,
+                        project_root / "late" / "contracts",
+                    )
+                )
+                original_open = bootstrap_transaction._open_bound_directory
+                injected = False
+
+                def open_with_descendant_race(
+                    parent: bootstrap_transaction._DirectoryBinding,
+                    name: str,
+                    **kwargs: Any,
+                ) -> bootstrap_transaction._DirectoryBinding:
+                    nonlocal injected
+                    label = kwargs.get("label")
+                    if label == "bootstrap output parent late/contracts":
+                        raced = project_root / "late" / "contracts"
+                        raced.mkdir()
+                        injected = True
+                        try:
+                            return original_open(parent, name, **kwargs)
+                        finally:
+                            raced.rmdir()
+                    return original_open(parent, name, **kwargs)
+
+                with (
+                    mock.patch.object(
+                        bootstrap_transaction,
+                        "_open_bound_directory",
+                        side_effect=open_with_descendant_race,
+                    ),
+                    self.assertRaisesRegex(
+                        bootstrap_transaction.BootstrapTransactionError,
+                        "approved-absent directory appeared before creation",
+                    ),
+                ):
+                    bootstrap_transaction.transactional_write_outputs(
+                        project_root,
+                        [("late/contracts/output.txt", "planned\n")],
+                        force=False,
+                        expected_preimages={
+                            "late/contracts/output.txt": None
+                        },
+                        expected_project_root_identity=approved_root,
+                        expected_directory_identities=approved_directories,
+                    )
+                self.assertTrue(injected)
+                self.assertFalse((project_root / "late").exists())
+                self.assertFalse(
+                    (project_root / bootstrap_transaction.TRANSACTION_LOCK_NAME).exists()
+                )
+                self.assertFalse(
+                    (project_root / bootstrap_transaction.RECOVERY_JOURNAL_NAME).exists()
+                )
+
+            with self.subTest("identity map requires every parent edge"):
+                project_root = root / "nonclosed-map-project"
+                project_root.mkdir()
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "bind every project-relative parent edge",
+                ):
+                    bootstrap_transaction.transactional_write_outputs(
+                        project_root,
+                        [("nested/contracts/output.txt", "planned\n")],
+                        force=False,
+                        expected_preimages={
+                            "nested/contracts/output.txt": None
+                        },
+                        expected_project_root_identity=(
+                            project_bootstrap.target_directory_identity(project_root)
+                        ),
+                        expected_directory_identities={
+                            "nested/contracts": None
+                        },
+                    )
+                self.assertFalse(
+                    (project_root / bootstrap_transaction.TRANSACTION_LOCK_NAME).exists()
+                )
+
+            with self.subTest("identity map cannot be explicitly empty"):
+                project_root = root / "empty-map-project"
+                project_root.mkdir()
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "must bind a non-empty exact project-relative directory chain",
+                ):
+                    bootstrap_transaction.transactional_write_outputs(
+                        project_root,
+                        [("output.txt", "planned\n")],
+                        force=False,
+                        expected_preimages={"output.txt": None},
+                        expected_project_root_identity=(
+                            project_bootstrap.target_directory_identity(project_root)
+                        ),
+                        expected_directory_identities={},
+                    )
+                self.assertFalse(
+                    (project_root / bootstrap_transaction.TRANSACTION_LOCK_NAME).exists()
+                )
+
+            with self.subTest("identity map stops at first approved absence"):
+                project_root = root / "post-absence-map-project"
+                project_root.mkdir()
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "stop at the first approved absence",
+                ):
+                    bootstrap_transaction.transactional_write_outputs(
+                        project_root,
+                        [("nested/contracts/output.txt", "planned\n")],
+                        force=False,
+                        expected_preimages={
+                            "nested/contracts/output.txt": None
+                        },
+                        expected_project_root_identity=(
+                            project_bootstrap.target_directory_identity(project_root)
+                        ),
+                        expected_directory_identities={
+                            "nested": None,
+                            "nested/contracts": None,
+                        },
+                    )
+                self.assertFalse(
+                    (project_root / bootstrap_transaction.TRANSACTION_LOCK_NAME).exists()
+                )
+
+            with self.subTest("identity map cannot branch"):
+                project_root = root / "branched-map-project"
+                project_root.mkdir()
+                (project_root / "first").mkdir()
+                (project_root / "second").mkdir()
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "one exact project-relative prefix chain",
+                ):
+                    bootstrap_transaction.transactional_write_outputs(
+                        project_root,
+                        [("output.txt", "planned\n")],
+                        force=False,
+                        expected_preimages={"output.txt": None},
+                        expected_project_root_identity=(
+                            project_bootstrap.target_directory_identity(project_root)
+                        ),
+                        expected_directory_identities={
+                            "first": project_bootstrap.target_directory_identity(
+                                project_root / "first"
+                            ),
+                            "second": project_bootstrap.target_directory_identity(
+                                project_root / "second"
+                            ),
+                        },
+                    )
+                self.assertFalse(
+                    (project_root / bootstrap_transaction.TRANSACTION_LOCK_NAME).exists()
+                )
+
+    def test_cli_write_approval_rejects_target_inode_and_absence_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            answers_path = root / "answers.json"
+            _write_answers(answers_path, _minimal_answers())
+
+            with self.subTest("project-root inode replacement"):
+                project_root = root / "root-drift-project"
+                displaced = root / "reviewed-root-inode"
+                project_root.mkdir()
+                dry_code, dry_report, dry_stderr = _run_bootstrap(
+                    answers_path,
+                    project_root,
+                    "generic",
+                    "--dry-run",
+                )
+                self.assertEqual(0, dry_code, (dry_report, dry_stderr))
+                reviewed_binding = cast(
+                    dict[str, object],
+                    dry_report["write_target_binding"],
+                )
+                project_root.rename(displaced)
+                project_root.mkdir()
+                with mock.patch.object(
+                    project_bootstrap,
+                    "write_bootstrap_outputs",
+                ) as writer:
+                    write_code, write_report, write_stderr = _run_bootstrap(
+                        answers_path,
+                        project_root,
+                        "generic",
+                        *_write_plan_approval_arguments(dry_report),
+                    )
+                writer.assert_not_called()
+                self.assertNotEqual(0, write_code, (write_report, write_stderr))
+                self.assertIn(
+                    "does not match the complete rendered bootstrap write plan",
+                    " ".join(cast(list[str], write_report["errors"])),
+                )
+                self.assertNotEqual(
+                    reviewed_binding["project_root_identity"],
+                    project_bootstrap.target_directory_identity(project_root),
+                )
+                self.assertEqual([], list(project_root.iterdir()))
+
+            with self.subTest("approved-absent nested edge appears"):
+                project_root = root / "absence-drift-project"
+                project_root.mkdir()
+                dry_code, dry_report, dry_stderr = _run_bootstrap(
+                    answers_path,
+                    project_root,
+                    "generic",
+                    "--contract-root",
+                    "governance/current",
+                    "--create-contract-root",
+                    "--dry-run",
+                )
+                self.assertEqual(0, dry_code, (dry_report, dry_stderr))
+                reviewed_binding = cast(
+                    dict[str, object],
+                    dry_report["write_target_binding"],
+                )
+                self.assertEqual(
+                    {"governance": None},
+                    reviewed_binding["directory_identities"],
+                )
+                (project_root / "governance").mkdir()
+                with mock.patch.object(
+                    project_bootstrap,
+                    "write_bootstrap_outputs",
+                ) as writer:
+                    write_code, write_report, write_stderr = _run_bootstrap(
+                        answers_path,
+                        project_root,
+                        "generic",
+                        "--contract-root",
+                        "governance/current",
+                        "--create-contract-root",
+                        *_write_plan_approval_arguments(dry_report),
+                    )
+                writer.assert_not_called()
+                self.assertNotEqual(0, write_code, (write_report, write_stderr))
+                self.assertIn(
+                    "does not match the complete rendered bootstrap write plan",
+                    " ".join(cast(list[str], write_report["errors"])),
+                )
+                self.assertEqual([], list((project_root / "governance").iterdir()))
+
+    def test_bounded_transaction_assertion_rejects_file_growth_during_read(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            authority_path = project_root / "AUTHORITY.md"
+            authority_path.write_bytes(b"safe")
+            bindings: list[bootstrap_transaction._DirectoryBinding] = []
+            root_binding = bootstrap_transaction._open_project_root_transaction(
+                project_root,
+                all_bindings=bindings,
+            )
+            real_read = bootstrap_transaction.os.read
+            injected = False
+
+            def read_then_grow(descriptor: int, size: int) -> bytes:
+                nonlocal injected
+                chunk = real_read(descriptor, size)
+                if not injected:
+                    with authority_path.open("ab") as stream:
+                        stream.write(b"!")
+                        stream.flush()
+                        os.fsync(stream.fileno())
+                    injected = True
+                return chunk
+
+            try:
+                with (
+                    mock.patch.object(
+                        bootstrap_transaction.os,
+                        "read",
+                        side_effect=read_then_grow,
+                    ),
+                    self.assertRaisesRegex(
+                        bootstrap_transaction.BootstrapTransactionError,
+                        "exceeds its bounded read limit of 4 bytes",
+                    ),
+                ):
+                    bootstrap_transaction._file_evidence_at(
+                        root_binding,
+                        "AUTHORITY.md",
+                        description="authority assertion",
+                        max_bytes=4,
+                    )
+            finally:
+                bootstrap_transaction._cleanup_transaction_resources(
+                    root_binding,
+                    None,
+                    bindings,
+                )
+
+            self.assertTrue(injected)
+            self.assertEqual(b"safe!", authority_path.read_bytes())
+
+    def test_transaction_spelling_scan_stops_at_entry_limit(self) -> None:
+        visited = 0
+
+        class ScandirNames:
+            def __enter__(self) -> Iterator[SimpleNamespace]:
+                nonlocal visited
+                for index in range(100):
+                    visited += 1
+                    yield SimpleNamespace(name=f"unrelated-{index}")
+
+            def __exit__(self, *_args: object) -> None:
+                return None
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            bindings: list[bootstrap_transaction._DirectoryBinding] = []
+            root_binding = bootstrap_transaction._open_project_root_transaction(
+                Path(temp_dir), all_bindings=bindings
+            )
+            try:
+                with (
+                    mock.patch.object(
+                        bootstrap_transaction, "_SPELLING_SCAN_MAX_ENTRIES", 3
+                    ),
+                    mock.patch.object(
+                        bootstrap_transaction.os, "scandir", return_value=ScandirNames()
+                    ),
+                    self.assertRaisesRegex(
+                        bootstrap_transaction.BootstrapTransactionError,
+                        "directory spelling entry limit",
+                    ),
+                ):
+                    bootstrap_transaction._require_exact_directory_entry_spelling(
+                        root_binding, "AUTHORITY.md", description="authority assertion"
+                    )
+            finally:
+                bootstrap_transaction._cleanup_transaction_resources(
+                    root_binding, None, bindings
+                )
+        self.assertEqual(4, visited)
+
+    def test_transaction_assertion_rejects_post_verifier_path_spelling_alias(
+        self,
+    ) -> None:
+        class ScandirNames:
+            def __init__(self, names: list[str]) -> None:
+                self._entries = [SimpleNamespace(name=name) for name in names]
+
+            def __enter__(self) -> Iterator[SimpleNamespace]:
+                return iter(self._entries)
+
+            def __exit__(self, *_args: object) -> None:
+                return None
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            authority_path = project_root / "AUTHORITY.md"
+            authority_raw = b"stable authority\n"
+            authority_path.write_bytes(authority_raw)
+            alias_pending = False
+            alias_injected = False
+            real_scandir = bootstrap_transaction.os.scandir
+
+            def scandir_with_post_verifier_alias(
+                descriptor: int,
+            ) -> object:
+                nonlocal alias_pending, alias_injected
+                if not alias_pending:
+                    return real_scandir(descriptor)
+                alias_pending = False
+                alias_injected = True
+                with real_scandir(descriptor) as entries:
+                    names = [entry.name for entry in entries]
+                return ScandirNames(
+                    [
+                        "authority.md" if name == "AUTHORITY.md" else name
+                        for name in names
+                    ]
+                )
+
+            def expose_alias_after_verifier() -> None:
+                nonlocal alias_pending
+                alias_pending = True
+
+            with (
+                mock.patch.object(
+                    bootstrap_transaction,
+                    "transaction_capability_errors",
+                    return_value=(),
+                ),
+                mock.patch.object(
+                    bootstrap_transaction.os,
+                    "scandir",
+                    side_effect=scandir_with_post_verifier_alias,
+                ),
+                self.assertRaisesRegex(
+                    bootstrap_transaction.BootstrapTransactionError,
+                    "must use exact path spelling 'AUTHORITY.md'",
+                ),
+            ):
+                bootstrap_transaction.transactional_write_outputs(
+                    project_root,
+                    [("generated.txt", "candidate\n")],
+                    force=False,
+                    expected_preimages={"generated.txt": None},
+                    assert_preimages={
+                        "AUTHORITY.md": project_bootstrap.sha256_bytes(authority_raw)
+                    },
+                    assert_preimage_modes={
+                        "AUTHORITY.md": stat.S_IMODE(authority_path.stat().st_mode)
+                    },
+                    assert_preimage_max_bytes={"AUTHORITY.md": 1024},
+                    post_install_verifier=expose_alias_after_verifier,
+                )
+
+            self.assertTrue(alias_injected)
+            self.assertFalse((project_root / "generated.txt").exists())
+            self.assertEqual(authority_raw, authority_path.read_bytes())
+            self.assertEqual(
+                "clean",
+                bootstrap_transaction.transaction_recovery_status(project_root).state,
+            )
 
     def test_framework_identity_change_before_verification_rolls_back_create(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

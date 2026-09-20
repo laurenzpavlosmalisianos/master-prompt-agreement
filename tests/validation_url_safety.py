@@ -64,6 +64,91 @@ class UrlSafetyTests(unittest.TestCase):
             owner_timer.method_calls,
         )
 
+    def test_optional_hostname_resolution_is_bounded_cached_and_cancelled(
+        self,
+    ) -> None:
+        release = threading.Event()
+        started = threading.Event()
+        resolver_slot = threading.BoundedSemaphore(1)
+        resolver_workers: list[threading.Thread] = []
+        created_deadlines: list[TrackingDeadline] = []
+        real_deadline_type = url_safety._NetworkDeadline
+
+        class TrackingDeadline(real_deadline_type):
+            def __init__(self, seconds: float) -> None:
+                self.cancelled_by_owner = False
+                super().__init__(seconds)
+                created_deadlines.append(self)
+
+            def cancel(self) -> None:
+                self.cancelled_by_owner = True
+                super().cancel()
+
+        def assert_resolver_stopped() -> None:
+            self._assert_fixture_threads_stopped(resolver_workers)
+            acquired = resolver_slot.acquire(blocking=False)
+            if acquired:
+                resolver_slot.release()
+            self.assertTrue(acquired)
+
+        self.addCleanup(assert_resolver_stopped)
+        self.addCleanup(release.set)
+
+        def blocked_resolution(*_args):  # type: ignore[no-untyped-def]
+            resolver_workers.append(threading.current_thread())
+            started.set()
+            if not release.wait(timeout=1.0):
+                raise TimeoutError(
+                    "blocked resolver fixture exceeded its independent escape"
+                )
+            return [
+                (
+                    url_safety.socket.AF_INET,
+                    url_safety.socket.SOCK_STREAM,
+                    6,
+                    "",
+                    ("93.184.216.34", 443),
+                )
+            ]
+
+        cache: url_safety.HostnameResolutionCache = {}
+        with (
+            mock.patch.object(
+                url_safety.socket,
+                "getaddrinfo",
+                side_effect=blocked_resolution,
+            ) as resolver,
+            mock.patch.object(url_safety, "_RESOLVER_SLOT", resolver_slot),
+            mock.patch.object(url_safety, "_NetworkDeadline", TrackingDeadline),
+        ):
+            first_issue = url_safety.blocked_external_url_reason(
+                "https://example.com/one",
+                resolve_hostname=True,
+                hostname_resolution_timeout_seconds=0.04,
+                hostname_resolution_cache=cache,
+            )
+            second_issue = url_safety.blocked_external_url_reason(
+                "https://example.com/two",
+                resolve_hostname=True,
+                hostname_resolution_timeout_seconds=0.04,
+                hostname_resolution_cache=cache,
+            )
+
+        self.assertTrue(started.is_set())
+        self.assertTrue(resolver_workers[0].is_alive())
+        self.assertIn("total network deadline exceeded", first_issue or "")
+        self.assertEqual(first_issue, second_issue)
+        resolver.assert_called_once()
+        self.assertEqual(1, len(created_deadlines))
+        self.assertTrue(created_deadlines[0].cancelled_by_owner)
+        with self.assertRaisesRegex(ValueError, "at most 30s"):
+            url_safety.blocked_external_url_reason(
+                "https://example.com/three",
+                resolve_hostname=True,
+                hostname_resolution_timeout_seconds=30.01,
+                hostname_resolution_cache=cache,
+            )
+
     def test_url_safety_rejects_private_dns_resolution_and_redirects(self) -> None:
         request = link_check.Request("https://example.com/status")
         with mock.patch.object(
@@ -509,49 +594,119 @@ class UrlSafetyTests(unittest.TestCase):
         wrapped_socket.do_handshake.assert_called_once_with()
         self.assertIs(wrapped_socket, connection.sock)
 
-    def test_url_safety_uses_vetted_resolution_for_actual_connection(self) -> None:
-        calls = []
-        lock_events = []
+    def test_url_safety_feeds_one_vetted_resolution_to_socket_connect(self) -> None:
+        resolver_calls: list[tuple[object, ...]] = []
+        connect_calls: list[tuple[str, int]] = []
+        vetted_record = (
+            url_safety.socket.AF_INET,
+            url_safety.socket.SOCK_STREAM,
+            6,
+            "",
+            ("93.184.216.34", 443),
+        )
 
-        def fake_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):  # type: ignore[no-untyped-def]
-            calls.append((host, port))
-            return [(url_safety.socket.AF_INET, url_safety.socket.SOCK_STREAM, 6, "", ("93.184.216.34", port or 443))]
-
-        class FakeOpener:
-            def open(self, _request, timeout):  # type: ignore[no-untyped-def]
-                response = mock.MagicMock()
-                response.records = url_safety.socket.getaddrinfo(
-                    "example.com",
-                    443,
-                    type=url_safety.socket.SOCK_STREAM,
+        def one_shot_getaddrinfo(
+            host,
+            port,
+            family=0,
+            type=0,
+            proto=0,
+            flags=0,
+        ):  # type: ignore[no-untyped-def]
+            resolver_calls.append((host, port, family, type, proto, flags))
+            if len(resolver_calls) > 1:
+                raise AssertionError(
+                    "connection attempted a second raw hostname resolution"
                 )
+            return [vetted_record]
+
+        class ConnectedSocket:
+            def __init__(self, family: int, socktype: int, proto: int) -> None:
+                self.family = family
+                self.socktype = socktype
+                self.proto = proto
+                self.closed = False
+                self.timeout: float | None = None
+
+            def settimeout(self, timeout: float) -> None:
+                self.timeout = timeout
+
+            def bind(self, _address: tuple[str, int]) -> None:
+                raise AssertionError("test connection unexpectedly bound a source address")
+
+            def connect(self, address: tuple[str, int]) -> None:
+                connect_calls.append(address)
+
+            def shutdown(self, _how: int) -> None:
+                pass
+
+            def close(self) -> None:
+                self.closed = True
+
+        sockets: list[ConnectedSocket] = []
+
+        def socket_factory(
+            family: int,
+            socktype: int,
+            proto: int,
+        ) -> ConnectedSocket:
+            connected = ConnectedSocket(family, socktype, proto)
+            sockets.append(connected)
+            return connected
+
+        class ConnectingOpener:
+            def __init__(self, deadline: url_safety._NetworkDeadline) -> None:
+                self.deadline = deadline
+
+            def open(self, _request, timeout):  # type: ignore[no-untyped-def]
+                connection = url_safety._DeadlineHTTPSConnection(
+                    "example.com",
+                    deadline=self.deadline,
+                    context=mock.MagicMock(),
+                )
+                connected = connection._create_connection(
+                    ("example.com", 443),
+                    timeout,
+                    None,
+                )
+                response = mock.MagicMock()
+                response.connected_socket = connected
+                response.close.side_effect = connected.close
                 return response
 
-        class FakeLock:
-            def acquire(self, *, timeout):  # type: ignore[no-untyped-def]
-                lock_events.append("acquire")
-                return True
+        def build_connecting_opener(*handlers):  # type: ignore[no-untyped-def]
+            deadline_handler = handlers[2]
+            self.assertIsInstance(
+                deadline_handler,
+                url_safety._DeadlineHTTPSHandler,
+            )
+            return ConnectingOpener(deadline_handler._deadline)
 
-            def release(self) -> None:
-                lock_events.append("release")
+        with (
+            mock.patch.object(
+                url_safety.socket,
+                "getaddrinfo",
+                side_effect=one_shot_getaddrinfo,
+            ),
+            mock.patch.object(
+                url_safety.socket,
+                "socket",
+                side_effect=socket_factory,
+            ),
+            mock.patch.object(
+                url_safety,
+                "build_opener",
+                side_effect=build_connecting_opener,
+            ),
+        ):
+            result = url_safety.safe_urlopen(
+                link_check.Request("https://example.com/status"),
+                timeout=0.25,
+            )
 
-        with mock.patch.object(url_safety.socket, "getaddrinfo", fake_getaddrinfo):
-            with mock.patch.object(url_safety, "build_opener", return_value=FakeOpener()):
-                with mock.patch.object(url_safety, "SAFE_URLOPEN_LOCK", FakeLock()):
-                    result = url_safety.safe_urlopen(link_check.Request("https://example.com/status"), timeout=0.25)
-
-        self.assertEqual(
-            [
-                (
-                    url_safety.socket.AF_INET,
-                    url_safety.socket.SOCK_STREAM,
-                    6,
-                    "",
-                    ("93.184.216.34", 443),
-                )
-            ],
-            result.records,
-        )
-        self.assertEqual([("example.com", 443)], calls)
-        self.assertEqual(["acquire", "release"], lock_events)
+        self.assertEqual(1, len(resolver_calls))
+        self.assertEqual([vetted_record[4]], connect_calls)
+        self.assertEqual(1, len(sockets))
+        self.assertIs(sockets[0], result._response.connected_socket)
         result.close()
+        self.assertTrue(sockets[0].closed)

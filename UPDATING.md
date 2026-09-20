@@ -3,7 +3,10 @@
 Use this guide to inspect and classify an existing generated Master Prompt
 Agreement instance. A verified complete current-format retained-input/receipt
 pair with an intact recorded preimage is required for refresh planning,
-contract revision, or runtime revision. Each plan selects exactly one backout
+contract revision, or runtime revision. The sole current-format exception is a
+receipt-only rebind for intentionally reviewed external authority-module bytes;
+the existing receipt must otherwise retain its exact canonical serialization.
+Each plan selects exactly one backout
 basis: the normal verified exact-preimage bundle, or the explicit
 `ACCEPT-NO-POST-APPLY-BACKOUT` exception where the authoritative Task Order
 permits it. Mutable-state retirement requires the bundle, and post-success
@@ -31,6 +34,13 @@ checkout first. Then, before loading `AGENT_PROJECT.md`, the SOW, or project
 state, check the project root for any member of the closed transaction-control
 set: `.mpa-bootstrap-recovery.json`, `.mpa-bootstrap.lock`, or
 `.mpa-bootstrap-recovery.tmp`.
+
+`.mpa-bootstrap-recovery.previous` is transaction-internal preservation state,
+not a fourth independent public startup-gate member. It must always coexist with
+the durable `.mpa-bootstrap.lock`, and transaction cleanup must refuse to retire
+that lock while `.previous` exists; an orphaned `.previous` artifact is invalid
+recovery state. The public three-member gate remains sound only while this
+mechanical invariant remains enforced and tested.
 
 If any control artifact exists, stop ordinary project work and do not load
 generated authority or state. Use only a runner already supplied by the runtime
@@ -94,7 +104,10 @@ flowchart TB
     C -->|yes| E["Rollback or finalize the exact transaction"]
     E --> A
     A -->|no| F["Classify the existing generated instance"]
-    F --> G{"Verified complete current-format pair with intact recorded preimage?"}
+    F --> U{"Only intentional authority-module byte drift in an otherwise canonical current receipt?"}
+    U -->|yes| V["Create and preview the receipt-only authority rebind plan"]
+    V --> R
+    U -->|no| G{"Verified complete current-format pair with intact recorded preimage?"}
     G -->|no| H["Stop for reviewed manual update or a supporting checkout"]
     G -->|framework refresh| I["Keep current PROJECT_INPUT unchanged"]
     G -->|contract, runtime, or optional-surface revision| J["Review a complete candidate PROJECT_INPUT"]
@@ -158,6 +171,10 @@ recorded runtime, or a refresh condition. Follow the exact status. Only a
 complete current-format pair can enter refresh planning. Partial, malformed,
 inconsistent, older, or unrecognized formats stop for reviewed manual project
 update; a clearly newer schema stops until a supporting checkout is selected.
+Exact authority-module-only drift in an otherwise canonical schema-6 instance
+instead reports `authority-module-rebind-required` with `errors: []`, exact
+`authority_module_drift`, and `rebind_eligible`; this distinct lifecycle status
+must not be collapsed into generic `manual-update-required`.
 
 2. For a contract, runtime, or optional-surface revision, create and review a
 temporary candidate input outside managed project surfaces. `--answers`
@@ -197,8 +214,32 @@ no-post-apply-backout branch replaces `--backout-root` with:
 <runner> -- "<framework-checkout-as-visible-to-runner>/scripts/project_refresh.py" plan --project-root <project-root> [--contract-root <matching-contract-root>] [--candidate-input <temporary-candidate-project-input.json>] --accept-no-post-apply-backout
 ```
 
+For an otherwise current schema-6 instance whose only inconsistency is an
+intentional change to receipt-recorded authority-module bytes, use the closed
+receipt-only branch without a candidate input:
+
+```bash
+<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/project_refresh.py" plan --project-root <project-root> [--contract-root <matching-contract-root>] --rebind-authority-modules --accept-no-post-apply-backout
+```
+
+The current receipt must already use its exact canonical byte serialization.
+The plan must require exactly `REBIND-AUTHORITY-MODULES` and
+`ACCEPT-NO-POST-APPLY-BACKOUT` in addition to its content-addressed warning,
+and it may change only root `PROJECT_INSTANCE.json`. The preview exposes each
+external authority module's exact UTF-8 text, label, path, SHA-256, and POSIX
+rwx mode. Review those bytes and the receipt-only digest delta; any unrelated
+receipt, input, generated-output, framework, or retirement change stops this
+branch for separate handling.
+
 Capture canonical JSON stdout in an approved temporary file outside managed
 project surfaces. The plan embeds the exact candidate snapshot used by apply.
+A normal schema-6 plan records current-receipt snapshots in
+`current_authority_modules` and target-receipt snapshots in `authority_modules`.
+Each list has unique canonical paths with one owner label per path. Preview must
+reproduce both lists and their exact UTF-8 text before approval, and apply
+asserts their union throughout installation. The rebind branch leaves
+`current_authority_modules` empty because superseded bytes are unavailable and
+binds the exact reviewed live bytes in `authority_modules`.
 The planning command itself does not write the project root, its parent, or an
 implicit scratch tree: it renders candidate bytes in memory, and it derives any
 new-file and new-directory POSIX rwx modes from the process umask while
@@ -358,7 +399,10 @@ restore transactionally:
 
 The final inspection verifies the restored recorded preimage before comparing
 it with the selected checkout. A correct historical restore may report a
-refresh condition rather than `current`.
+refresh condition rather than `current`. Restore asserts the union of the
+displaced target `authority_modules` and restored
+`current_authority_modules` throughout its transaction, so neither side of an
+authority-path transition is silently left unbound.
 
 ## Unsupported Formats
 

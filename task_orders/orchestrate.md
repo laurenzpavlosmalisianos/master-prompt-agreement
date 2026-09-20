@@ -184,7 +184,7 @@ invalidated phase and complete the full required lane. After an authorized
 durable repository mutation, bind any subsequent verifier to the immutable
 revision established by authoritative repository readback.
 
-Gate rule: If any step fails its acceptance criteria or verifier gate, the workflow stops. The Agent reports the failure and the remaining steps. The User decides whether to fix and continue or abort.
+Gate rule: If any step fails its acceptance criteria or verifier gate, stop dependent steps and report the failure. When the current task already authorizes an in-scope correction, correct the failure and reverify the affected gate before continuing; independent authorized work may proceed. Ask the User when correction requires new authority, changes the agreed scope, or leaves a decision that the Agent cannot safely resolve. Never treat a failed gate as passing or weaken it to continue.
 
 4. Parallel Steps
 

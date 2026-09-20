@@ -2,22 +2,354 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextlib import ExitStack
+import errno
 import hashlib
 import io
 import json
+import math
 import os
 from pathlib import Path
+import select
+import signal
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 from typing import Any, cast
 
 from tests.validation_test_support import REPO_ROOT, TEST_FRAMEWORK_RUNNER
 
+import bounded_subprocess  # noqa: E402
 import bootstrap_transaction  # noqa: E402
 import project_bootstrap  # noqa: E402
+
+
+_FORK_FIXTURE_SETUP_FAILURE_EXIT_CODE = 254
+_FORK_FIXTURE_TIMEOUT_SECONDS = 5.0
+_FORK_FIXTURE_KILL_REAP_TIMEOUT_SECONDS = 2.0
+_FORK_FIXTURE_POLL_SECONDS = 0.005
+
+
+def _journal_bound_root(path: Path) -> list[dict[str, object]]:
+    metadata = path.stat()
+    return [
+        {
+            "path": ".",
+            "identity": list(bootstrap_transaction._directory_identity(metadata)),
+        }
+    ]
+
+
+def _validated_fork_fixture_timeout_seconds(value: object) -> float:
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        raise ValueError("fork fixture timeout must be finite and positive")
+    try:
+        normalized = float(value)
+    except (OverflowError, TypeError, ValueError) as exc:
+        raise ValueError(
+            "fork fixture timeout must be finite and positive"
+        ) from exc
+    if not math.isfinite(normalized) or normalized <= 0:
+        raise ValueError("fork fixture timeout must be finite and positive")
+    return normalized
+
+
+def _spawn_fork_fixture(child_action: Callable[[], int | None]) -> int:
+    """Fork one fixture whose child always terminates through ``os._exit``."""
+
+    child: int | None = None
+    try:
+        child = os.fork()
+        if child != 0:
+            return child
+        try:
+            exit_code = child_action()
+            if (
+                exit_code is None
+                or not isinstance(exit_code, int)
+                or isinstance(exit_code, bool)
+                or not 0 <= exit_code <= 255
+                or exit_code == _FORK_FIXTURE_SETUP_FAILURE_EXIT_CODE
+            ):
+                exit_code = _FORK_FIXTURE_SETUP_FAILURE_EXIT_CODE
+        except BaseException:
+            exit_code = _FORK_FIXTURE_SETUP_FAILURE_EXIT_CODE
+        os._exit(exit_code)
+    except BaseException as primary:
+        if child is not None and child > 0:
+            try:
+                _kill_and_reap_fork_fixture(child)
+            except BaseException as cleanup_failure:
+                raise cleanup_failure from primary
+        if child == 0:
+            os._exit(_FORK_FIXTURE_SETUP_FAILURE_EXIT_CODE)
+        raise
+    raise AssertionError("unreachable fork fixture spawn return")
+
+
+def _kill_and_reap_fork_fixture(child: int) -> int | None:
+    """Kill and reap a child, deferring parent interrupts until cleanup ends."""
+
+    cleanup_deadline = time.monotonic() + _FORK_FIXTURE_KILL_REAP_TIMEOUT_SECONDS
+    deferred_interrupt: BaseException | None = None
+    while True:
+        if time.monotonic() >= cleanup_deadline:
+            raise AssertionError(
+                f"fork fixture child {child} could not be killed before the deadline"
+            )
+        try:
+            os.kill(child, signal.SIGKILL)
+            break
+        except InterruptedError:
+            continue
+        except ProcessLookupError:
+            break
+        except Exception:
+            raise
+        except BaseException as exc:
+            # Parent interruption must not strand the already-owned child.  It
+            # is re-raised only after the child has been verifiably reaped.
+            if deferred_interrupt is None:
+                deferred_interrupt = exc
+            continue
+
+    while True:
+        try:
+            waited, status = os.waitpid(child, os.WNOHANG)
+        except InterruptedError:
+            continue
+        except ChildProcessError:
+            if deferred_interrupt is not None:
+                raise deferred_interrupt
+            return None
+        except Exception:
+            raise
+        except BaseException as exc:
+            if deferred_interrupt is None:
+                deferred_interrupt = exc
+            if time.monotonic() >= cleanup_deadline:
+                raise AssertionError(
+                    f"fork fixture child {child} could not be reaped after SIGKILL"
+                ) from deferred_interrupt
+            continue
+        if waited == child:
+            exit_code = os.waitstatus_to_exitcode(status)
+            if deferred_interrupt is not None:
+                raise deferred_interrupt
+            return exit_code
+        if waited != 0:
+            raise AssertionError(
+                f"waitpid returned unexpected child {waited} while reaping {child}"
+            )
+        remaining = cleanup_deadline - time.monotonic()
+        if remaining <= 0:
+            raise AssertionError(
+                f"fork fixture child {child} could not be reaped after SIGKILL"
+            )
+        try:
+            time.sleep(min(_FORK_FIXTURE_POLL_SECONDS, remaining))
+        except Exception:
+            raise
+        except BaseException as exc:
+            if deferred_interrupt is None:
+                deferred_interrupt = exc
+            continue
+
+
+def _poll_fork_fixture(
+    child: int,
+    *,
+    timeout_seconds: float,
+) -> int:
+    """Poll one owned child without changing its lifecycle on failure."""
+
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        try:
+            waited, status = os.waitpid(child, os.WNOHANG)
+        except InterruptedError:
+            continue
+        except ChildProcessError as exc:
+            raise AssertionError(
+                f"fork fixture child {child} disappeared before verified reap"
+            ) from exc
+        if waited == child:
+            return os.waitstatus_to_exitcode(status)
+        if waited != 0:
+            raise AssertionError(
+                f"waitpid returned unexpected child {waited} while awaiting {child}"
+            )
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError(
+                f"fork fixture child {child} exceeded {timeout_seconds:g}s"
+            )
+        time.sleep(min(_FORK_FIXTURE_POLL_SECONDS, remaining))
+
+
+def _raise_after_fork_fixture_cleanup(
+    child: int,
+    primary: BaseException,
+) -> None:
+    try:
+        exit_code = _kill_and_reap_fork_fixture(child)
+    except BaseException as cleanup_failure:
+        raise cleanup_failure from primary
+    if isinstance(primary, TimeoutError):
+        if exit_code is None:
+            raise AssertionError(
+                f"timed-out fork fixture child {child} disappeared before verified reap"
+            ) from primary
+        raise TimeoutError(
+            f"{primary}; SIGKILL exit {exit_code} was reaped"
+        ) from primary
+    raise primary
+
+
+def _wait_for_fork_fixture(
+    child: int,
+    *,
+    timeout_seconds: float = _FORK_FIXTURE_TIMEOUT_SECONDS,
+) -> int:
+    """Wait for one owned child; every failure kills and verifiably reaps it."""
+
+    try:
+        timeout = _validated_fork_fixture_timeout_seconds(timeout_seconds)
+        return _poll_fork_fixture(
+            child,
+            timeout_seconds=timeout,
+        )
+    except BaseException as primary:
+        _raise_after_fork_fixture_cleanup(child, primary)
+        raise AssertionError("unreachable fork fixture cleanup return")
+
+
+def _run_fork_fixture(
+    child_action: Callable[[], int | None],
+    *,
+    timeout_seconds: float = _FORK_FIXTURE_TIMEOUT_SECONDS,
+) -> int:
+    timeout = _validated_fork_fixture_timeout_seconds(timeout_seconds)
+    child: int | None = None
+    try:
+        child = _spawn_fork_fixture(child_action)
+        return _poll_fork_fixture(child, timeout_seconds=timeout)
+    except BaseException as primary:
+        if child is None:
+            raise
+        _raise_after_fork_fixture_cleanup(child, primary)
+        raise AssertionError("unreachable fork fixture cleanup return")
+
+
+def _kill_linux_fixture_identity(
+    identity: tuple[int, int],
+    *,
+    timeout_seconds: float = _FORK_FIXTURE_KILL_REAP_TIMEOUT_SECONDS,
+) -> None:
+    """Independently kill one exact Linux fixture identity and prove it is gone."""
+
+    pid, start_time_ticks = identity
+    current = bounded_subprocess._linux_read_process(pid)
+    if current is None:
+        return
+    if current.identity != identity:
+        raise AssertionError(
+            "Linux fixture pid was reused before independent cleanup: "
+            f"expected {identity!r}, found {current.identity!r}"
+        )
+    pidfd = os.pidfd_open(pid, 0)
+    try:
+        current = bounded_subprocess._linux_read_process(pid)
+        if current is None or current.start_time_ticks != start_time_ticks:
+            raise AssertionError(
+                f"Linux fixture identity changed after pidfd open: {identity!r}"
+            )
+        try:
+            signal.pidfd_send_signal(pidfd, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        deadline = time.monotonic() + timeout_seconds
+        while True:
+            try:
+                waited = os.waitid(
+                    os.P_PIDFD,
+                    pidfd,
+                    os.WEXITED | os.WNOHANG,
+                )
+            except ChildProcessError:
+                waited = None
+            if waited is not None:
+                return
+            current = bounded_subprocess._linux_read_process(pid)
+            if current is None or current.identity != identity:
+                return
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise AssertionError(
+                    f"Linux fixture identity remained after SIGKILL: {identity!r}"
+                )
+            time.sleep(min(_FORK_FIXTURE_POLL_SECONDS, remaining))
+    finally:
+        os.close(pidfd)
+
+
+def _read_fork_fixture_pipe(
+    descriptor: int,
+    *,
+    timeout_seconds: float = _FORK_FIXTURE_TIMEOUT_SECONDS,
+) -> bytes:
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("fork fixture pipe read exceeded its deadline")
+        try:
+            readable, _writable, _exceptional = select.select(
+                [descriptor],
+                [],
+                [],
+                remaining,
+            )
+        except InterruptedError:
+            continue
+        if not readable:
+            continue
+        payload = os.read(descriptor, 1)
+        if not payload:
+            raise EOFError("fork fixture pipe closed before its signal byte")
+        return payload
+
+
+def _write_fork_fixture_pipe(
+    descriptor: int,
+    payload: bytes,
+    *,
+    timeout_seconds: float = _FORK_FIXTURE_TIMEOUT_SECONDS,
+) -> None:
+    if len(payload) != 1:
+        raise ValueError("fork fixture pipe signals must contain exactly one byte")
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("fork fixture pipe write exceeded its deadline")
+        try:
+            _readable, writable, _exceptional = select.select(
+                [],
+                [descriptor],
+                [],
+                remaining,
+            )
+        except InterruptedError:
+            continue
+        if not writable:
+            continue
+        if os.write(descriptor, payload) != 1:
+            raise OSError("fork fixture pipe wrote an incomplete signal")
+        return
 
 
 def _write_minimal_answers(path: Path, **overrides: object) -> None:
@@ -133,6 +465,351 @@ def _run_project_bootstrap_with_warnings(
 
 
 class BootstrapTransactionTests(unittest.TestCase):
+    @unittest.skipUnless(hasattr(os, "fork"), "requires fork fixture support")
+    def test_fork_fixture_rejects_invalid_timeout_before_fork(self) -> None:
+        def must_not_run() -> int:
+            raise AssertionError("invalid timeout reached the fork child")
+
+        for invalid in (0, -1, float("inf"), float("nan"), True, "1"):
+            with (
+                self.subTest(timeout=invalid),
+                mock.patch.object(os, "fork") as fork,
+                self.assertRaisesRegex(
+                    ValueError,
+                    "finite and positive",
+                ),
+            ):
+                _run_fork_fixture(
+                    must_not_run,
+                    timeout_seconds=cast(Any, invalid),
+                )
+            fork.assert_not_called()
+
+    @unittest.skipUnless(hasattr(os, "fork"), "requires fork fixture support")
+    def test_fork_fixture_maps_child_baseexception_to_reserved_exit(self) -> None:
+        def interrupt_child_setup() -> int:
+            raise KeyboardInterrupt("synthetic child setup interruption")
+
+        self.assertEqual(
+            _FORK_FIXTURE_SETUP_FAILURE_EXIT_CODE,
+            _run_fork_fixture(interrupt_child_setup),
+        )
+
+    @unittest.skipUnless(hasattr(os, "fork"), "requires fork fixture support")
+    def test_fork_fixture_kills_and_verifiably_reaps_permanent_block(self) -> None:
+        ready_read, ready_write = os.pipe()
+
+        def block_forever() -> int:
+            os.close(ready_read)
+            try:
+                _write_fork_fixture_pipe(ready_write, b"1")
+            finally:
+                os.close(ready_write)
+            while True:
+                signal.pause()
+
+        child = _spawn_fork_fixture(block_forever)
+        os.close(ready_write)
+        try:
+            self.assertEqual(b"1", _read_fork_fixture_pipe(ready_read))
+        except BaseException:
+            try:
+                _wait_for_fork_fixture(child, timeout_seconds=0.04)
+            except TimeoutError:
+                pass
+            raise
+        finally:
+            os.close(ready_read)
+        with self.assertRaisesRegex(
+            TimeoutError,
+            "SIGKILL exit -9 was reaped",
+        ):
+            _wait_for_fork_fixture(child, timeout_seconds=0.04)
+        with self.assertRaises(ChildProcessError):
+            os.waitpid(child, os.WNOHANG)
+
+    @unittest.skipUnless(hasattr(os, "fork"), "requires fork fixture support")
+    def test_fork_fixture_parent_interrupt_kills_and_reaps_child(self) -> None:
+        ready_read, ready_write = os.pipe()
+
+        def block_forever() -> int:
+            os.close(ready_read)
+            try:
+                _write_fork_fixture_pipe(ready_write, b"1")
+            finally:
+                os.close(ready_write)
+            while True:
+                signal.pause()
+
+        child = _spawn_fork_fixture(block_forever)
+        os.close(ready_write)
+        try:
+            self.assertEqual(b"1", _read_fork_fixture_pipe(ready_read))
+        except BaseException:
+            _kill_and_reap_fork_fixture(child)
+            raise
+        finally:
+            os.close(ready_read)
+
+        real_waitpid = os.waitpid
+        interrupted = False
+
+        def interrupt_parent_once(pid: int, options: int) -> tuple[int, int]:
+            nonlocal interrupted
+            if not interrupted:
+                interrupted = True
+                raise KeyboardInterrupt("synthetic parent interruption")
+            return real_waitpid(pid, options)
+
+        with (
+            mock.patch.object(
+                os,
+                "waitpid",
+                side_effect=interrupt_parent_once,
+            ),
+            self.assertRaisesRegex(
+                KeyboardInterrupt,
+                "synthetic parent interruption",
+            ),
+        ):
+            _wait_for_fork_fixture(child)
+
+        self.assertTrue(interrupted)
+        with self.assertRaises(ChildProcessError):
+            real_waitpid(child, os.WNOHANG)
+
+    @unittest.skipUnless(
+        sys.platform.startswith("linux"),
+        "detached-descendant containment requires Linux subreaper support",
+    )
+    def test_bounded_subprocess_normal_exit_kills_and_reaps_silent_setsid_descendant(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            evidence = root / "descendant.json"
+            temporary_evidence = root / "descendant.json.tmp"
+            descendant_code = (
+                "import json, os, signal\n"
+                "from pathlib import Path\n"
+                "os.setsid()\n"
+                "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+                "for descriptor in (1, 2):\n"
+                "    try:\n"
+                "        os.close(descriptor)\n"
+                "    except OSError:\n"
+                "        pass\n"
+                "closed = []\n"
+                "for descriptor in (1, 2):\n"
+                "    try:\n"
+                "        os.fstat(descriptor)\n"
+                "    except OSError:\n"
+                "        closed.append(descriptor)\n"
+                "stat_fields = (Path('/proc') / str(os.getpid()) / 'stat').read_bytes().rpartition(b')')[2].split()\n"
+                "payload = {\n"
+                "    'pid': os.getpid(),\n"
+                "    'start_time_ticks': int(stat_fields[19]),\n"
+                "    'pgid': os.getpgrp(),\n"
+                "    'sid': os.getsid(0),\n"
+                "    'closed': closed,\n"
+                "    'ignores_term': signal.getsignal(signal.SIGTERM) == signal.SIG_IGN,\n"
+                "}\n"
+                f"temporary = Path({str(temporary_evidence)!r})\n"
+                "temporary.write_text(json.dumps(payload), encoding='utf-8')\n"
+                f"os.replace(temporary, Path({str(evidence)!r}))\n"
+                "while True:\n"
+                "    signal.pause()\n"
+            )
+            leader_code = (
+                "import subprocess, sys, time\n"
+                "from pathlib import Path\n"
+                "subprocess.Popen(\n"
+                f"    [sys.executable, '-I', '-c', {descendant_code!r}],\n"
+                "    close_fds=True,\n"
+                ")\n"
+                "deadline = time.monotonic() + 5.0\n"
+                f"evidence = Path({str(evidence)!r})\n"
+                "while not evidence.exists() and time.monotonic() < deadline:\n"
+                "    time.sleep(0.005)\n"
+                "raise SystemExit(0 if evidence.exists() else 91)\n"
+            )
+
+            signal_events: list[tuple[tuple[int, int], int]] = []
+            reaped_identities: list[tuple[int, int]] = []
+            subreaper_states: list[int] = []
+            real_signal_child = bounded_subprocess._signal_linux_child
+            real_reap_child = bounded_subprocess._reap_linux_child_if_exited
+            real_set_subreaper = bounded_subprocess._linux_prctl_set_subreaper
+
+            def record_signal(
+                record: bounded_subprocess._LinuxProcessRecord,
+                signal_number: int,
+            ) -> None:
+                signal_events.append((record.identity, signal_number))
+                real_signal_child(record, signal_number)
+
+            def record_reap(
+                record: bounded_subprocess._LinuxProcessRecord,
+            ) -> bool:
+                reaped = real_reap_child(record)
+                if reaped:
+                    reaped_identities.append(record.identity)
+                return reaped
+
+            def record_subreaper_state(enabled: int) -> None:
+                subreaper_states.append(enabled)
+                real_set_subreaper(enabled)
+
+            prior_subreaper = bounded_subprocess._linux_prctl_get_subreaper()
+            result: bounded_subprocess.BoundedProcessResult | None = None
+            descendant: dict[str, object] | None = None
+            descendant_identity_for_cleanup: tuple[int, int] | None = None
+            descendant_remained_after_run: bool | None = None
+            direct_children_after_run: tuple[int, ...] | None = None
+            restored_subreaper: int | None = None
+            try:
+                with (
+                    mock.patch.object(
+                        bounded_subprocess,
+                        "_signal_linux_child",
+                        side_effect=record_signal,
+                    ),
+                    mock.patch.object(
+                        bounded_subprocess,
+                        "_reap_linux_child_if_exited",
+                        side_effect=record_reap,
+                    ),
+                    mock.patch.object(
+                        bounded_subprocess,
+                        "_linux_prctl_set_subreaper",
+                        side_effect=record_subreaper_state,
+                    ),
+                ):
+                    result = bounded_subprocess.run_bounded_process(
+                        [sys.executable, "-I", "-c", leader_code],
+                        cwd=root,
+                        timeout_seconds=6.0,
+                        max_output_bytes=1024,
+                        maximum_timeout_seconds=6.0,
+                        maximum_output_bytes=1024,
+                        termination_grace_seconds=0.25,
+                    )
+                restored_subreaper = bounded_subprocess._linux_prctl_get_subreaper()
+                descendant = cast(
+                    dict[str, object],
+                    json.loads(evidence.read_text(encoding="utf-8")),
+                )
+                descendant_pid = cast(int, descendant["pid"])
+                descendant_start_time = cast(
+                    int,
+                    descendant["start_time_ticks"],
+                )
+                descendant_identity_for_cleanup = (
+                    descendant_pid,
+                    descendant_start_time,
+                )
+                remaining = bounded_subprocess._linux_read_process(descendant_pid)
+                descendant_remained_after_run = (
+                    remaining is not None
+                    and remaining.identity == descendant_identity_for_cleanup
+                )
+                direct_children_after_run = (
+                    bounded_subprocess._linux_direct_child_pids()
+                )
+            finally:
+                active_failure = sys.exception()
+                cleanup_failure: BaseException | None = None
+                if descendant_identity_for_cleanup is None and evidence.is_file():
+                    try:
+                        cleanup_evidence = cast(
+                            dict[str, object],
+                            json.loads(evidence.read_text(encoding="utf-8")),
+                        )
+                        cleanup_pid = cleanup_evidence["pid"]
+                        cleanup_start_time = cleanup_evidence["start_time_ticks"]
+                        if (
+                            not isinstance(cleanup_pid, int)
+                            or isinstance(cleanup_pid, bool)
+                            or cleanup_pid <= 0
+                            or not isinstance(cleanup_start_time, int)
+                            or isinstance(cleanup_start_time, bool)
+                            or cleanup_start_time < 0
+                        ):
+                            raise AssertionError(
+                                "detached-descendant cleanup evidence is invalid"
+                            )
+                        descendant_identity_for_cleanup = (
+                            cleanup_pid,
+                            cleanup_start_time,
+                        )
+                    except BaseException as exc:
+                        cleanup_failure = exc
+                if descendant_identity_for_cleanup is not None:
+                    try:
+                        _kill_linux_fixture_identity(
+                            descendant_identity_for_cleanup
+                        )
+                    except BaseException as exc:
+                        if cleanup_failure is None:
+                            cleanup_failure = exc
+                        else:
+                            cleanup_failure.add_note(
+                                f"descendant cleanup also failed: {exc!r}"
+                            )
+                try:
+                    if (
+                        bounded_subprocess._linux_prctl_get_subreaper()
+                        != prior_subreaper
+                    ):
+                        real_set_subreaper(prior_subreaper)
+                    final_subreaper = (
+                        bounded_subprocess._linux_prctl_get_subreaper()
+                    )
+                    if final_subreaper != prior_subreaper:
+                        raise AssertionError(
+                            "independent fixture cleanup could not restore the "
+                            f"subreaper state: expected {prior_subreaper}, "
+                            f"found {final_subreaper}"
+                        )
+                except BaseException as exc:
+                    if cleanup_failure is None:
+                        cleanup_failure = exc
+                    else:
+                        cleanup_failure.add_note(
+                            f"subreaper restoration also failed: {exc!r}"
+                        )
+                if cleanup_failure is not None:
+                    raise cleanup_failure from active_failure
+
+        if result is None or descendant is None:
+            self.fail("bounded subprocess fixture returned no result or evidence")
+        descendant_pid = cast(int, descendant["pid"])
+        descendant_identities = {
+            identity
+            for identity, _signal_number in signal_events
+            if identity[0] == descendant_pid
+        }
+        self.assertEqual(0, result.returncode)
+        self.assertFalse(result.timed_out)
+        self.assertFalse(result.output_exceeded)
+        self.assertEqual(b"", result.stdout)
+        self.assertEqual(b"", result.stderr)
+        self.assertEqual(descendant_pid, descendant["pgid"])
+        self.assertEqual(descendant_pid, descendant["sid"])
+        self.assertEqual([1, 2], descendant["closed"])
+        self.assertTrue(descendant["ignores_term"])
+        self.assertEqual(1, len(descendant_identities), signal_events)
+        descendant_identity = next(iter(descendant_identities))
+        self.assertIn((descendant_identity, signal.SIGTERM), signal_events)
+        self.assertIn((descendant_identity, signal.SIGKILL), signal_events)
+        self.assertIn(descendant_identity, reaped_identities)
+        self.assertFalse(descendant_remained_after_run)
+        self.assertEqual((), direct_children_after_run)
+        self.assertEqual(prior_subreaper, restored_subreaper)
+        self.assertGreaterEqual(len(subreaper_states), 2)
+        self.assertEqual(1, subreaper_states[0])
+        self.assertEqual(prior_subreaper, subreaper_states[-1])
+
     def test_bootstrap_transaction_public_api_is_narrow(self) -> None:
         self.assertEqual(
             (
@@ -309,6 +986,14 @@ class BootstrapTransactionTests(unittest.TestCase):
                 "transaction_id": "a" * 32,
                 "phase": "preparing",
                 "applied_count": 0,
+                "bound_directories": [
+                    {
+                        "path": ".",
+                        "identity": list(
+                            bootstrap_transaction._directory_identity(metadata)
+                        ),
+                    }
+                ],
                 "created_directories": [],
                 "retired_directories": [],
                 "operations": [
@@ -370,6 +1055,11 @@ class BootstrapTransactionTests(unittest.TestCase):
                     bootstrap_transaction,
                     "_journal_temporary_metadata",
                     side_effect=[None, metadata],
+                ),
+                mock.patch.object(
+                    bootstrap_transaction,
+                    "_journal_previous_metadata",
+                    return_value=None,
                 ),
                 mock.patch.object(
                     bootstrap_transaction.os,
@@ -2532,6 +3222,105 @@ class BootstrapTransactionTests(unittest.TestCase):
                 list(project_root.rglob(".mpa-bootstrap-transaction-*")),
             )
 
+    def test_project_bootstrap_stage_swap_preserves_unrelated_target_and_backup(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir) / "project"
+            project_root.mkdir()
+            target = project_root / "first.md"
+            target.write_text("trusted old\n", encoding="utf-8")
+            real_link = bootstrap_transaction.os.link
+            swapped = False
+
+            def swap_stage_at_link(
+                source: str,
+                destination: str,
+                *,
+                src_dir_fd: int | None = None,
+                dst_dir_fd: int | None = None,
+            ) -> None:
+                nonlocal swapped
+                if source != "stage-0" or swapped:
+                    real_link(
+                        source,
+                        destination,
+                        src_dir_fd=src_dir_fd,
+                        dst_dir_fd=dst_dir_fd,
+                    )
+                    return
+                if src_dir_fd is None or dst_dir_fd is None:
+                    self.fail("stage-swap fixture requires descriptor-relative link")
+                swapped = True
+                held = "stage-0-held"
+                os.rename(
+                    source,
+                    held,
+                    src_dir_fd=src_dir_fd,
+                    dst_dir_fd=src_dir_fd,
+                )
+                attacker = os.open(
+                    source,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                    0o600,
+                    dir_fd=src_dir_fd,
+                )
+                try:
+                    os.write(attacker, b"attacker target\n")
+                    os.fsync(attacker)
+                finally:
+                    os.close(attacker)
+                real_link(
+                    source,
+                    destination,
+                    src_dir_fd=src_dir_fd,
+                    dst_dir_fd=dst_dir_fd,
+                )
+                os.unlink(source, dir_fd=src_dir_fd)
+                os.rename(
+                    held,
+                    source,
+                    src_dir_fd=src_dir_fd,
+                    dst_dir_fd=src_dir_fd,
+                )
+
+            with (
+                mock.patch.object(
+                    bootstrap_transaction.os,
+                    "link",
+                    side_effect=swap_stage_at_link,
+                ),
+                self.assertRaisesRegex(
+                    bootstrap_transaction.BootstrapTransactionError,
+                    "installed bootstrap output does not match its staged inode",
+                ),
+            ):
+                bootstrap_transaction.transactional_write_outputs(
+                    project_root,
+                    [("first.md", "trusted new\n")],
+                    force=True,
+                )
+
+            self.assertTrue(swapped)
+            self.assertEqual("attacker target\n", target.read_text(encoding="utf-8"))
+            transaction_directories = list(
+                project_root.glob(".mpa-bootstrap-transaction-*")
+            )
+            self.assertEqual(1, len(transaction_directories))
+            self.assertEqual(
+                b"trusted old\n",
+                (
+                    transaction_directories[0]
+                    / bootstrap_transaction._recovery_quarantine_name(0, "backup")
+                ).read_bytes(),
+            )
+            self.assertTrue(
+                (project_root / bootstrap_transaction.RECOVERY_JOURNAL_NAME).is_file()
+            )
+            self.assertTrue(
+                (project_root / bootstrap_transaction.TRANSACTION_LOCK_NAME).is_file()
+            )
+
     def test_project_bootstrap_transaction_rolls_back_new_output_and_parent_after_late_install_failure(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project_root = Path(temp_dir) / "project"
@@ -2812,9 +3601,12 @@ class BootstrapTransactionTests(unittest.TestCase):
             self.assertFalse(
                 (project_root / bootstrap_transaction.RECOVERY_JOURNAL_NAME).exists()
             )
-            self.assertFalse(
-                (project_root / bootstrap_transaction.TRANSACTION_LOCK_NAME).exists()
+            self.assertTrue(
+                (project_root / bootstrap_transaction.TRANSACTION_LOCK_NAME).is_file()
             )
+            recovery = bootstrap_transaction.transaction_recovery_status(project_root)
+            self.assertEqual("recovery-required", recovery.state, recovery)
+            self.assertEqual("initializing", recovery.phase, recovery)
 
     def test_transaction_rollback_restores_files_without_retiring_parents(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -3106,6 +3898,7 @@ class BootstrapTransactionTests(unittest.TestCase):
                 "transaction_id": "a" * 32,
                 "phase": "preparing",
                 "applied_count": 0,
+                "bound_directories": _journal_bound_root(REPO_ROOT),
                 "created_directories": [],
                 "retired_directories": [],
                 "operations": [
@@ -3149,6 +3942,64 @@ class BootstrapTransactionTests(unittest.TestCase):
                     )
                 )
             )
+
+        bound_payload = payload(1)
+        bound_directories = cast(
+            list[dict[str, object]],
+            bound_payload["bound_directories"],
+        )
+        with mock.patch.object(
+            bootstrap_transaction,
+            "_RECOVERY_JOURNAL_MAX_BOUND_DIRECTORIES",
+            1,
+        ):
+            self.assertFalse(
+                any(
+                    "bound_directories exceed" in error
+                    for error in bootstrap_transaction._validate_journal_payload(
+                        bound_payload
+                    )
+                )
+            )
+            bound_directories.append(
+                {
+                    "path": "nested",
+                    "identity": list(
+                        cast(
+                            list[int],
+                            bound_directories[0]["identity"],
+                        )
+                    ),
+                }
+            )
+            self.assertTrue(
+                any(
+                    "bound_directories exceed" in error
+                    for error in bootstrap_transaction._validate_journal_payload(
+                        bound_payload
+                    )
+                )
+            )
+
+        missing_parent_payload = payload(1)
+        missing_parent_bound = cast(
+            list[dict[str, object]],
+            missing_parent_payload["bound_directories"],
+        )
+        missing_parent_bound.append(
+            {
+                "path": "unbound-parent/nested",
+                "identity": list(cast(list[int], missing_parent_bound[0]["identity"])),
+            }
+        )
+        self.assertTrue(
+            any(
+                "lacks its exact pre-existing parent binding" in error
+                for error in bootstrap_transaction._validate_journal_payload(
+                    missing_parent_payload
+                )
+            )
+        )
 
         exact_payload = payload(1)
         exact_size = len(bootstrap_transaction._journal_bytes(exact_payload))
@@ -3279,6 +4130,23 @@ class BootstrapTransactionTests(unittest.TestCase):
                 payload,
             )
 
+        bound_snapshots = [
+            payload["bound_directories"] for payload in captured_payloads
+        ]
+        self.assertTrue(
+            all(snapshot == bound_snapshots[0] for snapshot in bound_snapshots)
+        )
+        self.assertEqual(
+            [".", ".agents", ".agents/skills", ".agents/skills/seo"],
+            [
+                entry["path"]
+                for entry in cast(
+                    list[dict[str, object]],
+                    bound_snapshots[0],
+                )
+            ],
+        )
+
         retired_snapshots = [
             payload["retired_directories"] for payload in captured_payloads
         ]
@@ -3384,6 +4252,7 @@ class BootstrapTransactionTests(unittest.TestCase):
                         "transaction_id": transaction_id,
                         "phase": "applying",
                         "applied_count": 1,
+                        "bound_directories": _journal_bound_root(project_root),
                         "created_directories": [],
                         "retired_directories": [],
                         "operations": [
@@ -3496,6 +4365,7 @@ class BootstrapTransactionTests(unittest.TestCase):
                 "transaction_id": forged_id,
                 "phase": "applying",
                 "applied_count": 1,
+                "bound_directories": _journal_bound_root(project_root),
                 "created_directories": [],
                 "retired_directories": [],
                 "operations": [
@@ -3571,9 +4441,17 @@ class BootstrapTransactionTests(unittest.TestCase):
             self.assertEqual(original, temporary.read_bytes())
             self.assertEqual(0o600, temporary.stat().st_mode & 0o777)
             self.assertEqual(
-                [bootstrap_transaction._RECOVERY_JOURNAL_TEMP_NAME],
-                [path.name for path in project_root.iterdir()],
+                {
+                    bootstrap_transaction._RECOVERY_JOURNAL_TEMP_NAME,
+                    bootstrap_transaction.TRANSACTION_LOCK_NAME,
+                },
+                {path.name for path in project_root.iterdir()},
             )
+            recoverable = bootstrap_transaction.transaction_recovery_status(
+                project_root
+            )
+            self.assertEqual("recovery-required", recoverable.state, recoverable)
+            self.assertTrue(recoverable.can_rollback, recoverable)
 
     def test_project_bootstrap_initialization_cleanup_rejects_transaction_artifacts(
         self,
@@ -3630,8 +4508,8 @@ class BootstrapTransactionTests(unittest.TestCase):
                     sentinel = project_root / "sentinel.bin"
                     sentinel.write_bytes(b"preserve\x00project\n")
                     sentinel.chmod(0o640)
-                    child = os.fork()
-                    if child == 0:
+
+                    def crash_during_initialization() -> int:
                         if label == "lock":
                             real_acquire = bootstrap_transaction._acquire_project_lock
 
@@ -3681,11 +4559,11 @@ class BootstrapTransactionTests(unittest.TestCase):
                                 create_file_mode=0o600,
                                 create_directory_mode=0o700,
                             )
-                        os._exit(99)
-                    _, child_status = os.waitpid(child, 0)
+                        return 99
+
                     self.assertEqual(
                         expected_exit,
-                        os.waitstatus_to_exitcode(child_status),
+                        _run_fork_fixture(crash_during_initialization),
                     )
                     before_wrong_id = {
                         path.name: (
@@ -3765,8 +4643,8 @@ class BootstrapTransactionTests(unittest.TestCase):
                 self.fail("initialization inspection omitted its exact lock identity")
 
             expected_exit = 24
-            child = os.fork()
-            if child == 0:
+
+            def crash_during_initialization_cleanup() -> int:
                 with mock.patch.object(
                     bootstrap_transaction,
                     "_remove_project_lock",
@@ -3776,9 +4654,12 @@ class BootstrapTransactionTests(unittest.TestCase):
                         project_root,
                         expected_transaction_id=transaction_id,
                     )
-                os._exit(99)
-            _, child_status = os.waitpid(child, 0)
-            self.assertEqual(expected_exit, os.waitstatus_to_exitcode(child_status))
+                return 99
+
+            self.assertEqual(
+                expected_exit,
+                _run_fork_fixture(crash_during_initialization_cleanup),
+            )
             self.assertFalse(temporary.exists())
             self.assertTrue(lock.is_file())
             resumed = bootstrap_transaction.transaction_recovery_status(project_root)
@@ -3973,30 +4854,38 @@ class BootstrapTransactionTests(unittest.TestCase):
             target.write_bytes(b"old first\n")
             ready_read, ready_write = os.pipe()
             release_read, release_write = os.pipe()
-            child = os.fork()
-            if child == 0:
+
+            def hold_project_lock() -> int:
                 os.close(ready_read)
                 os.close(release_write)
-                descriptor = os.open(
-                    project_root,
-                    os.O_RDONLY | os.O_DIRECTORY,
-                )
-                bootstrap_transaction.fcntl.flock(
-                    descriptor,
-                    bootstrap_transaction.fcntl.LOCK_EX,
-                )
-                os.write(ready_write, b"1")
-                os.read(release_read, 1)
-                bootstrap_transaction.fcntl.flock(
-                    descriptor,
-                    bootstrap_transaction.fcntl.LOCK_UN,
-                )
-                os.close(descriptor)
-                os._exit(0)
+                descriptor: int | None = None
+                try:
+                    descriptor = os.open(
+                        project_root,
+                        os.O_RDONLY | os.O_DIRECTORY,
+                    )
+                    bootstrap_transaction.fcntl.flock(
+                        descriptor,
+                        bootstrap_transaction.fcntl.LOCK_EX,
+                    )
+                    _write_fork_fixture_pipe(ready_write, b"1")
+                    _read_fork_fixture_pipe(release_read)
+                    bootstrap_transaction.fcntl.flock(
+                        descriptor,
+                        bootstrap_transaction.fcntl.LOCK_UN,
+                    )
+                    return 0
+                finally:
+                    if descriptor is not None:
+                        os.close(descriptor)
+                    os.close(ready_write)
+                    os.close(release_read)
+
+            child = _spawn_fork_fixture(hold_project_lock)
             os.close(ready_write)
             os.close(release_read)
             try:
-                self.assertEqual(b"1", os.read(ready_read, 1))
+                self.assertEqual(b"1", _read_fork_fixture_pipe(ready_read))
                 status = bootstrap_transaction.transaction_recovery_status(
                     project_root
                 )
@@ -4011,11 +4900,16 @@ class BootstrapTransactionTests(unittest.TestCase):
                         force=True,
                     )
             finally:
-                os.write(release_write, b"1")
-                os.close(release_write)
-                os.close(ready_read)
-                _, child_status = os.waitpid(child, 0)
-                self.assertEqual(0, os.waitstatus_to_exitcode(child_status))
+                try:
+                    try:
+                        _write_fork_fixture_pipe(release_write, b"1")
+                    except BrokenPipeError:
+                        pass
+                finally:
+                    os.close(release_write)
+                    os.close(ready_read)
+                    child_exit = _wait_for_fork_fixture(child)
+                self.assertEqual(0, child_exit)
 
             self.assertEqual(b"old first\n", target.read_bytes())
             self.assertEqual(
@@ -4279,8 +5173,8 @@ class BootstrapTransactionTests(unittest.TestCase):
             project_root = Path(temp_dir) / "project"
             project_root.mkdir()
             expected_exit = 23
-            child = os.fork()
-            if child == 0:
+
+            def crash_during_journal_rewrite() -> int:
                 real_write_all = bootstrap_transaction._write_all
                 journal_writes = 0
 
@@ -4289,11 +5183,32 @@ class BootstrapTransactionTests(unittest.TestCase):
                     payload: bytes,
                 ) -> None:
                     nonlocal journal_writes
+                    temporary_path = (
+                        project_root
+                        / bootstrap_transaction._RECOVERY_JOURNAL_TEMP_NAME
+                    )
+                    try:
+                        temporary_metadata = temporary_path.stat(follow_symlinks=False)
+                    except FileNotFoundError:
+                        temporary_metadata = None
+                    writes_temporary = (
+                        temporary_metadata is not None
+                        and bootstrap_transaction._inode_object_identity(
+                            os.fstat(descriptor)
+                        )
+                        == bootstrap_transaction._inode_object_identity(
+                            temporary_metadata
+                        )
+                    )
                     try:
                         decoded = json.loads(payload.decode("utf-8"))
                     except (UnicodeDecodeError, json.JSONDecodeError):
                         decoded = None
-                    if isinstance(decoded, dict) and "transaction_id" in decoded:
+                    if (
+                        writes_temporary
+                        and isinstance(decoded, dict)
+                        and "transaction_id" in decoded
+                    ):
                         journal_writes += 1
                         # The second preparing write is the first durable
                         # journal of created-directory identities. Interrupt a
@@ -4316,9 +5231,12 @@ class BootstrapTransactionTests(unittest.TestCase):
                         create_file_mode=0o600,
                         create_directory_mode=0o700,
                     )
-                os._exit(99)
-            _, child_status = os.waitpid(child, 0)
-            self.assertEqual(expected_exit, os.waitstatus_to_exitcode(child_status))
+                return 99
+
+            self.assertEqual(
+                expected_exit,
+                _run_fork_fixture(crash_during_journal_rewrite),
+            )
             temporary = (
                 project_root / bootstrap_transaction._RECOVERY_JOURNAL_TEMP_NAME
             )
@@ -4349,8 +5267,8 @@ class BootstrapTransactionTests(unittest.TestCase):
             project_root = Path(temp_dir) / "project"
             project_root.mkdir()
             expected_exit = 30
-            child = os.fork()
-            if child == 0:
+
+            def crash_after_created_parent() -> int:
                 real_open = bootstrap_transaction._open_bound_directory
 
                 def exit_after_parent(*args: Any, **kwargs: Any) -> Any:
@@ -4371,9 +5289,12 @@ class BootstrapTransactionTests(unittest.TestCase):
                         create_file_mode=0o600,
                         create_directory_mode=0o700,
                     )
-                os._exit(99)
-            _, child_status = os.waitpid(child, 0)
-            self.assertEqual(expected_exit, os.waitstatus_to_exitcode(child_status))
+                return 99
+
+            self.assertEqual(
+                expected_exit,
+                _run_fork_fixture(crash_after_created_parent),
+            )
             journal = json.loads(
                 (project_root / bootstrap_transaction.RECOVERY_JOURNAL_NAME).read_text(
                     encoding="utf-8"
@@ -4428,8 +5349,8 @@ class BootstrapTransactionTests(unittest.TestCase):
                 with self.subTest(point=label):
                     project_root = base / label
                     project_root.mkdir()
-                    child = os.fork()
-                    if child == 0:
+
+                    def crash_during_preparation() -> int:
                         if label == "transaction-directory":
                             real_create = bootstrap_transaction._create_transaction_directory
 
@@ -4470,11 +5391,11 @@ class BootstrapTransactionTests(unittest.TestCase):
                                 create_file_mode=0o600,
                                 create_directory_mode=0o700,
                             )
-                        os._exit(99)
-                    _, child_status = os.waitpid(child, 0)
+                        return 99
+
                     self.assertEqual(
                         expected_exit,
-                        os.waitstatus_to_exitcode(child_status),
+                        _run_fork_fixture(crash_during_preparation),
                     )
                     journal_path = (
                         project_root / bootstrap_transaction.RECOVERY_JOURNAL_NAME
@@ -4526,8 +5447,7 @@ class BootstrapTransactionTests(unittest.TestCase):
             write_target.chmod(0o640)
             remove_target.chmod(0o600)
 
-            child = os.fork()
-            if child == 0:
+            def crash_after_mixed_install() -> int:
                 bootstrap_transaction.transactional_write_outputs(
                     project_root,
                     [("write.md", "new write\n")],
@@ -4535,9 +5455,9 @@ class BootstrapTransactionTests(unittest.TestCase):
                     remove_outputs=["remove.md"],
                     post_install_verifier=lambda: os._exit(23),
                 )
-                os._exit(99)
-            _, child_status = os.waitpid(child, 0)
-            self.assertEqual(23, os.waitstatus_to_exitcode(child_status))
+                return 99
+
+            self.assertEqual(23, _run_fork_fixture(crash_after_mixed_install))
             self.assertEqual(b"new write\n", write_target.read_bytes())
             self.assertEqual(0o640, write_target.stat().st_mode & 0o777)
             self.assertFalse(remove_target.exists())
@@ -4582,8 +5502,7 @@ class BootstrapTransactionTests(unittest.TestCase):
             target.write_bytes(b"old\x00bytes\n")
             target.chmod(0o640)
 
-            child = os.fork()
-            if child == 0:
+            def crash_during_verified_cleanup() -> int:
                 with mock.patch.object(
                     bootstrap_transaction,
                     "_remove_recovery_journal",
@@ -4594,9 +5513,9 @@ class BootstrapTransactionTests(unittest.TestCase):
                         [("first.md", "new bytes\n")],
                         force=True,
                     )
-                os._exit(99)
-            _, child_status = os.waitpid(child, 0)
-            self.assertEqual(23, os.waitstatus_to_exitcode(child_status))
+                return 99
+
+            self.assertEqual(23, _run_fork_fixture(crash_during_verified_cleanup))
             self.assertEqual(b"new bytes\n", target.read_bytes())
             self.assertEqual(0o640, target.stat().st_mode & 0o777)
             self.assertTrue(
@@ -4647,8 +5566,7 @@ class BootstrapTransactionTests(unittest.TestCase):
             target.write_text("managed wrapper\n", encoding="utf-8")
             expected_exit = 31
 
-            child = os.fork()
-            if child == 0:
+            def crash_during_directory_retirement() -> int:
                 real_rmdir = bootstrap_transaction.os.rmdir
 
                 def exit_after_first_retirement(
@@ -4676,9 +5594,12 @@ class BootstrapTransactionTests(unittest.TestCase):
                             ".agents/skills/seo",
                         ],
                     )
-                os._exit(99)
-            _, child_status = os.waitpid(child, 0)
-            self.assertEqual(expected_exit, os.waitstatus_to_exitcode(child_status))
+                return 99
+
+            self.assertEqual(
+                expected_exit,
+                _run_fork_fixture(crash_during_directory_retirement),
+            )
             self.assertFalse(target.exists())
             self.assertFalse(target.parent.exists())
             self.assertTrue((project_root / ".agents" / "skills").is_dir())
@@ -4708,8 +5629,8 @@ class BootstrapTransactionTests(unittest.TestCase):
             project_root = Path(temp_dir) / "project"
             project_root.mkdir()
             expected_exit = 29
-            child = os.fork()
-            if child == 0:
+
+            def crash_during_created_directory_rollback() -> int:
                 def reject_installed_project() -> None:
                     raise RuntimeError("injected verifier rejection")
 
@@ -4726,9 +5647,12 @@ class BootstrapTransactionTests(unittest.TestCase):
                         create_directory_mode=0o700,
                         post_install_verifier=reject_installed_project,
                     )
-                os._exit(99)
-            _, child_status = os.waitpid(child, 0)
-            self.assertEqual(expected_exit, os.waitstatus_to_exitcode(child_status))
+                return 99
+
+            self.assertEqual(
+                expected_exit,
+                _run_fork_fixture(crash_during_created_directory_rollback),
+            )
             self.assertFalse((project_root / "nested").exists())
             self.assertTrue(
                 (project_root / bootstrap_transaction.TRANSACTION_LOCK_NAME).is_file()
@@ -4757,8 +5681,7 @@ class BootstrapTransactionTests(unittest.TestCase):
             project_root.mkdir()
             target = project_root / "nested" / "deeper" / "new.md"
 
-            child = os.fork()
-            if child == 0:
+            def crash_after_nested_install() -> int:
                 bootstrap_transaction.transactional_write_outputs(
                     project_root,
                     [("nested/deeper/new.md", "new output\n")],
@@ -4767,9 +5690,9 @@ class BootstrapTransactionTests(unittest.TestCase):
                     create_directory_mode=0o700,
                     post_install_verifier=lambda: os._exit(23),
                 )
-                os._exit(99)
-            _, child_status = os.waitpid(child, 0)
-            self.assertEqual(23, os.waitstatus_to_exitcode(child_status))
+                return 99
+
+            self.assertEqual(23, _run_fork_fixture(crash_after_nested_install))
             self.assertEqual(b"new output\n", target.read_bytes())
 
             journal = json.loads(
@@ -5078,9 +6001,14 @@ class BootstrapTransactionTests(unittest.TestCase):
             self.assertTrue(replaced)
             self.assertEqual("external replacement\n", target.read_text(encoding="utf-8"))
             self.assertEqual("old first\n", displaced.read_text(encoding="utf-8"))
-            self.assertEqual(
-                [],
-                list(project_root.rglob(".mpa-bootstrap-transaction-*")),
+            self.assertTrue(
+                list(project_root.rglob(".mpa-bootstrap-transaction-*"))
+            )
+            self.assertTrue(
+                (project_root / bootstrap_transaction.RECOVERY_JOURNAL_NAME).is_file()
+            )
+            self.assertTrue(
+                (project_root / bootstrap_transaction.TRANSACTION_LOCK_NAME).is_file()
             )
 
     def test_project_bootstrap_transaction_refuses_late_parent_replacement(self) -> None:
@@ -5140,9 +6068,841 @@ class BootstrapTransactionTests(unittest.TestCase):
                 "old first\n",
                 (moved_parent / "first.md").read_text(encoding="utf-8"),
             )
+            self.assertTrue(
+                list(project_root.rglob(".mpa-bootstrap-transaction-*"))
+            )
+            self.assertTrue(
+                (project_root / bootstrap_transaction.RECOVERY_JOURNAL_NAME).is_file()
+            )
+            self.assertTrue(
+                (project_root / bootstrap_transaction.TRANSACTION_LOCK_NAME).is_file()
+            )
+
+    def test_journal_rewrite_source_substitution_retains_exact_previous_journal(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir) / "project"
+            project_root.mkdir()
+            real_rename = bootstrap_transaction.os.rename
+            journal_renames = 0
+            substituted = False
+            attacker_bytes = b"unrelated replacement journal\x00\n"
+
+            def substitute_later_journal_source(
+                source: str,
+                destination: str,
+                *,
+                src_dir_fd: int | None = None,
+                dst_dir_fd: int | None = None,
+            ) -> None:
+                nonlocal journal_renames, substituted
+                if (
+                    source == bootstrap_transaction._RECOVERY_JOURNAL_TEMP_NAME
+                    and destination == bootstrap_transaction.RECOVERY_JOURNAL_NAME
+                ):
+                    journal_renames += 1
+                    if journal_renames == 2:
+                        if src_dir_fd is None:
+                            self.fail("journal substitution requires dir_fd")
+                        substituted = True
+                        os.unlink(source, dir_fd=src_dir_fd)
+                        descriptor = os.open(
+                            source,
+                            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                            0o600,
+                            dir_fd=src_dir_fd,
+                        )
+                        try:
+                            os.write(descriptor, attacker_bytes)
+                            os.fsync(descriptor)
+                        finally:
+                            os.close(descriptor)
+                real_rename(
+                    source,
+                    destination,
+                    src_dir_fd=src_dir_fd,
+                    dst_dir_fd=dst_dir_fd,
+                )
+
+            with (
+                mock.patch.object(
+                    bootstrap_transaction.os,
+                    "rename",
+                    side_effect=substitute_later_journal_source,
+                ),
+                self.assertRaisesRegex(
+                    bootstrap_transaction.BootstrapTransactionError,
+                    "exact staged inode and bytes",
+                ),
+            ):
+                bootstrap_transaction.transactional_write_outputs(
+                    project_root,
+                    [("nested/output.md", "candidate\n")],
+                    force=False,
+                    create_file_mode=0o600,
+                    create_directory_mode=0o700,
+                )
+
+            previous = (
+                project_root
+                / bootstrap_transaction._RECOVERY_JOURNAL_PREVIOUS_NAME
+            )
+            canonical = project_root / bootstrap_transaction.RECOVERY_JOURNAL_NAME
+            previous_payload = json.loads(previous.read_text(encoding="utf-8"))
+            status = bootstrap_transaction.transaction_recovery_status(project_root)
+
+            self.assertTrue(substituted)
+            self.assertEqual(attacker_bytes, canonical.read_bytes())
+            self.assertEqual("preparing", previous_payload["phase"])
+            self.assertEqual("invalid", status.state, status)
+            self.assertTrue(
+                any("previous journal" in error for error in status.errors),
+                status,
+            )
+            self.assertTrue(
+                (project_root / bootstrap_transaction.TRANSACTION_LOCK_NAME).is_file()
+            )
+
+    def test_journal_previous_copy_binds_the_exact_canonical_descriptor(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir) / "project"
+            project_root.mkdir()
+            real_copy = bootstrap_transaction._copy_open_journal_to_previous
+            substituted = False
+            attacker_bytes = b"unrelated canonical source\x00\n"
+
+            def substitute_canonical_during_previous_copy(
+                root: bootstrap_transaction._DirectoryBinding,
+                source_descriptor: int,
+                source_metadata: os.stat_result,
+            ) -> tuple[int, ...]:
+                nonlocal substituted
+                if not substituted:
+                    substituted = True
+                    os.rename(
+                        bootstrap_transaction.RECOVERY_JOURNAL_NAME,
+                        "held-prior-journal",
+                        src_dir_fd=bootstrap_transaction._binding_descriptor(root),
+                        dst_dir_fd=bootstrap_transaction._binding_descriptor(root),
+                    )
+                    descriptor = os.open(
+                        bootstrap_transaction.RECOVERY_JOURNAL_NAME,
+                        os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                        0o600,
+                        dir_fd=bootstrap_transaction._binding_descriptor(root),
+                    )
+                    try:
+                        os.write(descriptor, attacker_bytes)
+                        os.fsync(descriptor)
+                    finally:
+                        os.close(descriptor)
+                return real_copy(
+                    root,
+                    source_descriptor,
+                    source_metadata,
+                )
+
+            with (
+                mock.patch.object(
+                    bootstrap_transaction,
+                    "_copy_open_journal_to_previous",
+                    side_effect=substitute_canonical_during_previous_copy,
+                ),
+                self.assertRaisesRegex(
+                    bootstrap_transaction.BootstrapTransactionError,
+                    "descriptor-bound prior journal",
+                ),
+            ):
+                bootstrap_transaction.transactional_write_outputs(
+                    project_root,
+                    [("nested/output.md", "candidate\n")],
+                    force=False,
+                    create_file_mode=0o600,
+                    create_directory_mode=0o700,
+                )
+
+            held = project_root / "held-prior-journal"
+            canonical = project_root / bootstrap_transaction.RECOVERY_JOURNAL_NAME
+            previous = (
+                project_root
+                / bootstrap_transaction._RECOVERY_JOURNAL_PREVIOUS_NAME
+            )
+            self.assertTrue(substituted)
+            self.assertEqual("preparing", json.loads(held.read_text())["phase"])
+            self.assertEqual(attacker_bytes, canonical.read_bytes())
+            self.assertEqual(held.read_bytes(), previous.read_bytes())
+            self.assertTrue(
+                (project_root / bootstrap_transaction.TRANSACTION_LOCK_NAME).is_file()
+            )
+
+    def test_previous_copy_closes_descriptor_when_initial_fstat_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir) / "project"
+            project_root.mkdir()
+            source = project_root / "source-journal"
+            source.write_bytes(b"exact prior journal bytes\n")
+            source.chmod(0o600)
+            bindings: list[bootstrap_transaction._DirectoryBinding] = []
+            root = bootstrap_transaction._open_project_root_transaction(
+                project_root,
+                all_bindings=bindings,
+            )
+            real_open = bootstrap_transaction.os.open
+            real_fstat = bootstrap_transaction.os.fstat
+            source_descriptor = real_open(
+                "source-journal",
+                bootstrap_transaction._transaction_read_flags(),
+                dir_fd=bootstrap_transaction._binding_descriptor(root),
+            )
+            source_metadata = real_fstat(source_descriptor)
+            previous_descriptor: int | None = None
+            injected = False
+
+            def track_previous_open(
+                path: str,
+                flags: int,
+                mode: int = 0o777,
+                *,
+                dir_fd: int | None = None,
+            ) -> int:
+                nonlocal previous_descriptor
+                descriptor = real_open(path, flags, mode, dir_fd=dir_fd)
+                if path == bootstrap_transaction._RECOVERY_JOURNAL_PREVIOUS_NAME:
+                    previous_descriptor = descriptor
+                return descriptor
+
+            def fail_initial_previous_fstat(descriptor: int) -> os.stat_result:
+                nonlocal injected
+                if descriptor == previous_descriptor and not injected:
+                    injected = True
+                    raise OSError(errno.EIO, "injected previous-control fstat failure")
+                return real_fstat(descriptor)
+
+            try:
+                with (
+                    mock.patch.object(
+                        bootstrap_transaction.os,
+                        "open",
+                        side_effect=track_previous_open,
+                    ),
+                    mock.patch.object(
+                        bootstrap_transaction.os,
+                        "fstat",
+                        side_effect=fail_initial_previous_fstat,
+                    ),
+                    self.assertRaisesRegex(OSError, "injected previous-control"),
+                ):
+                    bootstrap_transaction._copy_open_journal_to_previous(
+                        root,
+                        source_descriptor,
+                        source_metadata,
+                    )
+            finally:
+                os.close(source_descriptor)
+                bootstrap_transaction._cleanup_transaction_resources(
+                    root,
+                    None,
+                    bindings,
+                )
+
+            self.assertTrue(injected)
+            if previous_descriptor is None:
+                self.fail("previous-control descriptor was not opened")
+            with self.assertRaises(OSError) as closed:
+                real_fstat(previous_descriptor)
+            self.assertEqual(errno.EBADF, closed.exception.errno)
+            self.assertTrue(
+                (
+                    project_root
+                    / bootstrap_transaction._RECOVERY_JOURNAL_PREVIOUS_NAME
+                ).is_file()
+            )
+
+    @unittest.skipUnless(hasattr(os, "fork"), "requires fork for hard-exit recovery")
+    def test_partial_previous_journal_copy_is_exact_id_recoverable(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir) / "project"
+            project_root.mkdir()
+            expected_exit = 41
+
+            def exit_during_previous_copy() -> int:
+                def write_partial_previous_then_exit(
+                    root: bootstrap_transaction._DirectoryBinding,
+                    source_descriptor: int,
+                    _source_metadata: os.stat_result,
+                ) -> tuple[int, ...]:
+                    os.lseek(source_descriptor, 0, os.SEEK_SET)
+                    raw = os.read(
+                        source_descriptor,
+                        bootstrap_transaction._RECOVERY_JOURNAL_MAX_BYTES,
+                    )
+                    descriptor = os.open(
+                        bootstrap_transaction._RECOVERY_JOURNAL_PREVIOUS_NAME,
+                        bootstrap_transaction._transaction_file_flags(),
+                        0o600,
+                        dir_fd=bootstrap_transaction._binding_descriptor(root),
+                    )
+                    os.fchmod(descriptor, 0o600)
+                    os.write(descriptor, raw[: max(1, len(raw) // 2)])
+                    os.fsync(descriptor)
+                    os._exit(expected_exit)
+
+                with mock.patch.object(
+                    bootstrap_transaction,
+                    "_copy_open_journal_to_previous",
+                    side_effect=write_partial_previous_then_exit,
+                ):
+                    bootstrap_transaction.transactional_write_outputs(
+                        project_root,
+                        [("output.md", "candidate\n")],
+                        force=False,
+                        create_file_mode=0o600,
+                        create_directory_mode=0o700,
+                    )
+                return 99
+
             self.assertEqual(
-                [],
-                list(project_root.rglob(".mpa-bootstrap-transaction-*")),
+                expected_exit,
+                _run_fork_fixture(exit_during_previous_copy),
+            )
+            previous = (
+                project_root
+                / bootstrap_transaction._RECOVERY_JOURNAL_PREVIOUS_NAME
+            )
+            self.assertTrue(previous.is_file())
+            with self.assertRaises(json.JSONDecodeError):
+                json.loads(previous.read_text(encoding="utf-8"))
+
+            status = bootstrap_transaction.transaction_recovery_status(project_root)
+            self.assertEqual("recovery-required", status.state, status)
+            self.assertTrue(status.can_rollback, status)
+            if status.transaction_id is None:
+                self.fail("partial previous-journal recovery omitted exact ID")
+            recovered = bootstrap_transaction.rollback_interrupted_transaction(
+                project_root,
+                expected_transaction_id=status.transaction_id,
+            )
+
+            self.assertEqual("clean", recovered.state, recovered)
+            self.assertEqual([], list(project_root.iterdir()))
+
+    @unittest.skipUnless(hasattr(os, "fork"), "requires fork for hard-exit recovery")
+    def test_journal_rewrite_hard_exit_never_destroys_last_valid_record(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir) / "project"
+            project_root.mkdir()
+            expected_exit = 37
+
+            def exit_after_previous_journal_is_retained() -> int:
+                real_rename = bootstrap_transaction.os.rename
+                journal_renames = 0
+
+                def interrupt_later_journal_rename(
+                    source: str,
+                    destination: str,
+                    *,
+                    src_dir_fd: int | None = None,
+                    dst_dir_fd: int | None = None,
+                ) -> None:
+                    nonlocal journal_renames
+                    if (
+                        source == bootstrap_transaction._RECOVERY_JOURNAL_TEMP_NAME
+                        and destination == bootstrap_transaction.RECOVERY_JOURNAL_NAME
+                    ):
+                        journal_renames += 1
+                        if journal_renames == 3:
+                            os._exit(expected_exit)
+                    real_rename(
+                        source,
+                        destination,
+                        src_dir_fd=src_dir_fd,
+                        dst_dir_fd=dst_dir_fd,
+                    )
+
+                with mock.patch.object(
+                    bootstrap_transaction.os,
+                    "rename",
+                    side_effect=interrupt_later_journal_rename,
+                ):
+                    bootstrap_transaction.transactional_write_outputs(
+                        project_root,
+                        [("nested/output.md", "candidate\n")],
+                        force=False,
+                        create_file_mode=0o600,
+                        create_directory_mode=0o700,
+                    )
+                return 99
+
+            self.assertEqual(
+                expected_exit,
+                _run_fork_fixture(exit_after_previous_journal_is_retained),
+            )
+            canonical = project_root / bootstrap_transaction.RECOVERY_JOURNAL_NAME
+            previous = (
+                project_root
+                / bootstrap_transaction._RECOVERY_JOURNAL_PREVIOUS_NAME
+            )
+            self.assertEqual(canonical.read_bytes(), previous.read_bytes())
+            self.assertEqual(
+                "preparing",
+                json.loads(previous.read_text(encoding="utf-8"))["phase"],
+            )
+            status = bootstrap_transaction.transaction_recovery_status(project_root)
+            self.assertEqual("recovery-required", status.state, status)
+            transaction_id = status.transaction_id
+            if transaction_id is None:
+                self.fail("retained previous journal omitted its transaction ID")
+            recovered = bootstrap_transaction.rollback_interrupted_transaction(
+                project_root,
+                expected_transaction_id=transaction_id,
+            )
+            self.assertEqual("clean", recovered.state, recovered)
+            self.assertEqual([], list(project_root.iterdir()))
+
+    @unittest.skipIf(bootstrap_transaction.fcntl is None, "requires POSIX flock")
+    def test_previous_journal_blocks_transaction_lock_retirement(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir) / "project"
+            project_root.mkdir()
+            lock = project_root / bootstrap_transaction.TRANSACTION_LOCK_NAME
+            previous = (
+                project_root
+                / bootstrap_transaction._RECOVERY_JOURNAL_PREVIOUS_NAME
+            )
+            lock.write_bytes(b"")
+            lock.chmod(0o600)
+            previous.write_bytes(b"retained valid journal bytes\n")
+            previous.chmod(0o600)
+            self.assertTrue(
+                bootstrap_transaction.is_reserved_transaction_output(
+                    bootstrap_transaction._RECOVERY_JOURNAL_PREVIOUS_NAME
+                )
+            )
+            bindings: list[bootstrap_transaction._DirectoryBinding] = []
+            root = bootstrap_transaction._open_project_root_transaction(
+                project_root,
+                all_bindings=bindings,
+            )
+            descriptor, _created = bootstrap_transaction._acquire_project_lock(
+                root,
+                exclusive=True,
+                create=False,
+            )
+            try:
+                with self.assertRaisesRegex(
+                    bootstrap_transaction.BootstrapTransactionError,
+                    "previous recovery journal is retained",
+                ):
+                    bootstrap_transaction._remove_project_lock(root, descriptor)
+            finally:
+                bootstrap_transaction._cleanup_transaction_resources(
+                    root,
+                    descriptor,
+                    bindings,
+                )
+
+            self.assertTrue(lock.is_file())
+            self.assertEqual(b"retained valid journal bytes\n", previous.read_bytes())
+
+    @unittest.skipIf(bootstrap_transaction.fcntl is None, "requires POSIX flock")
+    def test_lock_retirement_rejects_temp_and_transaction_artifacts(self) -> None:
+        for residue in ("temporary", "transaction"):
+            with self.subTest(residue=residue), tempfile.TemporaryDirectory() as temp_dir:
+                project_root = Path(temp_dir) / "project"
+                project_root.mkdir()
+                lock = project_root / bootstrap_transaction.TRANSACTION_LOCK_NAME
+                lock.write_bytes(b"")
+                lock.chmod(0o600)
+                if residue == "temporary":
+                    retained = (
+                        project_root
+                        / bootstrap_transaction._RECOVERY_JOURNAL_TEMP_NAME
+                    )
+                    retained.write_bytes(b"partial\n")
+                    retained.chmod(0o600)
+                else:
+                    retained = (
+                        project_root
+                        / (".mpa-bootstrap-transaction-" + "a" * 32)
+                    )
+                    retained.mkdir(mode=0o700)
+                bindings: list[bootstrap_transaction._DirectoryBinding] = []
+                root = bootstrap_transaction._open_project_root_transaction(
+                    project_root,
+                    all_bindings=bindings,
+                )
+                descriptor, _created = bootstrap_transaction._acquire_project_lock(
+                    root,
+                    exclusive=True,
+                    create=False,
+                )
+                try:
+                    with self.assertRaises(
+                        bootstrap_transaction.BootstrapTransactionError
+                    ):
+                        bootstrap_transaction._remove_project_lock(root, descriptor)
+                finally:
+                    bootstrap_transaction._cleanup_transaction_resources(
+                        root,
+                        descriptor,
+                        bindings,
+                    )
+
+                self.assertTrue(lock.is_file())
+                self.assertTrue(retained.exists())
+
+    def test_live_rollback_quarantines_syscall_boundary_target_substitution(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir) / "project"
+            project_root.mkdir()
+            target = project_root / "first.md"
+            target.write_bytes(b"trusted original\n")
+            real_rename = bootstrap_transaction.os.rename
+            substituted = False
+            attacker_bytes = b"unrelated target bytes\n"
+
+            def substitute_rollback_target(
+                source: str,
+                destination: str,
+                *,
+                src_dir_fd: int | None = None,
+                dst_dir_fd: int | None = None,
+            ) -> None:
+                nonlocal substituted
+                if source == "first.md" and destination == "quarantine-target-0":
+                    if src_dir_fd is None:
+                        self.fail("rollback substitution requires dir_fd")
+                    substituted = True
+                    real_rename(
+                        source,
+                        "candidate-held",
+                        src_dir_fd=src_dir_fd,
+                        dst_dir_fd=src_dir_fd,
+                    )
+                    descriptor = os.open(
+                        source,
+                        os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                        0o600,
+                        dir_fd=src_dir_fd,
+                    )
+                    try:
+                        os.write(descriptor, attacker_bytes)
+                        os.fsync(descriptor)
+                    finally:
+                        os.close(descriptor)
+                real_rename(
+                    source,
+                    destination,
+                    src_dir_fd=src_dir_fd,
+                    dst_dir_fd=dst_dir_fd,
+                )
+
+            def reject_candidate() -> None:
+                raise RuntimeError("injected verifier rejection")
+
+            with (
+                mock.patch.object(
+                    bootstrap_transaction.os,
+                    "rename",
+                    side_effect=substitute_rollback_target,
+                ),
+                self.assertRaisesRegex(
+                    bootstrap_transaction.BootstrapTransactionError,
+                    "moved to quarantine",
+                ),
+            ):
+                bootstrap_transaction.transactional_write_outputs(
+                    project_root,
+                    [("first.md", "trusted candidate\n")],
+                    force=True,
+                    post_install_verifier=reject_candidate,
+                )
+
+            transaction_directories = list(
+                project_root.glob(".mpa-bootstrap-transaction-*")
+            )
+            self.assertTrue(substituted)
+            self.assertEqual(1, len(transaction_directories))
+            self.assertEqual(
+                attacker_bytes,
+                (transaction_directories[0] / "quarantine-target-0").read_bytes(),
+            )
+            self.assertEqual(
+                b"trusted candidate\n",
+                (project_root / "candidate-held").read_bytes(),
+            )
+            self.assertEqual(
+                b"trusted original\n",
+                (transaction_directories[0] / "backup-0").read_bytes(),
+            )
+            self.assertTrue(
+                (project_root / bootstrap_transaction.RECOVERY_JOURNAL_NAME).is_file()
+            )
+            self.assertTrue(
+                (project_root / bootstrap_transaction.TRANSACTION_LOCK_NAME).is_file()
+            )
+
+    def test_resumed_rollback_and_finalize_quarantine_source_substitution(self) -> None:
+        for action in ("rollback", "finalize"):
+            with self.subTest(action=action), tempfile.TemporaryDirectory() as temp_dir:
+                project_root = Path(temp_dir) / "project"
+                project_root.mkdir()
+                target = project_root / "first.md"
+                target.write_bytes(b"trusted original\n")
+                if action == "rollback":
+                    expected_exit = 41
+
+                    def exit_after_install() -> int:
+                        real_install = bootstrap_transaction._install_staged_output
+
+                        def install_then_exit(*args: Any, **kwargs: Any) -> None:
+                            real_install(*args, **kwargs)
+                            os._exit(expected_exit)
+
+                        with mock.patch.object(
+                            bootstrap_transaction,
+                            "_install_staged_output",
+                            side_effect=install_then_exit,
+                        ):
+                            bootstrap_transaction.transactional_write_outputs(
+                                project_root,
+                                [("first.md", "trusted candidate\n")],
+                                force=True,
+                            )
+                        return 99
+
+                    self.assertEqual(expected_exit, _run_fork_fixture(exit_after_install))
+                else:
+                    with mock.patch.object(
+                        bootstrap_transaction,
+                        "_cleanup_committed_outputs",
+                        return_value=["injected retained verified cleanup"],
+                    ):
+                        bootstrap_transaction.transactional_write_outputs(
+                            project_root,
+                            [("first.md", "trusted candidate\n")],
+                            force=True,
+                        )
+
+                status = bootstrap_transaction.transaction_recovery_status(project_root)
+                self.assertEqual(
+                    "recovery-required" if action == "rollback" else "verified",
+                    status.state,
+                    status,
+                )
+                transaction_id = status.transaction_id
+                if transaction_id is None:
+                    self.fail("recovery status omitted transaction identity")
+                real_rename = bootstrap_transaction.os.rename
+                substituted = False
+                attacker_bytes = f"unrelated {action} bytes\n".encode()
+                selected_source = "first.md" if action == "rollback" else "backup-0"
+                selected_destination = (
+                    "quarantine-target-0"
+                    if action == "rollback"
+                    else "quarantine-backup-0"
+                )
+
+                def substitute_recovery_source(
+                    source: str,
+                    destination: str,
+                    *,
+                    src_dir_fd: int | None = None,
+                    dst_dir_fd: int | None = None,
+                ) -> None:
+                    nonlocal substituted
+                    if source == selected_source and destination == selected_destination:
+                        if src_dir_fd is None:
+                            self.fail("recovery substitution requires dir_fd")
+                        substituted = True
+                        real_rename(
+                            source,
+                            f"held-{action}",
+                            src_dir_fd=src_dir_fd,
+                            dst_dir_fd=src_dir_fd,
+                        )
+                        descriptor = os.open(
+                            source,
+                            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                            0o600,
+                            dir_fd=src_dir_fd,
+                        )
+                        try:
+                            os.write(descriptor, attacker_bytes)
+                            os.fsync(descriptor)
+                        finally:
+                            os.close(descriptor)
+                    real_rename(
+                        source,
+                        destination,
+                        src_dir_fd=src_dir_fd,
+                        dst_dir_fd=dst_dir_fd,
+                    )
+
+                with (
+                    mock.patch.object(
+                        bootstrap_transaction.os,
+                        "rename",
+                        side_effect=substitute_recovery_source,
+                    ),
+                    self.assertRaisesRegex(
+                        bootstrap_transaction.BootstrapTransactionError,
+                        "moved to quarantine",
+                    ),
+                ):
+                    if action == "rollback":
+                        bootstrap_transaction.rollback_interrupted_transaction(
+                            project_root,
+                            expected_transaction_id=transaction_id,
+                        )
+                    else:
+                        bootstrap_transaction.finalize_interrupted_transaction(
+                            project_root,
+                            expected_transaction_id=transaction_id,
+                        )
+
+                transaction_directories = list(
+                    project_root.glob(".mpa-bootstrap-transaction-*")
+                )
+                self.assertTrue(substituted)
+                self.assertEqual(1, len(transaction_directories))
+                quarantine = transaction_directories[0] / selected_destination
+                self.assertEqual(attacker_bytes, quarantine.read_bytes())
+                self.assertTrue(
+                    (project_root / bootstrap_transaction.RECOVERY_JOURNAL_NAME).is_file()
+                )
+                self.assertTrue(
+                    (project_root / bootstrap_transaction.TRANSACTION_LOCK_NAME).is_file()
+                )
+                invalid = bootstrap_transaction.transaction_recovery_status(project_root)
+                self.assertEqual("invalid", invalid.state, invalid)
+                self.assertTrue(
+                    any("quarantine" in error for error in invalid.errors),
+                    invalid,
+                )
+
+    @unittest.skipUnless(hasattr(os, "fork"), "requires hard-exit recovery")
+    def test_exact_quarantine_hard_exit_is_resumable_by_exact_id(self) -> None:
+        for action in ("rollback", "finalize"):
+            with self.subTest(action=action), tempfile.TemporaryDirectory() as temp_dir:
+                project_root = Path(temp_dir) / "project"
+                project_root.mkdir()
+                target = project_root / "first.md"
+                target.write_bytes(b"trusted original\n")
+                if action == "rollback":
+                    install_exit = 43
+
+                    def exit_after_install() -> int:
+                        real_install = bootstrap_transaction._install_staged_output
+
+                        def install_then_exit(*args: Any, **kwargs: Any) -> None:
+                            real_install(*args, **kwargs)
+                            os._exit(install_exit)
+
+                        with mock.patch.object(
+                            bootstrap_transaction,
+                            "_install_staged_output",
+                            side_effect=install_then_exit,
+                        ):
+                            bootstrap_transaction.transactional_write_outputs(
+                                project_root,
+                                [("first.md", "trusted candidate\n")],
+                                force=True,
+                            )
+                        return 99
+
+                    self.assertEqual(install_exit, _run_fork_fixture(exit_after_install))
+                else:
+                    with mock.patch.object(
+                        bootstrap_transaction,
+                        "_cleanup_committed_outputs",
+                        return_value=["injected retained verified cleanup"],
+                    ):
+                        bootstrap_transaction.transactional_write_outputs(
+                            project_root,
+                            [("first.md", "trusted candidate\n")],
+                            force=True,
+                        )
+                initial = bootstrap_transaction.transaction_recovery_status(project_root)
+                transaction_id = initial.transaction_id
+                if transaction_id is None:
+                    self.fail("recovery state omitted exact transaction ID")
+                quarantine_exit = 44 if action == "rollback" else 45
+
+                def exit_after_exact_quarantine_move(
+                    transaction_id: str = transaction_id,
+                ) -> int:
+                    def interrupt_retirement(*_args: Any, **_kwargs: Any) -> None:
+                        os._exit(quarantine_exit)
+
+                    with mock.patch.object(
+                        bootstrap_transaction,
+                        "_retire_verified_quarantine",
+                        side_effect=interrupt_retirement,
+                    ):
+                        if action == "rollback":
+                            bootstrap_transaction.rollback_interrupted_transaction(
+                                project_root,
+                                expected_transaction_id=transaction_id,
+                            )
+                        else:
+                            bootstrap_transaction.finalize_interrupted_transaction(
+                                project_root,
+                                expected_transaction_id=transaction_id,
+                            )
+                    return 99
+
+                self.assertEqual(
+                    quarantine_exit,
+                    _run_fork_fixture(exit_after_exact_quarantine_move),
+                )
+                resumable = bootstrap_transaction.transaction_recovery_status(
+                    project_root
+                )
+                self.assertEqual(
+                    "recovery-required" if action == "rollback" else "verified",
+                    resumable.state,
+                    resumable,
+                )
+                if action == "rollback":
+                    completed = bootstrap_transaction.rollback_interrupted_transaction(
+                        project_root,
+                        expected_transaction_id=transaction_id,
+                    )
+                    self.assertEqual(b"trusted original\n", target.read_bytes())
+                else:
+                    completed = bootstrap_transaction.finalize_interrupted_transaction(
+                        project_root,
+                        expected_transaction_id=transaction_id,
+                    )
+                    self.assertEqual(b"trusted candidate\n", target.read_bytes())
+                self.assertEqual("clean", completed.state, completed)
+
+    def test_orphan_transaction_directory_prevents_clean_status(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir) / "project"
+            project_root.mkdir()
+            transaction_directory = (
+                project_root / (".mpa-bootstrap-transaction-" + "a" * 32)
+            )
+            transaction_directory.mkdir(mode=0o700)
+            (transaction_directory / "quarantine-target-0").write_bytes(
+                b"preserved unrelated bytes\n"
+            )
+
+            status = bootstrap_transaction.transaction_recovery_status(project_root)
+
+            self.assertEqual("invalid", status.state, status)
+            self.assertTrue(
+                any("transaction artifacts" in error for error in status.errors),
+                status,
+            )
+            self.assertEqual(
+                b"preserved unrelated bytes\n",
+                (transaction_directory / "quarantine-target-0").read_bytes(),
             )
 
     def test_project_bootstrap_transaction_requires_output_ownership(self) -> None:

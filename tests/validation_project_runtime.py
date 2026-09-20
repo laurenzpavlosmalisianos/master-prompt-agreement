@@ -973,10 +973,12 @@ class ProjectStateInstanceContextTests(unittest.TestCase):
                 "managed_files",
                 "immutable_files",
                 "mutable_files",
+                "authority_module_drift_errors",
             },
             set(preimage),
         )
         self.assertEqual([], preimage["errors"], preimage)
+        self.assertEqual([], preimage["authority_module_drift_errors"], preimage)
         self.assertEqual(input_raw, preimage["input_raw"])
         self.assertEqual(
             [

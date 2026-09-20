@@ -1993,6 +1993,7 @@
     },
     "annexes": {
       "additionalProperties": false,
+      "description": "Each selected Annex A-C key must identify a different canonical project-relative authority-module path; one path cannot have multiple owner labels.",
       "properties": {
         "authority": {
           "allOf": [

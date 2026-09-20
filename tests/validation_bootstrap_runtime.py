@@ -34,6 +34,43 @@ import safe_paths  # noqa: E402
 
 
 class BootstrapRenderingTests(unittest.TestCase):
+    def test_authority_modules_require_utf8_text(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "AUTHORITY.md").write_bytes(b"authority:\xff\n")
+
+            records, errors = project_bootstrap.authority_module_digest_records(
+                {"annexes": {"authority": "AUTHORITY.md"}},
+                root,
+            )
+
+        self.assertEqual([], records)
+        self.assertIn("UTF-8", " ".join(errors))
+
+    def test_authority_modules_reject_output_ancestor_collisions(self) -> None:
+        cases = (
+            ("authority", "authority/generated.md"),
+            ("authority/policy.md", "authority"),
+        )
+        for authority_path, output_path in cases:
+            with self.subTest(
+                authority_path=authority_path,
+                output_path=output_path,
+            ), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                candidate = root / authority_path
+                candidate.parent.mkdir(parents=True, exist_ok=True)
+                candidate.write_text("# Authority\n", encoding="utf-8")
+
+                _records, errors = project_bootstrap.authority_module_digest_records(
+                    {"annexes": {"authority": authority_path}},
+                    root,
+                    forbidden_paths=frozenset({output_path}),
+                )
+
+            self.assertTrue(errors)
+            self.assertIn("ancestors or descendants", " ".join(errors))
+
     def test_project_contract_model_rejects_invalid_auxiliary_control_role_sets(self) -> None:
         with mock.patch.object(
             project_contract_model,
@@ -1234,7 +1271,8 @@ class BootstrapRenderingTests(unittest.TestCase):
             project_bootstrap.PROJECT_INSTANCE_SCHEMA_VERSION,
             manifest["schema_version"],
         )
-        self.assertEqual(5, manifest["schema_version"])
+        self.assertEqual(6, manifest["schema_version"])
+        self.assertEqual([], manifest["authority_module_digests"])
         self.assertNotIn(
             project_bootstrap.project_relative_output(
                 inputs.contract_root_ref,
@@ -1995,6 +2033,127 @@ class BootstrapRenderingTests(unittest.TestCase):
         self.assertEqual(["dependency_posture"], report["setup_profile"]["applied_fields"])
         self.assertEqual(["execution_posture"], report["setup_profile"]["overridden_fields"])
         self.assertRegex(report["setup_profile"]["sha256"], r"^[0-9a-f]{64}$")
+        profile_digest = report["setup_profile"]["sha256"]
+        self.assertEqual(
+            [
+                {
+                    "field": "dependency_posture",
+                    "value": "no-external-dependencies",
+                    "provenance": {
+                        "kind": "setup-profile-default",
+                        "source_path": str(profile_path),
+                        "source_sha256": profile_digest,
+                        "source_field": "defaults.dependency_posture",
+                    },
+                }
+            ],
+            report["setup_profile"]["applied_values"],
+        )
+        self.assertEqual(
+            [
+                {
+                    "field": "execution_posture",
+                    "profile_value": "advise",
+                    "effective_value": "act",
+                    "provenance": {
+                        "profile": "setup-profile-default",
+                        "effective": "bootstrap-answers",
+                        "source_path": str(profile_path),
+                        "source_sha256": profile_digest,
+                        "source_field": "defaults.execution_posture",
+                    },
+                }
+            ],
+            report["setup_profile"]["overridden_values"],
+        )
+        previews = cast(list[dict[str, str]], report["rendered_outputs"])
+        self.assertEqual(report["planned_outputs"], [item["path"] for item in previews])
+        self.assertTrue(previews)
+        for preview in previews:
+            self.assertEqual({"path", "text", "sha256"}, set(preview))
+            self.assertEqual(
+                project_bootstrap.sha256_bytes(preview["text"].encode("utf-8")),
+                preview["sha256"],
+            )
+        self.assertEqual(
+            project_bootstrap.canonical_json_digest(previews),
+            report["rendered_outputs_sha256"],
+        )
+        target_binding = cast(dict[str, object], report["write_target_binding"])
+        self.assertEqual(str(project_root), target_binding["project_root"])
+        self.assertEqual(str(project_root), target_binding["contract_root"])
+        self.assertEqual(".", target_binding["contract_root_ref"])
+        self.assertEqual(
+            target_binding["project_root_identity"],
+            target_binding["contract_root_identity"],
+        )
+        self.assertEqual(
+            {".": target_binding["project_root_identity"]},
+            target_binding["directory_identities"],
+        )
+
+    def test_bootstrap_write_plan_digest_binds_exact_preview_text(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            project_root = root / "project"
+            project_root.mkdir()
+            answers_path = root / "answers.json"
+            answers_path.write_text(
+                json.dumps(
+                    {
+                        "bootstrap_mode": "minimal",
+                        "agent": "Agent",
+                        "project_name": "Preview Binding",
+                        "framework_verification_runner": TEST_FRAMEWORK_RUNNER,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            inputs = project_bootstrap.load_bootstrap_inputs(
+                project_bootstrap.BootstrapOptions(
+                    answers=str(answers_path),
+                    project_root=str(project_root),
+                    project_kind="downstream",
+                    contract_root=None,
+                    setup_profile=None,
+                    runtime="generic",
+                    framework_ref="$FRAMEWORK",
+                    dry_run=True,
+                    create_contract_root=False,
+                    framework_revision_policy="pinned",
+                )
+            )
+            self.assertEqual([], project_bootstrap.bootstrap_validation_errors(inputs))
+            answers = cast(dict[str, object], inputs.effective_answers)
+            plan = project_bootstrap.build_bootstrap_write_plan(inputs, answers)
+            outputs = project_bootstrap.render_bootstrap_write_outputs(
+                inputs,
+                answers,
+                cast(bytes, inputs.answers_bytes),
+                plan.effective_date,
+                framework_identity=plan.framework_identity,
+            )
+            payload = project_bootstrap._bootstrap_write_plan_approval_payload(
+                inputs,
+                outputs,
+                plan.framework_identity,
+                plan.summary["warnings"],
+                effective_date=plan.effective_date,
+            )
+            original_digest = project_bootstrap.canonical_json_digest(payload)
+            mutated = json.loads(json.dumps(payload))
+            mutated["outputs"][0]["text"] += "reviewed-byte-change"
+
+        self.assertNotEqual(
+            original_digest,
+            project_bootstrap.canonical_json_digest(mutated),
+        )
+        self.assertNotEqual(
+            mutated["outputs"][0]["sha256"],
+            project_bootstrap.sha256_bytes(
+                mutated["outputs"][0]["text"].encode("utf-8")
+            ),
+        )
 
     def test_project_bootstrap_dry_run_is_identical_under_optimized_python(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

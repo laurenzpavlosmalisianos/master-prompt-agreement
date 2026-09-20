@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import os
 from pathlib import Path
@@ -16,7 +17,540 @@ import safe_paths  # noqa: E402
 import source_deep_research_lint  # noqa: E402
 
 
+def _primary_record(
+    record_id: str,
+    *,
+    evidence_count: int = 1,
+) -> dict[str, object]:
+    evidence = [
+        {
+            "locator": f"https://example.com/primary-source/{index}",
+            "source_role": "primary",
+            "checked_at": "2026-07-01",
+            "identity": f"primary source page {index}",
+            "supports": "the bounded source contract",
+            "evidence_limit": "the source remains mutable",
+        }
+        for index in range(evidence_count)
+    ]
+    return {
+        "id": record_id,
+        "candidate_abstraction": "Verify source-backed claims.",
+        "claim_class": "external_source",
+        "verification_status": "primary_source_verified",
+        "verified_at": "2026-07-01",
+        "verifier": "accountable coordinator",
+        "verifier_role": "coordinator",
+        "method": "direct_primary_source_inspection",
+        "evidence": evidence,
+        "framework_effect": "Retain the bounded verification contract.",
+        "source_specific_material_rejected": ["source-specific wording"],
+    }
+
+
+def _verification_body(records: list[dict[str, object]]) -> str:
+    return "```json\n" + json.dumps(records, sort_keys=True) + "\n```"
+
+
+def _digest_text(records: list[dict[str, object]]) -> str:
+    return "\n".join(
+        (
+            "schema_version: 4",
+            "artifact_kind: browser_deep_research_digest",
+            "provider: Browser Deep Research; exact model not recorded",
+            "browser_url: https://example.com/deep-research/report",
+            "started_at: 2026-07-01T08:00:00Z",
+            "completed_at: 2026-07-01T08:30:00Z",
+            "completion_status: completed",
+            "completion_evidence: visible final result",
+            "extraction_kind: snapshot",
+            "extraction_method: visible document capture",
+            "stale_input_disposition: none",
+            "",
+            "# Deep Research Digest",
+            "",
+            "## Prompt Digest",
+            "",
+            "Bounded discovery.",
+            "",
+            "## Verification Records",
+            "",
+            _verification_body(records),
+            "",
+            "## Rejected or Deferred",
+            "",
+            "- Unsupported candidates rejected.",
+        )
+    )
+
+
 class SourceDeepResearchTests(unittest.TestCase):
+    def test_source_deep_research_accepts_local_loose_and_packed_objects(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            run_bounded(["git", "init", "-q"], cwd=root, check=True)
+            tracked = root / "tracked.md"
+            tracked.write_text("retained object\n", encoding="utf-8")
+            run_bounded(["git", "add", "tracked.md"], cwd=root, check=True)
+            run_bounded(
+                [
+                    "git",
+                    "-c",
+                    "user.name=Framework Test",
+                    "-c",
+                    "user.email=framework@example.invalid",
+                    "commit",
+                    "-qm",
+                    "fixture",
+                ],
+                cwd=root,
+                check=True,
+            )
+            blob_oid = run_bounded(
+                ["git", "rev-parse", "HEAD:tracked.md"],
+                cwd=root,
+                check=True,
+            ).stdout.strip()
+
+            for storage in ("loose", "packed"):
+                with self.subTest(storage=storage):
+                    if storage == "packed":
+                        run_bounded(
+                            ["git", "gc", "--prune=now", "--quiet"],
+                            cwd=root,
+                            check=True,
+                        )
+                    returncode, stdout, stderr = source_deep_research_lint._bounded_git(
+                        ["cat-file", "blob", blob_oid],
+                        max_output_bytes=64 * 1024,
+                        cwd=root,
+                    )
+                    self.assertEqual(0, returncode)
+                    self.assertEqual(b"retained object\n", stdout)
+                    self.assertEqual(b"", stderr)
+
+    def test_source_deep_research_rejects_causal_object_store_redirects(
+        self,
+    ) -> None:
+        for redirect in ("alternates", "symlink"):
+            with self.subTest(redirect=redirect), tempfile.TemporaryDirectory() as temp_dir:
+                fixture = Path(temp_dir)
+                donor = fixture / "donor"
+                selected = fixture / "selected"
+                donor.mkdir()
+                selected.mkdir()
+                run_bounded(["git", "init", "-q"], cwd=donor, check=True)
+                run_bounded(["git", "init", "-q"], cwd=selected, check=True)
+                payload = donor / "payload"
+                payload.write_text("foreign object\n", encoding="utf-8")
+                oid = run_bounded(
+                    ["git", "hash-object", "-w", "payload"],
+                    cwd=donor,
+                    check=True,
+                ).stdout.strip()
+                if redirect == "alternates":
+                    (selected / ".git" / "objects" / "info" / "alternates").write_text(
+                        str(donor / ".git" / "objects") + "\n",
+                        encoding="utf-8",
+                    )
+                    expected = "alternate object-store redirect"
+                else:
+                    prefix = oid[:2]
+                    (selected / ".git" / "objects" / prefix).symlink_to(
+                        donor / ".git" / "objects" / prefix,
+                        target_is_directory=True,
+                    )
+                    expected = "symbolic links"
+
+                control = run_bounded(
+                    ["git", "cat-file", "blob", oid],
+                    cwd=selected,
+                    check=True,
+                )
+                self.assertEqual("foreign object\n", control.stdout)
+                with (
+                    mock.patch.object(
+                        source_deep_research_lint.bounded_subprocess,
+                        "run_bounded_process",
+                    ) as query,
+                    self.assertRaisesRegex(RuntimeError, expected),
+                ):
+                    source_deep_research_lint._bounded_git(
+                        ["cat-file", "blob", oid],
+                        max_output_bytes=64 * 1024,
+                        cwd=selected,
+                    )
+                query.assert_not_called()
+
+    def test_source_deep_research_rejects_object_namespace_mutated_during_query(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir)
+            donor = fixture / "donor"
+            selected = fixture / "selected"
+            donor.mkdir()
+            selected.mkdir()
+            run_bounded(["git", "init", "-q"], cwd=donor, check=True)
+            run_bounded(["git", "init", "-q"], cwd=selected, check=True)
+            payload = donor / "payload"
+            payload.write_text("foreign during query\n", encoding="utf-8")
+            oid = run_bounded(
+                ["git", "hash-object", "-w", "payload"],
+                cwd=donor,
+                check=True,
+            ).stdout.strip()
+            prefix = oid[:2]
+            selected_prefix = selected / ".git" / "objects" / prefix
+            held_prefix = selected / ".git" / "objects" / f"{prefix}-held"
+            selected_prefix.mkdir()
+            donor_prefix = donor / ".git" / "objects" / prefix
+            real_runner = source_deep_research_lint.bounded_subprocess.run_bounded_process
+            consumed_foreign_object = False
+
+            def redirect_objects(
+                *runner_args: object,
+                **runner_kwargs: object,
+            ) -> source_deep_research_lint.bounded_subprocess.BoundedProcessResult:
+                nonlocal consumed_foreign_object
+                selected_prefix.rename(held_prefix)
+                selected_prefix.symlink_to(donor_prefix, target_is_directory=True)
+                result = real_runner(*runner_args, **runner_kwargs)  # type: ignore[arg-type]
+                self.assertEqual(b"foreign during query\n", result.stdout)
+                consumed_foreign_object = True
+                return result
+
+            with (
+                mock.patch.object(
+                    source_deep_research_lint.bounded_subprocess,
+                    "run_bounded_process",
+                    side_effect=redirect_objects,
+                ),
+                self.assertRaisesRegex(
+                    RuntimeError,
+                    "object namespace.*symbolic links|object namespace generation changed",
+                ),
+            ):
+                source_deep_research_lint._bounded_git(
+                    ["cat-file", "blob", oid],
+                    max_output_bytes=64 * 1024,
+                    cwd=selected,
+                )
+            self.assertTrue(consumed_foreign_object)
+    def test_source_deep_research_limits_validate_api_and_cli_scalars(self) -> None:
+        defaults = source_deep_research_lint.build_parser().parse_args(["artifact.md"])
+        self.assertEqual(
+            source_deep_research_lint.DEFAULT_DEEP_RESEARCH_LIMITS,
+            source_deep_research_lint.limits_from_args(defaults),
+        )
+
+        direct_cases = (
+            ({"max_records": True}, TypeError),
+            ({"max_records": 0}, ValueError),
+            (
+                {"max_records": source_deep_research_lint.MAX_RECORDS + 1},
+                ValueError,
+            ),
+            ({"max_evidence_items": False}, TypeError),
+            ({"max_evidence_items": 0}, ValueError),
+            ({"max_git_queries": 0}, ValueError),
+            ({"run_deadline_seconds": float("nan")}, ValueError),
+            ({"run_deadline_seconds": float("inf")}, ValueError),
+        )
+        for kwargs, error_type in direct_cases:
+            with self.subTest(kwargs=kwargs), self.assertRaises(error_type):
+                source_deep_research_lint.DeepResearchLimits(**kwargs)  # type: ignore[arg-type]
+
+        cli_cases = (
+            ("--max-records", "0"),
+            (
+                "--max-evidence-items",
+                str(source_deep_research_lint.MAX_EVIDENCE_ITEMS + 1),
+            ),
+            ("--max-git-queries", "false"),
+            ("--run-deadline", "nan"),
+            ("--run-deadline", "inf"),
+        )
+        for option, value in cli_cases:
+            with (
+                self.subTest(option=option, value=value),
+                mock.patch("sys.stderr", new=io.StringIO()),
+                self.assertRaises(SystemExit),
+            ):
+                source_deep_research_lint.build_parser().parse_args(
+                    [option, value, "artifact.md"]
+                )
+
+        with self.assertRaisesRegex(TypeError, "limits must be"):
+            source_deep_research_lint.validate_digest(
+                Path("artifact.md"),
+                limits="unvalidated",  # type: ignore[arg-type]
+            )
+
+    def test_source_deep_research_record_and_evidence_budgets_are_aggregate(
+        self,
+    ) -> None:
+        limits = source_deep_research_lint.DeepResearchLimits(
+            max_records=2,
+            max_evidence_items=2,
+            max_git_queries=1,
+            run_deadline_seconds=30.0,
+        )
+
+        exact_record_errors: list[str] = []
+        source_deep_research_lint.validate_verification_records(
+            _verification_body([_primary_record("one"), _primary_record("two")]),
+            exact_record_errors,
+            repo_root=REPO_ROOT,
+            limits=limits,
+        )
+        self.assertEqual([], exact_record_errors)
+
+        over_record_errors: list[str] = []
+        source_deep_research_lint.validate_verification_records(
+            _verification_body(
+                [
+                    _primary_record("one"),
+                    _primary_record("two"),
+                    _primary_record("three"),
+                ]
+            ),
+            over_record_errors,
+            repo_root=REPO_ROOT,
+            limits=limits,
+        )
+        self.assertEqual(1, len(over_record_errors))
+        self.assertIn("verification record count limit exceeded", over_record_errors[0])
+        self.assertIn("limit=2", over_record_errors[0])
+        self.assertIn("observed_at_least=3", over_record_errors[0])
+
+        exact_evidence_errors: list[str] = []
+        source_deep_research_lint.validate_verification_records(
+            _verification_body([_primary_record("one", evidence_count=2)]),
+            exact_evidence_errors,
+            repo_root=REPO_ROOT,
+            limits=limits,
+        )
+        self.assertEqual([], exact_evidence_errors)
+
+        over_evidence_errors: list[str] = []
+        source_deep_research_lint.validate_verification_records(
+            _verification_body([_primary_record("one", evidence_count=3)]),
+            over_evidence_errors,
+            repo_root=REPO_ROOT,
+            limits=limits,
+        )
+        self.assertTrue(
+            any(
+                "verification evidence item count limit exceeded" in error
+                and "limit=2" in error
+                and "observed_at_least=3" in error
+                for error in over_evidence_errors
+            ),
+            over_evidence_errors,
+        )
+
+        shared_budget = source_deep_research_lint.DeepResearchBudget(limits)
+        for record_id in ("one", "two"):
+            errors: list[str] = []
+            source_deep_research_lint.validate_verification_records(
+                _verification_body([_primary_record(record_id)]),
+                errors,
+                repo_root=REPO_ROOT,
+                budget=shared_budget,
+            )
+            self.assertEqual([], errors)
+        aggregate_over_errors: list[str] = []
+        source_deep_research_lint.validate_verification_records(
+            _verification_body([_primary_record("three")]),
+            aggregate_over_errors,
+            repo_root=REPO_ROOT,
+            budget=shared_budget,
+        )
+        self.assertEqual(1, len(aggregate_over_errors))
+        self.assertIn(
+            "verification record count limit exceeded",
+            aggregate_over_errors[0],
+        )
+
+    def test_source_deep_research_git_query_budget_is_exact_and_pre_spawn(
+        self,
+    ) -> None:
+        limits = source_deep_research_lint.DeepResearchLimits(
+            max_records=1,
+            max_evidence_items=1,
+            max_git_queries=2,
+            run_deadline_seconds=30.0,
+        )
+        budget = source_deep_research_lint.DeepResearchBudget(limits)
+        normal = source_deep_research_lint.bounded_subprocess.BoundedProcessResult(
+            args=("git", "cat-file", "-s", "spec"),
+            returncode=0,
+            stdout=b"0\n",
+            stderr=b"",
+            timed_out=False,
+            output_exceeded=False,
+        )
+        with mock.patch.object(
+            source_deep_research_lint.bounded_subprocess,
+            "run_bounded_process",
+            return_value=normal,
+        ) as run:
+            for _index in range(2):
+                source_deep_research_lint._bounded_git(
+                    ["cat-file", "-s", "spec"],
+                    max_output_bytes=64 * 1024,
+                    cwd=REPO_ROOT,
+                    budget=budget,
+                )
+            with self.assertRaises(
+                source_deep_research_lint.DeepResearchLimitError
+            ) as raised:
+                source_deep_research_lint._bounded_git(
+                    ["cat-file", "-s", "spec"],
+                    max_output_bytes=64 * 1024,
+                    cwd=REPO_ROOT,
+                    budget=budget,
+                )
+
+        self.assertEqual("git_query_limit_exceeded", raised.exception.code)
+        self.assertEqual(2, run.call_count)
+
+    def test_source_deep_research_deduplicates_exact_historical_evidence(self) -> None:
+        raw = b"abc"
+        digest = source_deep_research_lint.hashlib.sha256(raw).hexdigest()
+        budget = source_deep_research_lint.DeepResearchBudget()
+        responses = (
+            (0, b"3\n", b""),
+            (0, raw, b""),
+            (0, b"3\n", b""),
+            (0, raw, b""),
+        )
+        with mock.patch.object(
+            source_deep_research_lint,
+            "_bounded_git",
+            side_effect=responses,
+        ) as run:
+            first = source_deep_research_lint.historical_repo_evidence_errors(
+                "repo:README.md",
+                "0" * 40,
+                digest,
+                repo_root=REPO_ROOT,
+                budget=budget,
+            )
+            duplicate = source_deep_research_lint.historical_repo_evidence_errors(
+                "repo:README.md",
+                "0" * 40,
+                digest,
+                repo_root=REPO_ROOT,
+                budget=budget,
+            )
+            different_identity = (
+                source_deep_research_lint.historical_repo_evidence_errors(
+                    "repo:README.md",
+                    "0" * 40,
+                    "f" * 64,
+                    repo_root=REPO_ROOT,
+                    budget=budget,
+                )
+            )
+
+        self.assertEqual([], first)
+        self.assertEqual([], duplicate)
+        self.assertEqual(4, run.call_count)
+        self.assertEqual(
+            [f"content_sha256 must match the revision-bound Git blob ({digest})"],
+            different_identity,
+        )
+
+    def test_source_deep_research_deadline_clamps_and_rejects_slow_child(
+        self,
+    ) -> None:
+        now = [0.0]
+        deadline = source_deep_research_lint.DeepResearchDeadline(
+            1.0,
+            clock=lambda: now[0],
+        )
+        limits = source_deep_research_lint.DeepResearchLimits(
+            max_records=1,
+            max_evidence_items=1,
+            max_git_queries=1,
+            run_deadline_seconds=1.0,
+        )
+        budget = source_deep_research_lint.DeepResearchBudget(
+            limits,
+            deadline=deadline,
+        )
+        normal = source_deep_research_lint.bounded_subprocess.BoundedProcessResult(
+            args=("git", "cat-file", "-s", "spec"),
+            returncode=0,
+            stdout=b"0\n",
+            stderr=b"",
+            timed_out=False,
+            output_exceeded=False,
+        )
+
+        def finish_after_deadline(*_args: object, **_kwargs: object) -> object:
+            now[0] = 1.25
+            return normal
+
+        now[0] = 0.25
+        with (
+            mock.patch.object(
+                source_deep_research_lint.bounded_subprocess,
+                "run_bounded_process",
+                side_effect=finish_after_deadline,
+            ) as run,
+            self.assertRaises(
+                source_deep_research_lint.DeepResearchLimitError
+            ) as raised,
+        ):
+            source_deep_research_lint._bounded_git(
+                ["cat-file", "-s", "spec"],
+                max_output_bytes=64 * 1024,
+                cwd=REPO_ROOT,
+                budget=budget,
+            )
+
+        self.assertEqual("run_deadline_exceeded", raised.exception.code)
+        self.assertIn("whole-run monotonic deadline", str(raised.exception))
+        self.assertAlmostEqual(0.75, run.call_args.kwargs["timeout_seconds"])
+
+    def test_source_deep_research_cli_budget_spans_all_artifacts(self) -> None:
+        limits = source_deep_research_lint.DeepResearchLimits(
+            max_records=1,
+            max_evidence_items=2,
+            max_git_queries=1,
+            run_deadline_seconds=30.0,
+        )
+        budget = source_deep_research_lint.DeepResearchBudget(limits)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            first = root / "first.md"
+            second = root / "second.md"
+            first.write_text(_digest_text([_primary_record("one")]), encoding="utf-8")
+            second.write_text(_digest_text([_primary_record("two")]), encoding="utf-8")
+
+            first_report = source_deep_research_lint.validate_digest(
+                first,
+                limits=limits,
+                budget=budget,
+            )
+            second_report = source_deep_research_lint.validate_digest(
+                second,
+                limits=limits,
+                budget=budget,
+            )
+
+        self.assertEqual([], first_report["errors"])
+        self.assertTrue(
+            any(
+                "verification record count limit exceeded" in error
+                for error in second_report["errors"]
+            ),
+            second_report,
+        )
+
     def test_source_deep_research_git_runner_preserves_policy_and_diagnostics(self) -> None:
         root = Path.cwd()
         normal = source_deep_research_lint.bounded_subprocess.BoundedProcessResult(
@@ -38,17 +572,54 @@ class SourceDeepResearchTests(unittest.TestCase):
                 cwd=root,
             )
         self.assertEqual((8, b"stdout", b"stderr"), observed)
-        run.assert_called_once_with(
+        run.assert_called_once()
+        call = run.call_args
+        self.assertEqual(
             source_deep_research_lint.git_query.closed_git_query_command(
                 ["cat-file", "-s", "spec"]
-            ),
-            cwd=root,
-            env=source_deep_research_lint.git_query.closed_git_query_environment(root),
-            timeout_seconds=source_deep_research_lint.GIT_COMMAND_TIMEOUT_SECONDS,
-            max_output_bytes=64 * 1024,
-            maximum_timeout_seconds=source_deep_research_lint.GIT_COMMAND_TIMEOUT_SECONDS,
-            maximum_output_bytes=source_deep_research_lint.GIT_COMMAND_MAX_OUTPUT_BYTES,
-            termination_grace_seconds=source_deep_research_lint.GIT_TERMINATION_GRACE_SECONDS,
+            )[1:],
+            call.args[0][1:],
+        )
+        self.assertIn("/fd/", call.args[0][0])
+        self.assertIn("/fd/", str(call.kwargs["cwd"]))
+        self.assertEqual(os.defpath, call.kwargs["env"]["PATH"])
+        self.assertEqual(
+            str(call.kwargs["cwd"]),
+            call.kwargs["env"]["GIT_WORK_TREE"],
+        )
+        self.assertTrue(call.kwargs["pass_fds"])
+        self.assertIn(
+            int(Path(call.kwargs["cwd"]).name),
+            call.kwargs["pass_fds"],
+        )
+        self.assertIn(
+            int(Path(call.args[0][0]).name),
+            call.kwargs["pass_fds"],
+        )
+        self.assertIn(
+            int(Path(call.kwargs["env"]["GIT_OBJECT_DIRECTORY"]).name),
+            call.kwargs["pass_fds"],
+        )
+        self.assertNotEqual(
+            str(root / ".git"),
+            call.kwargs["env"]["GIT_DIR"],
+        )
+        self.assertEqual(
+            source_deep_research_lint.GIT_COMMAND_TIMEOUT_SECONDS,
+            call.kwargs["timeout_seconds"],
+        )
+        self.assertEqual(64 * 1024, call.kwargs["max_output_bytes"])
+        self.assertEqual(
+            source_deep_research_lint.GIT_COMMAND_TIMEOUT_SECONDS,
+            call.kwargs["maximum_timeout_seconds"],
+        )
+        self.assertEqual(
+            source_deep_research_lint.GIT_COMMAND_MAX_OUTPUT_BYTES,
+            call.kwargs["maximum_output_bytes"],
+        )
+        self.assertEqual(
+            source_deep_research_lint.GIT_TERMINATION_GRACE_SECONDS,
+            call.kwargs["termination_grace_seconds"],
         )
 
         cases = (
@@ -119,6 +690,64 @@ class SourceDeepResearchTests(unittest.TestCase):
                 max_output_bytes=64 * 1024,
                 cwd=root,
             )
+
+    def test_source_deep_research_rejects_foreign_gitfile_before_spawn(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / ".git").write_text(
+                f"gitdir: {(REPO_ROOT / '.git').resolve(strict=True)}\n",
+                encoding="utf-8",
+            )
+            with (
+                mock.patch.object(
+                    source_deep_research_lint.bounded_subprocess,
+                    "run_bounded_process",
+                ) as run,
+                self.assertRaisesRegex(
+                    RuntimeError,
+                    "registered linked-worktree|common-directory control",
+                ),
+            ):
+                source_deep_research_lint._bounded_git(
+                    ["cat-file", "-s", "spec"],
+                    max_output_bytes=64 * 1024,
+                    cwd=root,
+                )
+            run.assert_not_called()
+
+    def test_source_deep_research_rechecks_config_identity_after_query(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            run_bounded(["git", "init", "-q"], cwd=root, check=True)
+            config = root / ".git" / "config"
+            replacement = root / ".git" / "replacement-config"
+            replacement.write_bytes(config.read_bytes() + b"\n# replacement\n")
+            normal = source_deep_research_lint.bounded_subprocess.BoundedProcessResult(
+                args=("git", "cat-file", "-s", "spec"),
+                returncode=0,
+                stdout=b"0\n",
+                stderr=b"",
+                timed_out=False,
+                output_exceeded=False,
+            )
+
+            def replace_config(*_args: object, **_kwargs: object) -> object:
+                os.replace(replacement, config)
+                return normal
+
+            with (
+                mock.patch.object(
+                    source_deep_research_lint.bounded_subprocess,
+                    "run_bounded_process",
+                    side_effect=replace_config,
+                ),
+                self.assertRaisesRegex(RuntimeError, "Git common configuration"),
+            ):
+                source_deep_research_lint._bounded_git(
+                    ["cat-file", "-s", "spec"],
+                    max_output_bytes=64 * 1024,
+                    cwd=root,
+                )
 
     def test_source_deep_research_historical_git_decisions_survive_shared_results(self) -> None:
         result_type = source_deep_research_lint.bounded_subprocess.BoundedProcessResult
@@ -226,6 +855,79 @@ class SourceDeepResearchTests(unittest.TestCase):
                     repo_root=root,
                 )
             )
+
+    def test_source_deep_research_tracks_literal_metacharacter_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            wildcard_match = root / "successor1.md"
+            literal_candidate = root / "successor[1].md"
+            wildcard_match.write_text("tracked wildcard match\n", encoding="utf-8")
+            literal_candidate.write_text("untracked literal\n", encoding="utf-8")
+            run_bounded(["git", "init", "-q"], cwd=root, check=True)
+            run_bounded(["git", "add", wildcard_match.name], cwd=root, check=True)
+
+            self.assertFalse(
+                source_deep_research_lint.safe_repo_locator(
+                    f"repo:{literal_candidate.name}",
+                    repo_root=root,
+                )
+            )
+
+            run_bounded(["git", "add", literal_candidate.name], cwd=root, check=True)
+            self.assertTrue(
+                source_deep_research_lint.safe_repo_locator(
+                    f"repo:{literal_candidate.name}",
+                    repo_root=root,
+                )
+            )
+
+    def test_source_deep_research_rejects_successor_swapped_during_git_query(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            evidence = root / "evidence"
+            evidence.mkdir()
+            candidate = evidence / "tracked.md"
+            displaced = evidence / "tracked-held.md"
+            replacement = root / "replacement.md"
+            candidate.write_text("tracked\n", encoding="utf-8")
+            replacement.write_text("replacement\n", encoding="utf-8")
+            run_bounded(["git", "init", "-q"], cwd=root, check=True)
+            run_bounded(
+                ["git", "add", candidate.relative_to(root).as_posix()],
+                cwd=root,
+                check=True,
+            )
+            swapped = False
+
+            def swap_successor(
+                _args: list[str],
+                *,
+                max_output_bytes: int,
+                cwd: Path | None = None,
+                budget: source_deep_research_lint.DeepResearchBudget | None = None,
+            ) -> tuple[int, bytes, bytes]:
+                nonlocal swapped
+                del max_output_bytes, cwd, budget
+                candidate.rename(displaced)
+                candidate.symlink_to(replacement)
+                swapped = True
+                return 0, b"evidence/tracked.md\n", b""
+
+            with mock.patch.object(
+                source_deep_research_lint,
+                "_bounded_git",
+                side_effect=swap_successor,
+            ):
+                self.assertFalse(
+                    source_deep_research_lint.safe_repo_locator(
+                        "repo:evidence/tracked.md",
+                        repo_root=root,
+                    )
+                )
+
+        self.assertTrue(swapped)
 
     def test_source_deep_research_does_not_execute_repository_fsmonitor(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
