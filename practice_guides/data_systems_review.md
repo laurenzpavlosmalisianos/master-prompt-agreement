@@ -40,6 +40,7 @@ Before source-sensitive data-system recommendations, use project `SOURCE_PACKS.m
 4. Check distributed failure assumptions.
 
 - Consider crashes, network partitions, long message delays, retries, duplicate delivery, reordering, and partial writes.
+- For delayed or replayed protected effects, distinguish admission from execution: revalidate mutable authorization and business or data-use eligibility under the declared policy, define expiry and cancellation, and identify intentionally fixed event inputs versus facts that must be current. Test intervening changes without assuming a local transaction makes a remote effect atomic.
 - Do not rely on wall-clock ordering unless the project has proven clock and trust guarantees.
 - Check leader election, quorum, failover, split-brain, backpressure, timeout, and replay behavior where relevant.
 - For subtle protocols, access-control races, or state machines, also use `logical_spec_review`.

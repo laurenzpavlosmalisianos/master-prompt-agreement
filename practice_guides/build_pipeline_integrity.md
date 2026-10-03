@@ -27,6 +27,7 @@ Before making provider-specific claims, verify current official documentation fo
 - set workflow and job permissions to the least privilege needed for each job
 - remember that third-party workflow steps and job steps can access available tokens and environment data unless constrained by the platform
 - prefer short-lived OIDC federation over long-lived cloud, registry, or package-publishing secrets when the platform and target service support it
+- review each independently matching publishing identity or trust configuration; distinguish staging, direct publication, release-pointer changes, and other package mutations, and do not assume that multiple configurations narrow one another's permissions
 - scope secrets to environments, repositories, organizations, or jobs deliberately; keep approvals for protected environments explicit
 - prevent CI from approving, merging, or changing protected branches unless the project has a specific owner-approved automation policy
 
@@ -38,6 +39,7 @@ Before making provider-specific claims, verify current official documentation fo
 - classify runner-managed tool and dependency homes or caches separately from task-owned targets, logs, and temporary output; preserve managed state unless the runner or project contract requires replacement, and isolate or clean only task-owned state
 - when the exact dependency graph and required artifacts can be prepared separately, restrict normal network access to explicit preparation and run remaining build and verification phases without network by default; treat any named network-dependent check as a separately scoped exception, record the source and trust basis of reused caches, and claim offline or hermetic execution only when those properties were enforced and verified
 - check cache keys, restore scopes, workspace sharing, artifact download paths, and package-manager caches for cross-branch or cross-trust contamination
+- check who can read caches as well as who can write them; verify that build and verification tools do not copy secrets into cacheable output, and keep secrets out of cache-producing steps whose output is readable by a lower-trust job
 - avoid exposing container runtime sockets, host mounts, persistent workspaces, or privileged self-hosted runners to untrusted code
 
 5. Review artifacts and provenance.

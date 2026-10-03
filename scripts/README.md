@@ -9,6 +9,14 @@ replace the governing Markdown files.
 Run commands only from a no-error prerequisite report with
 `runner_usable: true`, using its exact tested CPython interpreter and required
 `-E -S -B` startup flags.
+The optional `git_query` report separately checks the trusted system Git
+executable and its minimum version through a bounded repository-independent
+probe. PATH presence in `tools.git` is only an inventory observation.
+Unavailable Git-query capability produces a warning without invalidating the
+Python runner for commands that do not query Git. This snapshot grants no
+later execution authority; Git-backed commands revalidate their own bindings.
+If diagnostic teardown fails, `git_query.cleanup_failed` is true and the report
+contains an error, returns nonzero, and refuses runner qualification.
 When that runner uses a wrapper or container, resolve
 `<framework-checkout-as-visible-to-runner>` in the runner's namespace. When a
 script path could contain spaces or begin with a dash, terminate interpreter

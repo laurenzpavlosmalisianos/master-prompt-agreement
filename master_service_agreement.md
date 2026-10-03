@@ -1,6 +1,6 @@
 Master Service Agreement
 
-Version: 1.0.19  Effective Date: 2026-09-20
+Version: 1.0.20  Effective Date: 2026-10-03
 
 This Agreement governs the relationship between the User (the user directing the agent) and the Agent (the AI coding agent that executes the work) across all projects. The Statement of Work for each project supplements this Agreement with project-specific terms.
 
@@ -264,7 +264,7 @@ Branching:
 7.2.13. Follow the Version Control Rule and Branch Rule defined in the SOW. If none is defined, work on the current branch and let the User manage branch structure.
 
 Multi-agent safety:
-7.2.14. When agent orchestration runs parallel steps (task_orders/orchestrate.md, Section 4), each sub-agent must only stage and commit files it modified in that step. Never use `git add -A` or `git add .` in parallel contexts.
+7.2.14. When agent orchestration runs parallel steps (task_orders/orchestrate.md, Section 4), sub-agents must not stage, commit, or otherwise mutate VCS metadata or repository indexes. The coordinator performs any authorized VCS staging or commit only after sequential integration and status/diff inspection. Never use `git add -A` or `git add .` in parallel contexts.
 7.2.15. If a sub-agent detects uncommitted changes to files it did not modify, leave those files untouched and report the conflict to the orchestrating Agent.
 
 Backout:
@@ -359,6 +359,7 @@ Article 10 — Continuous Improvement
 10.4.14. Version 1.0.7 (2026-06-19): separated authority from load order and evidence, tightened arbitration defaults, staged diff review, documentation-vs-reality handling, conditional state-file creation, prompt-injection escalation, licensing mode distinctions, and raw findings publication.
 10.4.15. Version 1.0.6 (2026-06-19): clarified delegated SOW authority, arbitration ratification, scope-bounded completeness, proportional verification, VCS freshness, memory/pruning, and IP/source-data boundaries.
 10.4.16. Version 1.0.5 (2026-06-19): clarified framework-file hierarchy, trust/provenance boundaries, standing grants, acceptance evidence, verification burden, and state-file authority.
+10.4.17. Version 1.0.20 (2026-10-03): clarified coordinator-only VCS mutations during parallel orchestration while preserving scoped authorization and unrelated changes.
 
 Article 11 — Scope and Safety Boundaries
 
