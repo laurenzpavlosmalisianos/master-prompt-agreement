@@ -12,10 +12,12 @@ from pathlib import Path
 import re
 import shutil
 import stat
+import sys
 import threading
 from typing import Protocol
 
 import bounded_subprocess
+import resource_cleanup
 import safe_paths
 
 
@@ -369,7 +371,14 @@ def _open_regular_file(
         raise RuntimeError(f"{description} could not be bound safely: {path}: {exc}") from exc
     finally:
         if descriptor is not None:
-            os.close(descriptor)
+            provisional_descriptor = descriptor
+            resource_cleanup.cleanup_actions(
+                ((
+                    f"{description} provisional file descriptor",
+                    lambda: os.close(provisional_descriptor),
+                ),),
+                primary=sys.exception(),
+            )
 
 
 def _open_optional_file(
@@ -938,7 +947,10 @@ def _probe_bound_git_version(
             maximum_output_bytes=_GIT_VERSION_MAX_OUTPUT_BYTES,
             termination_grace_seconds=_GIT_VERSION_TERMINATION_GRACE_SECONDS,
         )
-    except bounded_subprocess.BoundedSubprocessPreconditionError:
+    except (
+        bounded_subprocess.BoundedSubprocessPreconditionError,
+        bounded_subprocess.BoundedSubprocessCleanupError,
+    ):
         raise
     except bounded_subprocess.BoundedSubprocessError as exc:
         raise RuntimeError(f"system Git version probe failed: {exc}") from exc
@@ -1037,6 +1049,86 @@ def _bind_system_git_executable() -> _GitExecutableBinding:
         except BaseException as cleanup:
             primary.add_note(f"Git executable parent cleanup failure: {cleanup}")
         raise
+
+
+@dataclass(frozen=True)
+class GitQueryCapability:
+    """Optional query capability observed without retaining execution authority."""
+
+    available: bool
+    minimum_version: str
+    path: str | None
+    version: str | None
+    reason: str | None
+    cleanup_failed: bool = False
+
+
+class _GitCapabilityCleanupError(RuntimeError):
+    """A retained capability binding could not be closed reliably."""
+
+
+def _cleanup_failure_reason(error: BaseException) -> str | None:
+    """Find typed teardown failures or owner-added cleanup aggregation notes."""
+
+    pending = [error]
+    seen: set[int] = set()
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        if isinstance(
+            current,
+            (bounded_subprocess.BoundedSubprocessCleanupError, _GitCapabilityCleanupError),
+        ):
+            return str(current)
+        for note in getattr(current, "__notes__", ()):
+            if "cleanup failure" in note or "cleanup failed for" in note:
+                return note
+        if current.__cause__ is not None:
+            pending.append(current.__cause__)
+        if current.__context__ is not None:
+            pending.append(current.__context__)
+    return None
+
+
+def git_query_capability() -> GitQueryCapability:
+    """Observe the trusted executable boundary and close every retained binding.
+
+    This repository-independent snapshot does not authorize a later query:
+    query execution must still bind and validate its own executable/repository.
+    """
+
+    try:
+        binding = _bind_system_git_executable()
+        try:
+            binding.require_current()
+            path = str(binding.file.path)
+            version = ".".join(str(part) for part in binding.version)
+        finally:
+            try:
+                binding.close()
+            except Exception as cleanup:
+                raise _GitCapabilityCleanupError(
+                    f"system Git capability binding cleanup failed: {cleanup}"
+                ) from cleanup
+    except (OSError, RuntimeError) as exc:
+        cleanup_reason = _cleanup_failure_reason(exc)
+        return GitQueryCapability(
+            available=False,
+            minimum_version=_MINIMUM_SAFE_GIT_VERSION_TEXT,
+            path=None,
+            version=None,
+            reason=(cleanup_reason if cleanup_reason is not None else str(exc))[:1024],
+            cleanup_failed=cleanup_reason is not None,
+        )
+    return GitQueryCapability(
+        available=True,
+        minimum_version=_MINIMUM_SAFE_GIT_VERSION_TEXT,
+        path=path,
+        version=version,
+        reason=None,
+    )
 
 
 @dataclass

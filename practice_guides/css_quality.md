@@ -46,6 +46,8 @@ Before making source-sensitive recommendations, use project `SOURCE_PACKS.md` an
 
 - run the project CSS build, formatter, linter, and generated-output inspection when available
 - inspect computed styles, cascade layer order, selected image candidates, layout shift, focus states, hover states, and reduced-motion states
+- when motion accompanies an interaction-state change, verify final visibility, focusability, and accessible state with motion disabled, unsupported, interrupted, or canceled; semantic completion must not depend solely on an animation or transition completion event
+- for clipping, masking, or content fades, verify visibility, hit testing, keyboard focus, and scroll reachability separately, including unsupported styles and missing, invalid, blocked, or failed mask assets; decorative effects must preserve essential content and usable controls
 - when tokens encode relationships, inspect resolved values and representative dependent states after changing the controlling source token or theme input in a disposable browser or source probe
 - when a token file, design contract, or exported theme drives CSS, verify both the source token diff and the rendered computed styles for affected components
 - verify representative mobile, breakpoint, desktop, wide, zoom, and DPR cases when layout or image selection can change

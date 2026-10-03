@@ -85,6 +85,15 @@ def _digest_text(records: list[dict[str, object]]) -> str:
 
 
 class SourceDeepResearchTests(unittest.TestCase):
+    def _isolated_git_repository(self) -> Path:
+        """Own a real temporary repository independent of checkout metadata."""
+
+        fixture = tempfile.TemporaryDirectory()
+        self.addCleanup(fixture.cleanup)
+        root = Path(fixture.name)
+        run_bounded(["git", "init", "-q"], cwd=root, check=True)
+        return root
+
     def test_source_deep_research_accepts_local_loose_and_packed_objects(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -376,6 +385,7 @@ class SourceDeepResearchTests(unittest.TestCase):
     def test_source_deep_research_git_query_budget_is_exact_and_pre_spawn(
         self,
     ) -> None:
+        root = self._isolated_git_repository()
         limits = source_deep_research_lint.DeepResearchLimits(
             max_records=1,
             max_evidence_items=1,
@@ -400,7 +410,7 @@ class SourceDeepResearchTests(unittest.TestCase):
                 source_deep_research_lint._bounded_git(
                     ["cat-file", "-s", "spec"],
                     max_output_bytes=64 * 1024,
-                    cwd=REPO_ROOT,
+                    cwd=root,
                     budget=budget,
                 )
             with self.assertRaises(
@@ -409,7 +419,7 @@ class SourceDeepResearchTests(unittest.TestCase):
                 source_deep_research_lint._bounded_git(
                     ["cat-file", "-s", "spec"],
                     max_output_bytes=64 * 1024,
-                    cwd=REPO_ROOT,
+                    cwd=root,
                     budget=budget,
                 )
 
@@ -466,6 +476,7 @@ class SourceDeepResearchTests(unittest.TestCase):
     def test_source_deep_research_deadline_clamps_and_rejects_slow_child(
         self,
     ) -> None:
+        root = self._isolated_git_repository()
         now = [0.0]
         deadline = source_deep_research_lint.DeepResearchDeadline(
             1.0,
@@ -508,7 +519,7 @@ class SourceDeepResearchTests(unittest.TestCase):
             source_deep_research_lint._bounded_git(
                 ["cat-file", "-s", "spec"],
                 max_output_bytes=64 * 1024,
-                cwd=REPO_ROOT,
+                cwd=root,
                 budget=budget,
             )
 
@@ -552,7 +563,7 @@ class SourceDeepResearchTests(unittest.TestCase):
         )
 
     def test_source_deep_research_git_runner_preserves_policy_and_diagnostics(self) -> None:
-        root = Path.cwd()
+        root = self._isolated_git_repository()
         normal = source_deep_research_lint.bounded_subprocess.BoundedProcessResult(
             args=("git", "cat-file", "-s", "spec"),
             returncode=8,
@@ -692,10 +703,11 @@ class SourceDeepResearchTests(unittest.TestCase):
             )
 
     def test_source_deep_research_rejects_foreign_gitfile_before_spawn(self) -> None:
+        foreign = self._isolated_git_repository()
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             (root / ".git").write_text(
-                f"gitdir: {(REPO_ROOT / '.git').resolve(strict=True)}\n",
+                f"gitdir: {foreign / '.git'}\n",
                 encoding="utf-8",
             )
             with (
@@ -750,6 +762,7 @@ class SourceDeepResearchTests(unittest.TestCase):
                 )
 
     def test_source_deep_research_historical_git_decisions_survive_shared_results(self) -> None:
+        root = self._isolated_git_repository()
         result_type = source_deep_research_lint.bounded_subprocess.BoundedProcessResult
         command = ("git", "cat-file", "-s", "spec")
         timeout = result_type(
@@ -769,7 +782,7 @@ class SourceDeepResearchTests(unittest.TestCase):
                 "repo:README.md",
                 "0" * 40,
                 "0" * 64,
-                repo_root=Path.cwd(),
+                repo_root=root,
             )
         self.assertEqual(
             ["revision-bound Git size inspection failed: Git inspection timed out after 10s"],
@@ -801,7 +814,7 @@ class SourceDeepResearchTests(unittest.TestCase):
                 "repo:README.md",
                 "0" * 40,
                 "0" * 64,
-                repo_root=Path.cwd(),
+                repo_root=root,
             )
         self.assertEqual(
             [
@@ -828,7 +841,7 @@ class SourceDeepResearchTests(unittest.TestCase):
                 "repo:README.md",
                 "0" * 40,
                 "0" * 64,
-                repo_root=Path.cwd(),
+                repo_root=root,
             )
         self.assertEqual(
             ["revision/path does not resolve to a retained Git blob"],

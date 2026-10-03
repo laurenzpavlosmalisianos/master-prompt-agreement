@@ -23,19 +23,23 @@ Before making source-sensitive recommendations, use project `SOURCE_PACKS.md` an
 
 - validate untrusted JSON, HTTP, storage, environment, message payloads, postMessage origin/source/targetOrigin, URL, and CLI input at boundaries
 - make expected failure, cancellation, timeout, retry, cleanup, ordering, and idempotency behavior explicit when callers depend on it
+- distinguish persistence from concurrency control: verify atomicity of shared updates or exclusive operations, and reconcile durable markers with actual resources after interruption or restart; a read-then-write sequence is not itself a lock
 - avoid unbounded promises, swallowed rejections, ambient mutable globals, prototype mutation, and monkey patches unless the project explicitly owns the invariant
 - handle time, locale, encoding, floating-point, equality/coercion, optional values, iterator exhaustion, and mutation aliasing deliberately
+- distinguish calendar values, zoned local times, instants, and elapsed durations; choose ambiguity and recurrence rules from the domain contract. Timestamp precision does not establish clock resolution, monotonicity, uniqueness, or causal order
 
 4. Preserve security and host boundaries.
 
 - route DOM injection, template injection, eval-like execution, dynamic code loading, prototype pollution, deserialization, credential exposure, or cross-origin behavior through the applicable security guide
 - treat browser APIs, server APIs, worker APIs, and embedded runtimes as separate host contracts
+- for browser extensions, verify each execution context's effective permissions, target identity, activation requirements, message authority, and lifetime; exercise withheld or revoked grants, restricted targets, worker restart, UI closure, and update paths when affected
 - do not trust generated code, dependencies, remote examples, or package scripts without provenance and execution-boundary review
 
 5. Verify in the actual runtime.
 
 - run the project JavaScript syntax, lint, format, test, build, bundle, and package checks when available
 - execute representative success, expected-failure, async, cancellation, timeout, cleanup, and environment-specific paths
+- when capability detection or fallback loading controls behavior, check native, fallback, unavailable, and failed paths; initialize consumers once their required dependencies are ready, and make reduced fallback semantics explicit
 - inspect generated output when the task changes source transforms, entry points, import/export behavior, minification, source maps, or browser/server delivery
 - verify target browser, server, worker, or embedded runtime behavior where static checks cannot prove host API, module loading, or environment assumptions
 - state clearly when the runtime, dependency graph, package manager, browser, build, or test tooling cannot be run

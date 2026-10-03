@@ -29,6 +29,9 @@ Before source-sensitive HTML recommendations, use project `SOURCE_PACKS.md` and 
 - verify `href`, schemes, target behavior, `rel`, referrer policy intent, download behavior, accessible link text, and markup-owned new-tab or download affordances where applicable
 - for forms, verify label association, grouped controls with `fieldset` and `legend` where needed, button `type`, labelable elements, submitter-specific form attributes, name/value submission, required fields, input types, autocomplete, validation, error summary, inline errors, status messages, disabled/read-only behavior, and successful/failed submission flows
 - keep error, loading, success, and live status communication available to keyboard and assistive-technology users
+- for custom controls or error handling, verify the first invalid submission attempt, correction, reset, autofill, programmatic updates, and disabled-state changes; keep submitted values and exposed validity aligned without duplicating native behavior unnecessarily
+- when scripts intercept submission keys, preserve input composition and candidate confirmation; verify intended submission, ordinary editing, multiline input, and explicit submit controls in supported input methods
+- for dynamic widgets, overlays, or view changes, verify focus entry, dismissal, preservation or a logical destination when the focused element is hidden, removed, replaced, or moved. Keep focus, selection, current position, and visual highlighting distinct; do not move focus merely because incidental content appears
 
 4. Review tables, media, embeds, parser behavior, and generated content.
 
@@ -37,7 +40,7 @@ Before source-sensitive HTML recommendations, use project `SOURCE_PACKS.md` and 
 - verify audio, video, captions, transcripts, controls, autoplay, reduced-motion, and fallback behavior when media is in scope
 - review invalid nesting and parser-repair risks: nested interactive controls, invalid list/table/form structure, invalid descendants, duplicate attributes, void-element misuse, raw-text escaping, and template output that the browser reparses differently from source
 - escape generated content for its exact text, attribute, URL, raw-text, Markdown-rendered, or template context; reject unsafe schemes and review `href`, `src`, `srcdoc`, `action`, and `formaction` as generated-output sinks
-- isolate untrusted or open-ended generated HTML behind an approved sandbox boundary; do not inject untrusted markup or scripts directly into the host DOM
+- for bounded non-executable rich-text fragments, use a project-approved context-aware allowlist sanitizer on the assembled content at final insertion; verify allowed URLs, resource loads, and host-framework hooks, and re-sanitize after transformation or re-parsing. Isolate untrusted open-ended HTML/app output and untrusted executable content behind an approved least-privilege boundary
 - for iframes and embeds, review sandbox, permissions policy, referrer policy, title, loading, dimensions, fallback, and third-party privacy behavior
 - for browser-mediated capability controls that request or deliver powerful data, verify standards maturity and actual target-browser support, secure-context and permissions-policy preconditions, genuine user activation, fallback semantics, data minimization, success/cancel/error states, active-use indication, revocation or stream shutdown, and anti-spoofing constraints; browser-owned prompting does not by itself prove privacy, accessibility, lifecycle, or fallback quality
 
@@ -65,4 +68,4 @@ Provide:
 - Do not infer accessibility from visual appearance or CSS class names.
 - Do not treat generated HTML as correct until inspected after the active build or render step.
 - Do not add `_blank`, `rel`, structured data, metadata, or hidden text mechanically across all links or pages.
-- Do not inject untrusted generated markup into the host DOM without an isolation boundary.
+- Do not insert raw untrusted markup or scripts into the host DOM; escaping or sanitization does not authorize script execution or outbound disclosure.

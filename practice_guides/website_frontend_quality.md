@@ -24,8 +24,8 @@ Pair it with `privacy_data_handling.md` when forms, analytics, cookies, storage,
 - use progressive disclosure for detail, not for hiding the main message or deciding context
 - prefer visuals that show product state, customer relevance, metric evidence, or workflow reality over decorative filler
 - for canvas-heavy, 3D, creative-tool, game, or immersive UI, consider whether DOM overlays, native controls, or custom canvas rendering best preserves semantics, interaction, accessibility, performance, and fallback behavior
-- for agent-generated or generative UI, classify the surface as controlled prebuilt components, declarative schema or catalog rendering, or open-ended sandboxed HTML/app rendering before choosing architecture
-- prefer typed/cataloged components for reusable product surfaces; place open-ended or untrusted generated HTML/app output behind an isolated execution boundary, normally a least-privilege sandboxed iframe, with separate-origin hosting for potentially hostile content; do not combine `allow-scripts` and `allow-same-origin` for same-origin content; never inject untrusted generated markup or scripts directly into the host DOM; keep fallback and review paths
+- for agent-generated or generative UI, classify the surface as reviewed controlled implementation, declarative schema or catalog rendering, bounded non-executable rich-text fragments, or untrusted open-ended HTML/app output before choosing architecture
+- prefer typed/cataloged components for reusable product surfaces; route bounded non-executable rich-text fragments through the approved sanitization rules in `html_quality.md`; place untrusted open-ended HTML/app output and untrusted executable content behind an isolated execution boundary, normally a least-privilege sandboxed iframe, with separate-origin hosting for potentially hostile content; do not combine `allow-scripts` and `allow-same-origin` for same-origin content; never insert raw untrusted markup or scripts directly into the host DOM; keep fallback and review paths
 - verify social proof, metrics, logos, and claims against approved project facts
 
 3. Check source ownership and clean code.
@@ -68,6 +68,7 @@ Pair it with `privacy_data_handling.md` when forms, analytics, cookies, storage,
 - walk representative user journeys as rendered, including browse mode, task mode, and cross-product or cross-section transitions
 - when a synthetic stakeholder or persona walkthrough is used, derive each scenario from confirmed audience, job, constraint, and decision context; label it as a heuristic probe; separate observed interface facts from inferred reactions and unknowns; keep the exact scenarios fixed for before/after comparison; and do not present the result as user interviews, analytics, conversion forecasts, or statistical evidence
 - verify motion and interaction feedback support comprehension, affordance, or pacing without distracting from the primary task
+- for authored pointer gestures that trigger application actions, verify cancellation or recovery and applicable keyboard and single-pointer alternatives without dragging; exercise interrupted and accidental gestures, distinguish unmodified browser scrolling, and record any essential-interaction exception
 
 6. Verify assets, rights, and public naming.
 
@@ -83,8 +84,11 @@ Pair it with `privacy_data_handling.md` when forms, analytics, cookies, storage,
 - add structured data only for facts represented by user-visible page content and supported by project evidence, and validate rendered markup with the relevant approved tools
 - do not present `llms.txt` or Markdown mirrors as search-ranking, indexing, or crawler-access requirements unless the named consumer's current official documentation requires them. When publishing them for named agent consumers, keep canonical HTML as the user-facing source, exclude private or unsupported material, verify generated links, and separate those files from search-ranking claims
 - when SEO and performance intersect, verify the current provider-defined web-vitals metrics and thresholds first; when applicable, inspect LCP, INP, and CLS contributors, plus the selected image candidate, blocking scripts or styles, route-level bundle costs, and third-party script impact; distinguish field measurements from lab diagnostics before prescribing frontend optimizations
+- for performance measurements, record supported coverage, sampling window, units, collection limits, and diagnostic overhead; distinguish unavailable, partial, or estimated data from measured zero, and queued delivery from acknowledged receipt
 - verify privacy and legal copy against approved product behavior and legal-owner requirements. Do not infer legal sufficiency. Do not add boilerplate for forms, analytics, cookies, storage, embeds, uploads, or profiling that do not exist
 - verify live or deployment-specific headers, redirects, cache, compression, HSTS, CSP, status codes, and canonical host behavior before making claims about them
+- when client caching, history restoration, offline behavior, or installed applications are in scope, verify distinct freshness, identity, retention, and deletion boundaries through applicable account changes, logout, restoration, updates, and any origin migration; response headers alone do not govern every client store
+- before speculative loading or rendering, bound pre-navigation requests, storage, and computation under the authorization contract; defer visit-dependent telemetry and user-visible effects until activation, and verify discarded, activated, and unsupported paths
 
 8. Classify tool output.
 

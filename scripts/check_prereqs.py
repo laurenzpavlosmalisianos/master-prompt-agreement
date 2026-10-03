@@ -74,6 +74,7 @@ if __name__ == "__main__":
         label="prerequisite diagnostic",
     )
 
+from dataclasses import asdict
 import json
 import os
 from pathlib import Path
@@ -82,6 +83,7 @@ import shutil
 import sys
 
 import bootstrap_transaction
+import git_query
 
 
 MIN_PYTHON = (3, 14)
@@ -89,7 +91,7 @@ OPTIONAL_TOOLS = {
     "uv": "normal runner for framework Python maintenance when already available in the approved environment",
     "uvx": "normal runner for basedpyright Python type checks when already available in the approved environment",
     "gh": "GitHub-backed comparative review and reference snapshotting",
-    "git": "repository bootstrap and history inspection",
+    "git": "PATH tool presence only; trusted Git-query capability is reported separately",
     "py": "Windows Python launcher fallback for stdlib-only framework scripts",
 }
 
@@ -171,8 +173,17 @@ def main() -> int:
         warnings.append("uvx not found; framework Python type-check gate will be unavailable")
     if not tools["gh"]["found"]:
         warnings.append("gh not found; GitHub-backed comparative review and reference snapshotting will be unavailable")
-    if not tools["git"]["found"]:
-        warnings.append("git not found; repository bootstrap and history inspection will be unavailable")
+    git_capability = git_query.git_query_capability()
+    if git_capability.cleanup_failed:
+        errors.append(
+            "Git-query diagnostic cleanup could not be verified; this process "
+            f"cannot qualify a usable runner: {git_capability.reason}"
+        )
+    elif not git_capability.available:
+        warnings.append(
+            "trusted Git-query capability unavailable; commands that query Git "
+            f"repositories require it: {git_capability.reason}"
+        )
 
     framework_scripts = "<framework-checkout-as-visible-to-runner>/scripts"
     def command(script: str, arguments: str = "") -> str:
@@ -217,6 +228,7 @@ def main() -> int:
     result = {
         "commands": commands,
         "errors": errors,
+        "git_query": asdict(git_capability),
         "framework_checkout_path_contract": (
             "Replace <framework-checkout-as-visible-to-runner> with the exact "
             "selected checkout path inside the runner filesystem or mount namespace."

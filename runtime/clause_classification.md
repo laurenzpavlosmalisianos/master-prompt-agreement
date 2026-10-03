@@ -1,7 +1,7 @@
 # MSA Clause Classification
 
-Date: 2026-09-21
-MSA version: 1.0.19
+Date: 2026-10-03
+MSA version: 1.0.20
 
 This is the operative classification baseline for `master_service_agreement.md`. Its job is to decide what stays always-on, what loads on demand, what should be enforced by tooling, and what should remain canonical only.
 
