@@ -34,8 +34,10 @@ Use authenticated Search Console, Business Profile, analytics, URL Inspection, o
 - When the provider exposes property-level inclusion or exclusion controls for the target feature, check the effective choice and any parent inheritance or child override using approved account evidence. Preserve the owner's intended participation; diagnosis does not authorize changing it. If account evidence is unavailable or unauthorized, record the gap rather than infer the setting from page markup.
 4. Check page-level content quality.
 - Evaluate whether each important page has a distinct purpose, audience, search intent, and useful content beyond boilerplate, but treat information architecture, narrative, and editorial strategy as observations for the accountable content or frontend owner, not as SEO-owned change authority. Keep proposed copy, page splits, and narrative changes as hypotheses until that owner approves them.
-- Check whether the page answers the likely user question well enough that the user does not immediately need another result.
-- Check for original information, firsthand experience, analysis, examples, evidence, expert judgment, or business-specific detail that goes beyond commodity summaries.
+- Identify and inspect the parts that serve the page's purpose: text and headings, media, tools, relevant user contributions, and information revealed through interaction. Test the intended user task within the approved action boundary; introductory prose alone is insufficient evidence.
+- Check for original information, firsthand experience, analysis, examples, evidence, expert judgment, or business-specific detail that goes beyond commodity summaries, as appropriate to the page's purpose.
+- Assess the substantive work in the content or supporting system, added user value, execution quality, and factual reliability. Apply expectations appropriate to the purpose and potential harm; source attribution, production method, and length are not substitutes for that assessment.
+- Match expertise to the claim: ordinary experience need not have specialist credentials, while consequential factual claims require authoritative corroboration and consistency with established domain consensus where applicable.
 - Flag thin reference pages, generic service pages, copied-looking wording, and near-duplicate pages when there is evidence.
 - Do not split pages only to capture every fan-out query, long-tail wording variant, or AI-search phrasing unless each page has a distinct useful purpose for humans.
 - For AI-assisted content, check accuracy, editorial responsibility, originality, and usefulness.
@@ -85,7 +87,7 @@ Use authenticated Search Console, Business Profile, analytics, URL Inspection, o
 - Error pages should return the correct HTTP status and avoid soft-404 behavior.
 - Security headers, CSP, HSTS, cache policy, compression, and redirects may be configured outside the repository; verify live behavior before making claims.
 - External resources, scripts, iframes, analytics, and embeds can affect privacy, performance, crawlability, and trust.
-- Hacked content, injected links, cloaking, malicious redirects, and hidden content are search-quality and security issues.
+- Hacked content, injected links, cloaking, malicious redirects, and deceptively concealed content are search-quality and security issues.
 ## Output
 Present findings in this order:
 1. Indexing blockers
@@ -97,7 +99,8 @@ Present findings in this order:
 For each finding, provide affected URL or page type, evidence observed, why it matters for the relevant search surface, the smallest credible fix, and how to validate it. Label recommendations as confirmed, likely, or hypothesis.
 ## Guardrails
 - Do not promise rankings, traffic, or crawl timing.
-- Do not recommend keyword stuffing, doorway pages, hidden text, fake structured data, or manipulative link schemes.
+- Separate human evaluation criteria from verified provider ranking behavior; a rubric or documentation revision alone does not establish ranking inputs, weights, or the cause of a site's traffic change.
+- Do not recommend keyword stuffing, doorway pages, deceptively hidden text or links, fake structured data, or manipulative link schemes. Accessible disclosure and text for assistive technology are not concealment abuse; verify actual access and behavior.
 - Do not claim a sitemap is mandatory when a site is small and comprehensively internally linked.
 - Do not recommend structured data for content that users cannot see.
 - Do not recommend new machine-readable AI files, AI text files, AI-crawler allowlists, or AI-specific markup as requirements for Google Search AI features or any other search surface without current provider-specific documentation.
