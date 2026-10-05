@@ -163,6 +163,14 @@ Round 1. Identity and scope:
 
 Round 1.5. Information and acquisition boundary:
 
+When the deliverable needs integrations, inspect relevant already-approved
+capability-discovery surfaces and pre-fill their operative facts before asking
+setup questions. Reuse a suitable available capability before proposing another
+installation, wrapper, or service. Discovery or installation alone does not
+establish trust, callable tools, authentication, bundled-script readiness on the chosen
+executor, or action authority. Resolve only the gaps that affect the task;
+discovery does not authorize installation, account connection, or external writes.
+
 - Should the framework reference be `pinned` or `live`? Explain that neither
   policy fetches or selects a revision, and that a live reference can expose
   changed operative-charter bytes before generated files refresh.
@@ -171,13 +179,22 @@ Round 1.5. Information and acquisition boundary:
 
 Round 2. Commands, deliverables, and constraints:
 
-- Collect the seven-command matrix explicitly: `commands.dev` (run locally), `commands.build` (normal production build), `commands.build_all` (regenerate all deliverable artifacts), `commands.test`, `commands.lint`, `commands.type_check`, and `commands.deploy`. In full mode every key is present and concrete; use `none` where a command is inapplicable. Minimal mode may defer commands through the structured deferral mechanism.
+- Collect the seven-command matrix explicitly: `commands.dev` (development command), `commands.build` (normal production build), `commands.build_all` (regenerate all deliverable artifacts), `commands.test`, `commands.lint`, `commands.type_check`, and `commands.deploy`. In full mode every key is present and concrete; use `none` where a command is inapplicable. Minimal mode may defer commands through the structured deferral mechanism.
 - What should the Dependency Rule be: `no-external-dependencies` or `justify-external-dependencies`? Default to `justify-external-dependencies`. This governs adding new dependencies, not already-approved project dependencies.
 - What should the External Source Rule be? Default to independent implementation for external inspiration, with external code or assets entering only after approval and applicable license, attribution, and notice review.
 - What is the approved secret store or credential mechanism? Prefer a vault, cloud secret manager, OS keychain, CI secret store, or container secret injection. Treat env vars only as an approved delivery mechanism or explicit exception.
 - Are there commands the agent should never run? (Command Restrictions.)
 
 If auxiliary tools are needed:
+
+For operations provided through native tools rather than shell commands, use
+`none` for the inapplicable command and record the actual invocation in Auxiliary
+Tools or Workflows, with acceptance evidence in the deliverable. Do not invent
+commands or duplicate infrastructure to fill the matrix; this does not waive a
+required build or check. When managed hosting is in scope, distinguish the source
+project from the hosted artifact and preparing a reviewable version from
+publishing it. Record durable product-data and viewer-access requirements when
+relevant; incidental interface state and author access do not establish them.
 
 - Are there project-default auxiliary integrations the agent should know about, including runtime-native skills, hooks, permissions or extensions; direct APIs; local or remote CLIs; connectors; or protocol bridges such as MCP when adopted? For each: name, purpose, how to invoke it, the canonical setup or usage reference, owner, transport, capability-discovery surface when relevant, credential source, environment allowlist, data boundary, effect boundary, persistence, control role, and any trust or approval constraints. If a native or external control is claimed as a lifecycle guardrail or enforcement boundary, record its demonstrated lifecycle coverage, uncovered or bypass paths, enforcement strength, and verification evidence in `control_coverage`; otherwise set `control_role` to `none` and omit `control_coverage`.
 - For a skill, plugin, or agent package, also record its source/provenance, reviewed version or date, permissions, and bundled-script, dependency, update, audit, or rollback review boundary.
