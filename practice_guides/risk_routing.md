@@ -67,7 +67,7 @@ Minimum burdens:
 - Apple `container` CLI workflows, local Linux containers on macOS, machines, images, registries, mounts, volumes, networks, ports, or host/container command boundaries: `apple_container_workflow`
 - prompts, agent entrypoints, coding-agent instructions, tool-use contracts, model-output quality, evals, or reusable agent workflow tuning: `prompt_agent_quality`
 - external code, assets, demos, product references, generated prototypes, third-party patches, source-originality claims, or clean-room implementation risk: `source_originality_review`
-- secure code generation, application hardening, static analysis, authorized dynamic checks, fuzzing, secret scanning, or recurring security verification profiles while building or modifying code: `secure_development`
+- secure code generation, application or binary hardening, loader trust, software-update integrity, static analysis, authorized dynamic checks, fuzzing, secret scanning, or recurring security verification profiles while building or modifying code: `secure_development`
 - dependency additions or upgrades: `dependency_risk`
 - schema, storage, or compatibility changes: `migration_safety`
 - release, deploy, or merge-readiness work: `release_readiness`

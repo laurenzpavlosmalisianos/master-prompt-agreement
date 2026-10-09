@@ -10,6 +10,7 @@ Before making source-sensitive recommendations, use project `SOURCE_PACKS.md` an
 
 - read the project contract, Python version policy, `.python-version`, `pyproject.toml`, lockfile, package layout, entry points, test configuration, type-checker configuration, formatter and linter configuration, environment variables, and supported operating systems
 - check current official Python sources before relying on unpinned language, standard-library, typing, packaging, or release behavior
+- for interpreter upgrades, review porting notes, removals, changed encoding and annotation behavior, startup hooks, and native-extension ABI requirements; verify the affected supported interpreter and built-artifact matrix, keeping preview results separate
 - distinguish application code, libraries, one-off scripts, notebooks, generated code, migrations, and framework repository scripts; do not apply one category's packaging or runtime assumptions to another
 - use the project-recorded Python invocation first; do not substitute `uv run` for plain `python` unless the workflow already uses `uv`, the repository instructions select `uv`, or the script depends on project-managed dependencies
 - for repository-maintenance scripts, use the runner documented by the repository's prerequisite or setup check instead of guessing; mark any command that may create or update environments, download Python, resolve dependencies, or install packages as state-changing
@@ -30,6 +31,7 @@ Before making source-sensitive recommendations, use project `SOURCE_PACKS.md` an
 - annotate public functions, public classes, callbacks, protocol boundaries, fixtures used across modules, and ambiguous return values; allow local inference where it keeps code clearer
 - prefer `Path`, structured dataclasses, enums, protocols, typed dictionaries, literals, and narrow domain types over unstructured dictionaries and sentinel strings when the boundary is reused
 - treat untrusted input as `object` at the typed boundary, then narrow with explicit runtime checks such as `isinstance`, `TypeIs`, or `TypeGuard`; do not treat type annotations as runtime validation
+- treat annotation introspection and forward-reference evaluation as potential code execution; string-format results do not make untrusted annotation providers safe. Inspect the selected API's evaluation behavior before using it across a trust boundary
 - for enums, tagged unions, and `match` statements that define external behavior, add exhaustiveness checks such as `typing.assert_never` or equivalent checker diagnostics
 - for typed libraries, ship `py.typed` and keep distributed type information synchronized with the runtime package
 - avoid `Any`, blanket `cast`, `# type: ignore`, dynamic attributes, monkeypatch-heavy code, and broad exception swallowing unless the invariant or test seam is explicit

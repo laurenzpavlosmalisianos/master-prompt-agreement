@@ -33,6 +33,7 @@ Before source-sensitive SQL recommendations, use project `SOURCE_PACKS.md` and `
 - for embedded stores, review application-level locks, database transaction mode, journal or WAL side files, crash recovery, concurrent readers and writers, and whether migrations preserve private permissions and path identity
 - design migrations with forward path, rollback or fix-forward path, transaction mode, implicit commits, statements that must run outside a transaction, lock impact, backfill strategy, validation query, and deploy ordering
 - separate schema changes, data migrations, and application rollout assumptions
+- for engine or client upgrades, review supported upgrade paths, changed defaults and compatibility settings, security fixes, known issues, extension or build dependencies, and required data repair, index rebuild, or statistics refresh; verify affected results and, when performance is in scope, plans before rollout
 - avoid destructive migrations, broad updates, or table rewrites without explicit approval, backup/restore confidence, and blast-radius review
 
 4. Review performance with evidence.

@@ -16,11 +16,11 @@ Before making source-sensitive recommendations, use project `SOURCE_PACKS.md` an
 2. Keep module and config behavior explicit.
 
 - for code executed directly by Node.js, use the Node module mode matching the supported Node and package semantics, such as `node18`, `node20`, or another project-pinned mode. Use `nodenext` only when the project intentionally accepts floating latest-stable Node semantics. Use `bundler` when the actual bundler, runtime, or TypeScript runner applies bundler-style module resolution; import transformation is not a prerequisite
-- avoid `classic`, `node10`, and broad path aliases unless the runtime or bundler also resolves them
+- retain legacy resolution modes only with a project-pinned compiler that still supports them; on migration, select a supported mode matching the runtime or bundler. Verify that any path aliases also resolve in the executing environment
 - keep `target`, `lib`, JSX mode, declaration emit, source maps, and incremental settings aligned with deployment and package consumers; choose `target` for emitted JavaScript syntax and `lib` for APIs supplied by the runtime or declared polyfills
 - prefer `strict` type checking for new code; record legacy exceptions with scope, owner, reason, and removal or revalidation trigger instead of relying on implicit defaults
 - treat compiler migration aids, declaration ordering changes, and native-compiler or major-version behavior as migration-specific, not permanent defaults
-- for native-compiler or major-version migration work, distinguish stable, release-candidate, and nightly channels; treat non-stable channels as source-sensitive; inventory changed defaults, removed or no-op compiler options, compiler-API consumers, peer dependencies, embedded-language or editor tooling integrations, side-by-side compiler needs, and checker/builder parallelism, including reproducibility, CPU, and memory impact in CI and developer environments
+- for native-compiler or major-version migration work, distinguish stable, release-candidate, and nightly channels; treat non-stable channels as source-sensitive; inventory changed defaults, removed or no-op compiler options, JavaScript/JSDoc analysis and declaration differences, compiler-API consumers, peer dependencies, embedded-language or editor tooling integrations, side-by-side compiler needs, and checker/builder parallelism, including reproducibility, CPU, and memory impact in CI and developer environments
 - treat compiler-API consumers, custom language-service plugins, transformers, and compiler-host integrations as migration blockers until the target major exposes a supported API or the project approves a side-by-side compatibility plan
 - use new `target` values only when the build pipeline and deployed runtimes accept the emitted syntax; use new `lib` values only when the APIs exist at runtime or are deliberately polyfilled
 
@@ -37,6 +37,7 @@ Before making source-sensitive recommendations, use project `SOURCE_PACKS.md` an
 
 - keep imports and exports stable for package consumers; verify package subpath imports and exports before changing them
 - keep type-only imports and value imports accurate so bundlers and runtimes do not receive phantom values or missing side effects
+- for direct runtime type stripping, verify supported syntax, import extensions, module rules, and configuration handling with the actual runtime; keep a separate type-check step and do not assume stripping applies `tsconfig`, downlevels syntax, or supplies missing APIs
 - treat DOM, ES lib, Node, and framework types as versioned inputs, not universal truths
 - treat emitted JavaScript and source maps as public artifacts when published or deployed; do not hand-edit generated output, and verify source-map settings do not expose inline sources, private paths, secrets, or internal code beyond the intended audience
 - for bundled libraries, do not treat `moduleResolution: bundler` as proof of consumer compatibility; bundle declarations or validate preserved declaration imports under the intended consumer resolution modes

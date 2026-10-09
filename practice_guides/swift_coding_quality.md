@@ -9,7 +9,7 @@ Before making source-sensitive recommendations, use project `SOURCE_PACKS.md` an
 1. Frame the active Swift contract.
 
 - read the project contract, `swift-tools-version` or package manifest when applicable, pinned Swift/Xcode/SDK versions and release channel, target platforms and minimum deployment versions, language mode, strict-concurrency level, default actor isolation, upcoming or experimental features, interop settings, package or app structure, and local coding patterns
-- check current Apple and Swift official sources, including applicable version-matched first-party guidance exposed by the selected toolchain, before relying on unpinned Swift, SwiftUI, SDK, HIG, or framework behavior
+- check current Apple and Swift official sources, including version-matched release, migration, and first-party toolchain guidance, before relying on unpinned Swift, SwiftUI, SDK, HIG, or framework behavior; distinguish implemented release features from accepted proposals and development snapshots
 - record SDK versions separately from minimum deployment versions; gate newer APIs with `@available` or `#available`, preserve required fallbacks, and verify affected flows on the oldest supported OS version
 - distinguish stable platform rules from project choices such as private app scope, branding, data format, or supported OS range
 
@@ -44,6 +44,7 @@ Before making source-sensitive recommendations, use project `SOURCE_PACKS.md` an
 - make actor and `Sendable` boundaries explicit when values cross async tasks or service layers
 - prefer structured concurrency. Use `async let` for a fixed set of child operations and task groups for a dynamic set. Give unstructured tasks an explicit owner, lifetime, cancellation path, and error-handling policy. Use `Task.detached` only when losing inherited context is intentional, and propagate or check cancellation around expensive or long-running work
 - for C, Objective-C, C++, Core Foundation, or byte-level parser interop, make unsafe pointer and buffer lifetimes, nullability bridges, ownership transfers, copy boundaries, and error states explicit
+- prefer supported lifetime-checked views and safe interop wrappers over manual pointer/count conversions when they preserve the contract. Verify the exact parameter or return-value mapping, lifetime annotations, feature flags, and target support; availability of one safe overload does not establish that every mapping is stable or safe
 - for binary or byte-level protocol parsers, parse every flagged field or reject the packet; add tests for each material flag combination, truncated optional fields, extra bytes, endian behavior, and normative bit masks from the governing specification
 - for command-line tools, fail closed when a value-taking flag is missing, malformed, non-finite, or consumes another flag token; add negative tests for numeric and string flags
 - include initialization and deinitialization, alignment, memory binding or rebinding, and scoped-pointer nonescape obligations; when supported, record whether Strict Memory Safety is enabled and review each explicit unsafe acknowledgement
@@ -54,8 +55,11 @@ Before making source-sensitive recommendations, use project `SOURCE_PACKS.md` an
 
 - for Xcode projects, record the project or workspace, shared scheme, action, configuration, destination and OS version, and test plan used; for standalone packages, record the SwiftPM configuration and target triple
 - run the configured primary build and test gate when available: `swift build` and `swift test` or the project-specific SwiftPM commands for packages, and the project-recorded `xcodebuild build` and `xcodebuild test` commands for app schemes
+- when the SwiftPM build system changes, recheck resource processing, linker-option support, diagnostics, and test-runner layout. Resolve executable locations with `swift build --show-bin-path` using the same build arguments instead of assuming a `.build` layout; a build-system fallback must be explicit and must not hide a failing target configuration
+- for custom explicit-module build systems or distributed debugging, verify module-path emission and remapping, compiler/debugger compatibility, and retained artifacts needed for expression evaluation. Do not assume a symbol bundle contains binary Swift modules or remove legacy wrapping/linker steps before checking the selected toolchain's replacement contract
 - run configured formatting or linting tools such as SwiftFormat, SwiftLint, package plugins, or project-specific checks when they are part of the project contract
-- respect the project's XCTest/Swift Testing mix. Use Swift Testing for new unit tests only where the project and toolchain support it, migrate incrementally, keep XCTest for UI automation, performance metrics, and Objective-C exception cases, and avoid mixing assertions across frameworks unless the project has an explicit interoperability policy
+- respect the project's XCTest/Swift Testing mix. Use supported interoperability for incremental migration and shared helpers, while retaining XCTest where UI automation, performance metrics, or Objective-C exception handling require it. Check both testing-library implementations, manifest defaults, test-plan settings, and runtime overrides; verify with an intentionally failing probe that cross-framework assertions fail the run instead of disappearing or becoming warnings
+- assertion interoperability does not make every test API interchangeable. Verify skip, known-issue, and async-wait behavior separately; do not carry blocking XCTest waiters into Swift-concurrency tests
 - do not claim app or platform coverage from a host-only package build
 - treat Swift warnings and deprecations as material until classified
 - verify `.strings` or string-catalog resources, JSON resources, asset references, file paths, and package resource inclusion when touched
