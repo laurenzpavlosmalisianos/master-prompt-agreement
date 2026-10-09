@@ -1586,6 +1586,13 @@ class BootstrapRenderingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             project_root = Path(temp_dir)
             cases = (
+                "",
+                "./",
+                "./contracts",
+                "contracts/.",
+                "contracts//nested",
+                "../contracts",
+                "/contracts",
                 "contract root",
                 "-contracts",
                 "contracts;touch",
@@ -1600,6 +1607,103 @@ class BootstrapRenderingTests(unittest.TestCase):
                         value,
                     )
                     self.assertTrue(errors, value)
+
+    def test_project_bootstrap_explicit_project_root_matches_default(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            project_root = root / "project"
+            project_root.mkdir()
+            answers_path = root / "answers.json"
+            answers_path.write_text(
+                json.dumps({
+                    "bootstrap_mode": "minimal",
+                    "agent": "Agent",
+                    "project_name": "Root Contract",
+                    "date": "2026-07-12",
+                    "framework_verification_runner": TEST_FRAMEWORK_RUNNER,
+                }),
+                encoding="utf-8",
+            )
+            arguments = [
+                sys.executable, "-E", "-S", "-B",
+                str(SCRIPTS_DIR / "project_bootstrap.py"),
+                "--answers", str(answers_path),
+                "--project-root", str(project_root),
+                "--runtime", "generic",
+                "--framework-ref", str(REPO_ROOT),
+                "--framework-revision-policy", "pinned",
+                "--dry-run",
+            ]
+            reports = []
+            for selected_root in ([], ["--contract-root", "."]):
+                result = run_bounded(
+                    [*arguments, *selected_root],
+                    cwd=REPO_ROOT,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+                reports.append(json.loads(result.stdout))
+            self.assertEqual(reports[0], reports[1])
+            self.assertEqual(".", reports[1]["contract_root"])
+            self.assertEqual([], list(project_root.iterdir()))
+
+    def test_project_bootstrap_explicit_project_root_writes_approved_preview(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            project_root = root / "project"
+            project_root.mkdir()
+            answers_path = root / "answers.json"
+            answers_path.write_text(
+                json.dumps({
+                    "bootstrap_mode": "minimal",
+                    "agent": "Agent",
+                    "project_name": "Root Contract",
+                    "date": "2026-07-12",
+                    "framework_verification_runner": TEST_FRAMEWORK_RUNNER,
+                }),
+                encoding="utf-8",
+            )
+            arguments = [
+                sys.executable, "-E", "-S", "-B",
+                str(SCRIPTS_DIR / "project_bootstrap.py"),
+                "--answers", str(answers_path),
+                "--project-root", str(project_root),
+                "--contract-root", ".",
+                "--runtime", "generic",
+                "--framework-ref", str(REPO_ROOT),
+                "--framework-revision-policy", "pinned",
+            ]
+            preview = run_bounded(
+                [*arguments, "--dry-run"],
+                cwd=REPO_ROOT,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(0, preview.returncode, preview.stdout + preview.stderr)
+            plan = json.loads(preview.stdout)
+            result = run_bounded(
+                [*arguments, "--approve-write-plan-sha256", plan["write_plan_sha256"]],
+                cwd=REPO_ROOT,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+            for output in plan["rendered_outputs"]:
+                self.assertEqual(
+                    output["text"].encode("utf-8"),
+                    (project_root / output["path"]).read_bytes(),
+                )
+            self.assertEqual(
+                {output["path"] for output in plan["rendered_outputs"]},
+                {path.name for path in project_root.iterdir()},
+            )
+            for filename in ("PROJECT_INPUT.json", "PROJECT_INSTANCE.json"):
+                retained = json.loads((project_root / filename).read_text(encoding="utf-8"))
+                self.assertEqual(".", retained["contract_root"])
 
     def test_project_entrypoint_substitution_is_single_pass_when_root_contains_filename(self) -> None:
         contract_root = "contracts/AGENT_PROJECT.md-bundle"

@@ -281,7 +281,10 @@ def validate_marker(
             errors.append(f"line {line_number}: field {key!r} exceeds {limit} characters")
 
     if marker == "REVIEWER_LANE_USED":
-        if payload.get("lane_class") not in LANE_CLASSES:
+        if (
+            not isinstance(payload.get("lane_class"), str)
+            or payload["lane_class"] not in LANE_CLASSES
+        ):
             errors.append(f"line {line_number}: invalid lane_class: {payload.get('lane_class')}")
         if lane_id in used_or_skipped:
             errors.append(f"line {line_number}: duplicate used/skipped marker for lane {lane_id}")
@@ -289,7 +292,10 @@ def validate_marker(
         validate_single_ref(payload.get("output_ref"), root, line_number, "output_ref", errors)
         validate_refs(payload.get("evidence_refs"), root, line_number, errors)
     elif marker == "REVIEWER_LANE_SKIPPED":
-        if payload.get("reason_category") not in REASON_CATEGORIES:
+        if (
+            not isinstance(payload.get("reason_category"), str)
+            or payload["reason_category"] not in REASON_CATEGORIES
+        ):
             errors.append(f"line {line_number}: invalid reason_category: {payload.get('reason_category')}")
         if lane_id in used_or_skipped:
             errors.append(f"line {line_number}: duplicate used/skipped marker for lane {lane_id}")
@@ -304,7 +310,10 @@ def validate_marker(
         validate_single_ref(payload.get("evidence_ref"), root, line_number, "evidence_ref", errors)
         validate_single_ref(payload.get("action_ref"), root, line_number, "action_ref", errors)
     elif marker == "REVIEWER_FINDING_REJECTED":
-        if payload.get("reason_category") not in REASON_CATEGORIES:
+        if (
+            not isinstance(payload.get("reason_category"), str)
+            or payload["reason_category"] not in REASON_CATEGORIES
+        ):
             errors.append(f"line {line_number}: invalid reason_category: {payload.get('reason_category')}")
         finding_id = as_str(payload.get("finding_id"))
         if finding_id in rejected:
@@ -314,9 +323,15 @@ def validate_marker(
         rejected.add(finding_id)
         validate_single_ref(payload.get("evidence_ref"), root, line_number, "evidence_ref", errors)
     elif marker == "LANE_FIT_OBSERVATION":
-        if payload.get("claim_type") not in CLAIM_TYPES:
+        if (
+            not isinstance(payload.get("claim_type"), str)
+            or payload["claim_type"] not in CLAIM_TYPES
+        ):
             errors.append(f"line {line_number}: invalid claim_type: {payload.get('claim_type')}")
-        if payload.get("confidence") not in CONFIDENCE:
+        if (
+            not isinstance(payload.get("confidence"), str)
+            or payload["confidence"] not in CONFIDENCE
+        ):
             errors.append(f"line {line_number}: invalid confidence: {payload.get('confidence')}")
         validate_refs(payload.get("evidence_refs"), root, line_number, errors)
 

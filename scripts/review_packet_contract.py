@@ -111,6 +111,12 @@ def as_dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _string_choice(value: object, choices: set[str]) -> bool:
+    """Test a JSON enum only after narrowing it to a hashable string."""
+
+    return isinstance(value, str) and value in choices
+
+
 def packet_binding_sha256(data: dict[str, Any]) -> str:
     binding: dict[str, Any] = {}
     for field in PACKET_BINDING_FIELDS:
@@ -244,8 +250,8 @@ def _phase_passed(value: Any) -> bool:
 
 def _preinvocation_abandonment(stage: Any, invocation_status: Any) -> bool:
     return (
-        stage in {"blocked", "declined"}
-        and invocation_status in PREINVOCATION_ABANDONMENT_STATUSES
+        _string_choice(stage, {"blocked", "declined"})
+        and _string_choice(invocation_status, PREINVOCATION_ABANDONMENT_STATUSES)
     )
 
 
@@ -278,7 +284,7 @@ def _ephemeral_cleanup_allowed(data: dict[str, Any]) -> bool:
     receipts = as_dict(data.get("validation_receipts"))
     terminal_cleanup = stage == "closed" or (
         stage == "blocked"
-        and invocation_status in TERMINAL_INVOCATION_STATUSES
+        and _string_choice(invocation_status, TERMINAL_INVOCATION_STATUSES)
     )
     if terminal_cleanup:
         return not receipt_mismatches(
@@ -312,7 +318,7 @@ def _model_identity_errors(value: Any, label: str) -> list[str]:
     errors: list[str] = []
     version_kind = value.get("version_kind")
     model_identifier = value.get("model_identifier")
-    if version_kind not in MODEL_VERSION_KINDS:
+    if not _string_choice(version_kind, MODEL_VERSION_KINDS):
         errors.append(f"{label}.version_kind is invalid")
     elif version_kind == "not_exposed":
         if model_identifier is not None:
@@ -333,7 +339,7 @@ def invocation_provenance_errors(invocation: Any) -> list[str]:
         return ["invocation must be an object"]
     status_value = invocation.get("status")
     runtime_class = invocation.get("runtime_class")
-    if runtime_class not in REVIEWER_RUNTIME_CLASSES:
+    if not _string_choice(runtime_class, REVIEWER_RUNTIME_CLASSES):
         return ["invocation.runtime_class is invalid"]
 
     identity_fields = (
@@ -343,13 +349,13 @@ def invocation_provenance_errors(invocation: Any) -> list[str]:
         "reasoning_effort_status",
         "exact_reasoning_effort",
     )
-    if status_value in {"not_started", "skipped"}:
+    if _string_choice(status_value, {"not_started", "skipped"}):
         if any(invocation.get(field) is not None for field in identity_fields):
             return [
                 "not-started or skipped invocation cannot claim exact execution provenance"
             ]
         return []
-    if status_value not in INVOCATION_STATUSES:
+    if not _string_choice(status_value, INVOCATION_STATUSES):
         return []
 
     errors: list[str] = []
@@ -360,7 +366,7 @@ def invocation_provenance_errors(invocation: Any) -> list[str]:
 
     effort_status = invocation.get("reasoning_effort_status")
     exact_effort = invocation.get("exact_reasoning_effort")
-    if runtime_class in MODEL_BACKED_RUNTIME_CLASSES:
+    if _string_choice(runtime_class, MODEL_BACKED_RUNTIME_CLASSES):
         observed_model = invocation.get("observed_model")
         errors.extend(
             _model_identity_errors(
@@ -377,7 +383,7 @@ def invocation_provenance_errors(invocation: Any) -> list[str]:
                 errors.append(
                     "model or hybrid invocation observed_model requires a comparison basis"
                 )
-        if effort_status not in {"recorded", "not_exposed"}:
+        if not _string_choice(effort_status, {"recorded", "not_exposed"}):
             errors.append(
                 "model or hybrid invocation reasoning effort must be recorded or not_exposed"
             )
@@ -444,7 +450,7 @@ def _planned_model_policy_errors(
     runtime_class = context.invocation.get("runtime_class")
     planned_policy = context.data.get("planned_model_policy")
     errors: list[str] = []
-    if runtime_class in MODEL_BACKED_RUNTIME_CLASSES:
+    if _string_choice(runtime_class, MODEL_BACKED_RUNTIME_CLASSES):
         if not isinstance(planned_policy, dict):
             errors.append(
                 "model or hybrid lane requires a planned_model_policy before approval"
@@ -455,7 +461,10 @@ def _planned_model_policy_errors(
             )
             if not _nonempty_string(planned_policy.get("selection_basis")):
                 errors.append("planned_model_policy requires a selection basis")
-    elif runtime_class in REVIEWER_RUNTIME_CLASSES and planned_policy is not None:
+    elif (
+        _string_choice(runtime_class, REVIEWER_RUNTIME_CLASSES)
+        and planned_policy is not None
+    ):
         errors.append(
             "human or deterministic-tool lane cannot claim a planned_model_policy"
         )
@@ -479,7 +488,7 @@ def _planned_model_policy_errors(
                 errors.append(
                     "matching immutable planned and observed snapshots require the same identifier"
                 )
-        elif planned_kind in {"stable_alias", "moving_alias"}:
+        elif _string_choice(planned_kind, {"stable_alias", "moving_alias"}):
             if observed_kind == planned_kind:
                 if planned_identifier != observed_identifier:
                     errors.append(
@@ -1022,7 +1031,10 @@ def _phase_semantic_errors(value: Any, label: str) -> list[str]:
     if not isinstance(checks, list):
         return [f"{label}.checks must be an array"]
     errors: list[str] = []
-    check_ids = [item.get("check_id") for item in checks if isinstance(item, dict)]
+    check_ids = [
+        item["check_id"] for item in checks
+        if isinstance(item, dict) and isinstance(item.get("check_id"), str)
+    ]
     if len(check_ids) != len(set(check_ids)):
         errors.append(f"{label} check IDs must be unique")
     if status_value == "not_started":
@@ -1050,8 +1062,8 @@ def _artifact_maps(data: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str
     raw = data.get("evidence_artifacts")
     artifacts = [item for item in raw if isinstance(item, dict)] if isinstance(raw, list) else []
     errors: list[str] = []
-    ids = [item.get("artifact_id") for item in artifacts]
-    locators = [item.get("locator") for item in artifacts]
+    ids = [item["artifact_id"] for item in artifacts if isinstance(item.get("artifact_id"), str)]
+    locators = [item["locator"] for item in artifacts if isinstance(item.get("locator"), str)]
     if len(ids) != len(set(ids)):
         errors.append("evidence artifact IDs must be unique")
     if len(locators) != len(set(locators)):
@@ -1598,23 +1610,23 @@ def _portable_manifest_context(data: dict[str, Any]) -> _PortableManifestContext
     items = items_value if isinstance(items_value, list) else []
     invocation = as_dict(data.get("invocation"))
     invocation_status = invocation.get("status")
-    invoked = invocation_status in INVOCATION_STATUSES
-    terminal_invocation = invocation_status in TERMINAL_INVOCATION_STATUSES
+    invoked = _string_choice(invocation_status, INVOCATION_STATUSES)
+    terminal_invocation = _string_choice(invocation_status, TERMINAL_INVOCATION_STATUSES)
     approved = approval.get("status") == "approved"
     receipts = as_dict(data.get("validation_receipts"))
     stage = lifecycle.get("stage")
     ready_present = isinstance(receipts.get("packet_ready"), dict)
     pre_submission_present = isinstance(receipts.get("pre_submission"), dict)
     ready_required = (
-        stage in ACTIVE_STAGES
+        _string_choice(stage, ACTIVE_STAGES)
         or approved
         or invoked
         or ready_present
         or pre_submission_present
     )
-    approval_required = stage in {
-        "approved", "invoked", "returned", "validated", "closed"
-    } or (stage == "blocked" and invoked)
+    approval_required = _string_choice(
+        stage, {"approved", "invoked", "returned", "validated", "closed"}
+    ) or (stage == "blocked" and invoked)
     return _PortableManifestContext(
         data=data,
         lifecycle=lifecycle,
@@ -1711,19 +1723,26 @@ def _lifecycle_and_invocation_errors(context: _PortableManifestContext) -> list[
         errors.append("declined lifecycle must match declined approval")
     if context.approval.get("status") == "declined" and stage != "declined":
         errors.append("declined approval requires declined lifecycle")
-    if context.approved and stage in {"planned", "packet_ready", "declined"}:
+    if context.approved and _string_choice(stage, {"planned", "packet_ready", "declined"}):
         errors.append("approved packet cannot remain in a pre-approval or declined lifecycle")
     if stage == "invoked" and not context.invoked:
         errors.append("invoked lifecycle requires a started, returned, or failed invocation")
     if invocation_status == "started" and stage != "invoked":
         errors.append("started invocation requires invoked lifecycle")
-    if context.terminal_invocation and stage not in {"returned", "validated", "closed", "blocked"}:
+    if context.terminal_invocation and not _string_choice(
+        stage, {"returned", "validated", "closed", "blocked"}
+    ):
         errors.append("terminal invocation requires returned, validated, closed, or blocked lifecycle")
-    if stage in {"returned", "validated", "closed"} and not context.terminal_invocation:
+    if (
+        _string_choice(stage, {"returned", "validated", "closed"})
+        and not context.terminal_invocation
+    ):
         errors.append("returned-or-later lifecycle requires a returned or failed invocation")
     if stage == "blocked" and invocation_status == "started":
         errors.append("blocked lifecycle cannot leave an invocation in nonterminal started state")
-    if stage == "declined" and invocation_status not in {"not_started", "skipped"}:
+    if stage == "declined" and not _string_choice(
+        invocation_status, {"not_started", "skipped"}
+    ):
         errors.append("declined lifecycle cannot contain an invocation")
     if context.invoked and _parse_timestamp(invocation.get("started_at")) is None:
         errors.append("invocation requires a start timestamp")
@@ -1739,7 +1758,7 @@ def _lifecycle_and_invocation_errors(context: _PortableManifestContext) -> list[
         )
     if invocation_status == "failed" and not invocation.get("failure_class"):
         errors.append("failed invocation requires a failure class")
-    if invocation_status in {"not_started", "skipped"} and any(
+    if _string_choice(invocation_status, {"not_started", "skipped"}) and any(
         invocation.get(field) is not None
         for field in (
             "started_at", "ended_at", "output_sha256", "failure_class",
@@ -1760,7 +1779,7 @@ def _lifecycle_and_invocation_errors(context: _PortableManifestContext) -> list[
 def _preflight_errors(context: _PortableManifestContext) -> list[str]:
     preflight = as_dict(context.data.get("preflight"))
     errors = _phase_semantic_errors(preflight, "preflight")
-    if preflight.get("status") in {"passed", "failed"} and not context.approved:
+    if _string_choice(preflight.get("status"), {"passed", "failed"}) and not context.approved:
         errors.append("completed preflight requires prior exact packet approval")
     if context.invoked or context.pre_submission_present:
         if not _phase_passed(context.data.get("preflight")):
@@ -1780,7 +1799,7 @@ def _verification_and_artifact_errors(
 ) -> tuple[list[str], list[dict[str, Any]]]:
     errors: list[str] = []
     verification = as_dict(context.data.get("verification"))
-    verification_required = context.stage in {"validated", "closed"} or (
+    verification_required = _string_choice(context.stage, {"validated", "closed"}) or (
         context.stage == "blocked" and context.invocation_status == "returned"
     )
     if verification_required and (
@@ -1789,9 +1808,9 @@ def _verification_and_artifact_errors(
         or not is_nonplaceholder_sha256(verification.get("verification_record_sha256"))
     ):
         errors.append("validated or closed review requires classified verification evidence")
-    if verification.get("findings_classified") is True and context.stage not in {
-        "validated", "closed", "blocked"
-    }:
+    if verification.get("findings_classified") is True and not _string_choice(
+        context.stage, {"validated", "closed", "blocked"}
+    ):
         errors.append("classified verification requires validated, closed, or blocked lifecycle")
     if not verification_required and verification.get("findings_classified") is False and (
         verification.get("performed_at") is not None
@@ -1855,7 +1874,7 @@ def _external_status_errors(
     ):
         errors.append("external reviewer status requires a full control manifest")
     if external_status == "used":
-        if context.stage not in {"validated", "closed"}:
+        if not _string_choice(context.stage, {"validated", "closed"}):
             errors.append("external reviewer status used requires validated or closed lifecycle")
         if (
             context.invocation_status != "returned"
@@ -1868,9 +1887,9 @@ def _external_status_errors(
             or not is_nonplaceholder_sha256(verification.get("verification_record_sha256"))
         ):
             errors.append("external reviewer status used requires classified verification evidence")
-    elif external_status == "approved" and context.stage not in {
-        "approved", "invoked", "returned", "validated", "closed"
-    }:
+    elif external_status == "approved" and not _string_choice(
+        context.stage, {"approved", "invoked", "returned", "validated", "closed"}
+    ):
         errors.append("external reviewer status approved requires approved-or-later lifecycle")
     return errors
 
@@ -1891,7 +1910,7 @@ def _closeout_errors(context: _PortableManifestContext) -> list[str]:
     )
     closeout_incomplete = closeout_must_complete and (
         not _phase_passed(closeout)
-        or closeout.get("cleanup_status") not in {"complete", "not_applicable"}
+        or not _string_choice(closeout.get("cleanup_status"), {"complete", "not_applicable"})
         or _parse_timestamp(closeout.get("performed_at")) is None
         or (closeout.get("cleanup_status") == "complete" and not closeout.get("cleanup_evidence_ref"))
     )
@@ -1976,10 +1995,11 @@ def portable_manifest_errors(
         return ["manifest root must be an object"]
     context = _portable_manifest_context(data)
     errors = schema_errors(data)
-    if context.stage not in {
-        "planned", "packet_ready", "approved", "invoked", "returned",
-        "validated", "closed", "blocked", "declined",
-    }:
+    if not _string_choice(
+        context.stage,
+        {"planned", "packet_ready", "approved", "invoked", "returned",
+         "validated", "closed", "blocked", "declined"},
+    ):
         errors.append("lifecycle.stage is invalid")
     errors.extend(_lane_control_errors(data))
     errors.extend(_planned_model_policy_errors(context))
@@ -2042,7 +2062,7 @@ def prepare_receipt(
         if as_dict(candidate.get("approval")).get("status") != "pending":
             return None, ["packet_ready receipt must be prepared before approval"]
         if (
-            lifecycle.get("stage") not in {"planned", "packet_ready"}
+            not _string_choice(lifecycle.get("stage"), {"planned", "packet_ready"})
             or as_dict(candidate.get("invocation")).get("status") != "not_started"
         ):
             return None, [

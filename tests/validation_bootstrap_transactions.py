@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import select
 import signal
+import stat
 import sys
 import tempfile
 import time
@@ -465,6 +466,153 @@ def _run_project_bootstrap_with_warnings(
 
 
 class BootstrapTransactionTests(unittest.TestCase):
+    def test_initial_directory_fstat_failure_preserves_ownership_and_primary(self) -> None:
+        parent = bootstrap_transaction._DirectoryBinding(
+            descriptor=71, parent=None, entry_name=None,
+            identity=(1, 2, 3, 4, 5), label="project root", project_relative_parts=(),
+        )
+        for mechanism in ("existing", "created", "transaction", "filesystem-root"):
+            for failure_type in (OSError, KeyboardInterrupt):
+                for fail_cleanup in (False, True):
+                    with self.subTest(mechanism=mechanism, failure=failure_type, cleanup=fail_cleanup):
+                        primary = failure_type("initial fstat failure")
+                        events: list[str] = []
+
+                        def record_close(descriptor: int) -> None:
+                            self.assertEqual(72, descriptor)
+                            events.append("close")
+                            if fail_cleanup:
+                                raise OSError("secondary close failure")
+
+                        def record_rmdir(name: str, *, dir_fd: int | None = None) -> None:
+                            self.assertEqual(71, dir_fd)
+                            events.append("rmdir")
+                            if fail_cleanup:
+                                raise OSError("secondary rmdir failure")
+
+                        def record_fsync(descriptor: int) -> None:
+                            self.assertEqual(71, descriptor)
+                            events.append("fsync")
+                            if fail_cleanup:
+                                raise OSError("secondary fsync failure")
+
+                        bindings: list[bootstrap_transaction._DirectoryBinding] = []
+                        with (
+                            mock.patch.object(bootstrap_transaction.os, "open", return_value=72),
+                            mock.patch.object(bootstrap_transaction.os, "mkdir"),
+                            mock.patch.object(bootstrap_transaction.os, "fstat", side_effect=primary),
+                            mock.patch.object(bootstrap_transaction.os, "close", side_effect=record_close),
+                            mock.patch.object(bootstrap_transaction.os, "rmdir", side_effect=record_rmdir),
+                            mock.patch.object(bootstrap_transaction.os, "fsync", side_effect=record_fsync),
+                            self.assertRaises(failure_type) as caught,
+                        ):
+                            if mechanism == "filesystem-root":
+                                bootstrap_transaction._open_project_root_transaction(Path("/project"), all_bindings=bindings)
+                            elif mechanism == "transaction":
+                                bootstrap_transaction._create_transaction_directory(parent, entry_name=".mpa-bootstrap-transaction-" + "0" * 32, all_bindings=bindings)
+                            else:
+                                bootstrap_transaction._open_bound_directory(
+                                    parent, "child", label="test child", create=mechanism == "created",
+                                    require_absent=mechanism == "created", require_owner=False,
+                                    created_bindings=[], all_bindings=bindings,
+                                )
+                        self.assertIs(primary, caught.exception)
+                        self.assertEqual(["close", "rmdir", "fsync"] if mechanism in {"created", "transaction"} else ["close"], events)
+                        self.assertEqual([], bindings)
+                        if fail_cleanup:
+                            self.assertEqual(len(events), len(getattr(primary, "__notes__", ())))
+
+    def test_previous_journal_copy_cleanup_preserves_primary_and_exact_identity(self) -> None:
+        metadata = (REPO_ROOT / "AGENTS.md").stat()
+        root = bootstrap_transaction._DirectoryBinding(
+            descriptor=71, parent=None, entry_name=None,
+            identity=bootstrap_transaction._directory_identity(metadata),
+            label="project root", project_relative_parts=(),
+        )
+        for failure_type in (OSError, KeyboardInterrupt):
+            for named_identity in ("exact", "changed", "absent"):
+                with self.subTest(failure=failure_type, identity=named_identity):
+                    primary = failure_type("original copy failure")
+                    events: list[str] = []
+
+                    def fail_close(descriptor: int) -> None:
+                        events.append("close")
+                        raise OSError("secondary close failure")
+
+                    def fail_unlink(name: str, *, dir_fd: int | None = None) -> None:
+                        events.append("unlink")
+                        raise OSError("secondary unlink failure")
+
+                    def fail_fsync(descriptor: int) -> None:
+                        events.append("fsync")
+                        raise OSError("secondary fsync failure")
+
+                    current = None if named_identity == "absent" else metadata
+                    identity = bootstrap_transaction._inode_object_identity(metadata)
+                    with (
+                        mock.patch.object(bootstrap_transaction.os, "lseek"),
+                        mock.patch.object(bootstrap_transaction.os, "read", side_effect=[b"prior", b""]),
+                        mock.patch.object(bootstrap_transaction.os, "fstat", return_value=metadata),
+                        mock.patch.object(bootstrap_transaction.os, "open", return_value=72),
+                        mock.patch.object(bootstrap_transaction.os, "fchmod"),
+                        mock.patch.object(bootstrap_transaction, "_write_all", side_effect=primary),
+                        mock.patch.object(bootstrap_transaction.os, "close", side_effect=fail_close),
+                        mock.patch.object(bootstrap_transaction.os, "unlink", side_effect=fail_unlink),
+                        mock.patch.object(bootstrap_transaction.os, "fsync", side_effect=fail_fsync),
+                        mock.patch.object(bootstrap_transaction, "_lstat_at", return_value=current),
+                        mock.patch.object(bootstrap_transaction, "_inode_object_identity", side_effect=[identity, (0,) if named_identity == "changed" else identity]),
+                        self.assertRaises(failure_type) as caught,
+                    ):
+                        bootstrap_transaction._copy_open_journal_to_previous(root, 70, metadata)
+                    self.assertIs(primary, caught.exception)
+                    self.assertEqual(["close", "unlink", "fsync"] if named_identity == "exact" else ["close", "fsync"], events)
+                    self.assertEqual(len(events), len(getattr(primary, "__notes__", ())))
+
+    def test_recovery_journal_rejects_unhashable_operation_actions(self) -> None:
+        payload: dict[str, object] = {
+            "schema_version": bootstrap_transaction.RECOVERY_JOURNAL_SCHEMA_VERSION,
+            "transaction_id": "a" * 32, "phase": "preparing", "applied_count": 0,
+            "bound_directories": [{"path": ".", "identity": [1, 2, 3, 4, 5]}],
+            "created_directories": [], "retired_directories": [],
+            "operations": [{
+                "path": "file.md", "action": "write",
+                "transaction_directory": ".mpa-bootstrap-transaction-" + "b" * 32,
+                "stage_name": "stage-0", "backup_name": None, "original": None,
+                "candidate": {"sha256": hashlib.sha256(b"x").hexdigest(), "mode": None, "size": 1},
+            }],
+        }
+        self.assertEqual([], bootstrap_transaction._validate_journal_payload(payload))
+        for invalid in ([], {}):
+            with self.subTest(action=invalid):
+                cast(list[dict[str, object]], payload["operations"])[0]["action"] = invalid
+                errors = bootstrap_transaction._validate_journal_payload(payload)
+                self.assertTrue(any(".action must be one of" in error for error in errors), errors)
+                raw = json.dumps(payload).encode("utf-8")
+                metadata = os.stat_result((
+                    stat.S_IFREG | 0o600, 2, 1, 1,
+                    os.geteuid(), os.getegid(), len(raw), 0, 0, 0,
+                ))
+                root = bootstrap_transaction._DirectoryBinding(
+                    descriptor=71, parent=None, entry_name=None,
+                    identity=(1, 2, 3, 4, 5), label="root", project_relative_parts=(),
+                )
+                with (
+                    mock.patch.object(bootstrap_transaction.os, "open", return_value=72),
+                    mock.patch.object(bootstrap_transaction.os, "fstat", return_value=metadata),
+                    mock.patch.object(bootstrap_transaction.os, "read", side_effect=[raw, b""]),
+                    mock.patch.object(bootstrap_transaction.os, "close") as close,
+                    mock.patch.object(bootstrap_transaction.os, "unlink") as unlink,
+                    mock.patch.object(bootstrap_transaction, "_lstat_at", return_value=metadata),
+                ):
+                    decoded, read_errors = bootstrap_transaction._read_recovery_journal_snapshot(
+                        root, name=bootstrap_transaction.RECOVERY_JOURNAL_NAME,
+                        metadata=metadata, description="test journal", require_single_link=True,
+                    )
+                self.assertEqual(payload, decoded)
+                self.assertEqual(errors, read_errors)
+                close.assert_called_once_with(72)
+                unlink.assert_not_called()
+
     @unittest.skipUnless(hasattr(os, "fork"), "requires fork fixture support")
     def test_fork_fixture_rejects_invalid_timeout_before_fork(self) -> None:
         def must_not_run() -> int:

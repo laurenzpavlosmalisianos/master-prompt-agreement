@@ -2999,6 +2999,44 @@ class ProjectRefreshLifecycleTests(unittest.TestCase):
         self.assertIsNotNone(loaded)
         self.assertEqual(errors, load_errors)
 
+    def test_plan_rejects_unhashable_boundary_values_without_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir) / "project"
+            project_root.mkdir()
+            _materialize_project(project_root)
+            built = project_refresh.build_plan(project_root, ".")
+            self.assertIsNotNone(built.payload, built.errors)
+            assert built.payload is not None
+            before = _tree_snapshot(project_root)
+            for field in (
+                "mode", "project_kind", "revision_policy", "backout_kind",
+                "action", "category", "retirement_path", "warning_id", "warning_message",
+            ):
+                for invalid in ([], {}):
+                    with self.subTest(field=field, value=invalid):
+                        plan = copy.deepcopy(built.payload)
+                        if field == "mode":
+                            plan["mode"] = invalid
+                        elif field in {"project_kind", "revision_policy"}:
+                            target = cast(dict[str, object], plan["target_input"])
+                            target["project_kind" if field == "project_kind" else "framework_revision_policy"] = invalid
+                        elif field == "backout_kind":
+                            plan["post_apply_backout"] = {"kind": invalid}
+                        elif field.startswith("warning_"):
+                            plan["warnings"] = [{"id": invalid if field == "warning_id" else "WARN-invalid", "message": invalid if field == "warning_message" else "warning"}]
+                        else:
+                            operation = cast(list[dict[str, object]], plan["operations"])[0]
+                            if field == "retirement_path":
+                                operation.update(action="remove", category="immutable", path=invalid)
+                            else:
+                                operation[field] = invalid
+                        plan_path = Path(temp_dir) / "plan.json"
+                        plan_path.write_text(json.dumps(plan), encoding="utf-8")
+                        loaded, errors = project_refresh._load_plan(plan_path)
+                        self.assertIsNotNone(loaded)
+                        self.assertTrue(errors, field)
+                        self.assertEqual(before, _tree_snapshot(project_root))
+
     def test_noncurrent_plan_schema_stops_at_one_version_boundary(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project_root = Path(temp_dir)

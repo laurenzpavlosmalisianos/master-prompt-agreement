@@ -774,7 +774,7 @@ def validate_evidence(
         parse_iso_date(item.get("checked_at"), label=f"{item_label}.checked_at", errors=errors)
         locator = item.get("locator")
         role = item.get("source_role")
-        if role not in {"primary", "local"}:
+        if not isinstance(role, str) or role not in {"primary", "local"}:
             errors.append(f"{item_label}.source_role must be primary or local")
         if isinstance(locator, str):
             if role == "primary":
@@ -890,14 +890,14 @@ def validate_verification_records(
                 errors=errors,
             )
         verifier_role = record.get("verifier_role")
-        if verifier_role not in VERIFIER_ROLES:
+        if not isinstance(verifier_role, str) or verifier_role not in VERIFIER_ROLES:
             errors.append(
                 f"{label}.verifier_role must be one of: "
                 f"{', '.join(sorted(VERIFIER_ROLES))}"
             )
         parse_iso_date(record.get("verified_at"), label=f"{label}.verified_at", errors=errors)
         claim_class = record.get("claim_class")
-        if claim_class not in CLAIM_CLASS_RULES:
+        if not isinstance(claim_class, str) or claim_class not in CLAIM_CLASS_RULES:
             errors.append(f"{label}.claim_class must be external_source or local_process")
             continue
         required_status, required_method, required_role = CLAIM_CLASS_RULES[claim_class]

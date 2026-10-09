@@ -1541,7 +1541,7 @@ def _validate_backout_basis(
     if not isinstance(value, dict):
         return ["post_apply_backout must use a closed object schema"]
     kind = value.get("kind")
-    if kind in {"not-required", "none"}:
+    if isinstance(kind, str) and kind in {"not-required", "none"}:
         if set(value) != {"kind"}:
             return [f"post_apply_backout kind {kind} permits only the kind field"]
         return []
@@ -2464,7 +2464,8 @@ def _validate_plan(payload: object) -> list[str]:
         )
     if payload.get("kind") != PLAN_KIND:
         errors.append(f"refresh plan kind must be exactly {PLAN_KIND!r}")
-    if payload.get("mode") not in {"no-op", "refresh", "revise"}:
+    mode = payload.get("mode")
+    if not isinstance(mode, str) or mode not in {"no-op", "refresh", "revise"}:
         errors.append("refresh plan mode must be one of: no-op, refresh, revise")
 
     project_root_value = payload.get("project_root")
@@ -2719,12 +2720,13 @@ def _validate_plan(payload: object) -> list[str]:
                 errors.append(f"{label} must use the exact operation schema")
                 continue
             valid_operations.append(operation)
-            if operation.get("action") not in OPERATION_ACTIONS:
+            action = operation.get("action")
+            if not isinstance(action, str) or action not in OPERATION_ACTIONS:
                 errors.append(f"{label}.action is invalid")
             elif operation.get("action") != "preserve":
                 changed_operations = True
             category = operation.get("category")
-            if category not in OPERATION_CATEGORIES:
+            if not isinstance(category, str) or category not in OPERATION_CATEGORIES:
                 errors.append(f"{label}.category is invalid")
             path = operation.get("path")
             if not isinstance(path, str) or path in seen_paths:
@@ -2985,7 +2987,7 @@ def _validate_plan(payload: object) -> list[str]:
     active_profiles = payload.get("active_profiles")
     if target_answers is not None and isinstance(target_input, dict):
         project_kind = target_input.get("project_kind")
-        if project_kind in contract_model.PROJECT_KINDS:
+        if isinstance(project_kind, str) and project_kind in contract_model.PROJECT_KINDS:
             expected_profiles = project_bootstrap.active_project_profiles(
                 target_answers,
                 project_kind=str(project_kind),
@@ -3107,12 +3109,15 @@ def _validate_plan(payload: object) -> list[str]:
         for operation in valid_operations
         if operation.get("action") == "remove"
         and operation.get("category") == "immutable"
+        and isinstance(operation.get("path"), str)
         and operation.get("path") in immutable_optional_paths
     ]
     warning_pairs = {
         (item.get("id"), item.get("message"))
         for item in warnings
         if isinstance(item, dict)
+        and isinstance(item.get("id"), str)
+        and isinstance(item.get("message"), str)
     } if isinstance(warnings, list) else set()
     for operation in [
         *mutable_retirement_operations,

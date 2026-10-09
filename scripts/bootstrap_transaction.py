@@ -1036,8 +1036,8 @@ def _open_bound_directory(
             raise
     if descriptor is None:
         raise AssertionError("bound directory opening did not produce a descriptor")
-    metadata = os.fstat(descriptor)
     try:
+        metadata = os.fstat(descriptor)
         if not stat.S_ISDIR(metadata.st_mode):
             raise ValueError(f"{label} must be a directory")
         if require_owner:
@@ -1112,13 +1112,20 @@ def _open_project_root_transaction(
     if any(part in {"", ".", ".."} for part in absolute.parts[1:]):
         raise ValueError(f"target project root contains an unsafe component: {absolute}")
     root_descriptor = os.open("/", _transaction_directory_flags())
-    filesystem_root = _DirectoryBinding(
-        descriptor=root_descriptor,
-        parent=None,
-        entry_name=None,
-        identity=_directory_identity(os.fstat(root_descriptor)),
-        label="filesystem root",
-    )
+    try:
+        filesystem_root = _DirectoryBinding(
+            descriptor=root_descriptor,
+            parent=None,
+            entry_name=None,
+            identity=_directory_identity(os.fstat(root_descriptor)),
+            label="filesystem root",
+        )
+    except BaseException as exc:
+        resource_cleanup.cleanup_actions(
+            (("filesystem root descriptor", lambda: os.close(root_descriptor)),),
+            primary=exc,
+        )
+        raise
     all_bindings.append(filesystem_root)
     current = filesystem_root
     root_created_bindings: list[_DirectoryBinding] = []
@@ -1635,8 +1642,8 @@ def _create_transaction_directory(
             primary=exc,
         )
         raise
-    metadata = os.fstat(descriptor)
     try:
+        metadata = os.fstat(descriptor)
         os.fchmod(descriptor, 0o700)
         metadata = os.fstat(descriptor)
         _require_owned_directory(
@@ -2888,7 +2895,7 @@ def _validate_journal_payload(payload: object) -> list[str]:
             seen_path_parts.append(path_parts)
             seen_paths.add(path)
         action = operation.get("action")
-        if action not in _RECOVERY_ACTIONS:
+        if not isinstance(action, str) or action not in _RECOVERY_ACTIONS:
             errors.append(
                 f"{label}.action must be one of: {', '.join(sorted(_RECOVERY_ACTIONS))}"
             )
@@ -3425,9 +3432,7 @@ def _copy_open_journal_to_previous(
         )
         copied_identity = _inode_payload_identity(copied)
     except BaseException as exc:
-        try:
-            os.close(descriptor)
-        finally:
+        def retire_failed_previous_copy() -> None:
             current = _lstat_at(root, _RECOVERY_JOURNAL_PREVIOUS_NAME)
             if (
                 created_object_identity is not None
@@ -3438,8 +3443,19 @@ def _copy_open_journal_to_previous(
                     _RECOVERY_JOURNAL_PREVIOUS_NAME,
                     dir_fd=_binding_descriptor(root),
                 )
-                os.fsync(_binding_descriptor(root))
-        raise exc
+
+        resource_cleanup.cleanup_actions(
+            (
+                ("failed previous journal descriptor", lambda: os.close(descriptor)),
+                ("failed exact previous journal copy", retire_failed_previous_copy),
+                (
+                    "previous journal parent directory",
+                    lambda: os.fsync(_binding_descriptor(root)),
+                ),
+            ),
+            primary=exc,
+        )
+        raise
     else:
         os.close(descriptor)
     expected_evidence = {
