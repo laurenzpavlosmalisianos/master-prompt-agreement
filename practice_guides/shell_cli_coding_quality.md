@@ -8,7 +8,7 @@ Before source-sensitive shell or CLI recommendations, use project `SOURCE_PACKS.
 
 1. Frame the shell and CLI contract.
 
-- identify the target shell, shebang, execution environment, operating systems, required utilities, locale, working directory, environment variables, PATH policy, privileges, and whether portability to POSIX `sh` is required
+- identify the target shell, shebang, minimum supported shell and utility versions, execution environment, operating systems, required utilities, locale, working directory, environment variables, PATH policy, privileges, and applicable POSIX edition when portability to `sh` is required
 - distinguish interactive convenience commands from persisted scripts, bootstrap logic, destructive maintenance scripts, and automation jobs
 - define CLI inputs, outputs, exit codes, logging, help text, config files, dry-run behavior, and failure policy before editing
 - inspect callers such as Makefiles, package scripts, schedulers, hooks, docs, and automations that depend on the script
@@ -19,6 +19,7 @@ Before source-sensitive shell or CLI recommendations, use project `SOURCE_PACKS.
 2. Handle expansion, quoting, and data safely.
 
 - quote parameter expansions unless intentional word splitting or globbing is explicitly required and tested
+- validate numeric input before shell arithmetic, integer-attribute assignments, or indexed-array subscripts; quoting alone does not prevent the shell from evaluating data as an expression
 - use arrays in shells that support them when passing argv lists; in POSIX `sh`, use functions, `set --`, and `"$@"` rather than string-built argv emulation
 - avoid `eval`, untrusted command strings, unsafe `xargs`, unsafe `find -exec sh -c`, and command substitution over untrusted data unless the boundary is justified and tested
 - at each shell boundary, prefer argv, stdin, files, or environment variables over interpolated shell text; quote for the receiving shell, not only the local shell
@@ -52,7 +53,7 @@ Before source-sensitive shell or CLI recommendations, use project `SOURCE_PACKS.
 5. Verify with configured tools and representative cases.
 
 - run static shell syntax checks for the target shell before execution
-- run ShellCheck and shfmt when configured or appropriate; classify warnings rather than suppressing them mechanically
+- run ShellCheck and shfmt when configured or appropriate; verify their selected dialect and version support, set the dialect explicitly when inference is ambiguous, and classify warnings rather than suppressing them mechanically
 - test success, usage error, missing dependency, paths with spaces, empty input, failed subprocess, interrupted run, dry-run, and destructive-protection behavior where relevant
 - do not execute install, bootstrap, migration, cleanup, remote-write, package-install, or destructive scripts unless the task authorizes it and the command is sandboxed, dry-run, or otherwise bounded
 - verify shell scripts in the same runner, container, OS, and working directory that the project uses

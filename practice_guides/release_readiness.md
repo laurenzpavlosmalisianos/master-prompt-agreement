@@ -22,6 +22,7 @@ Use this Practice Guide before release, deployment, or merge of high-impact work
 - required validators, release gates, or generated-artifact checks that validate only shape, counts, parsing, or stale scratch artifacts instead of the declared product-surface invariant
 - unresolved supply-chain or source-trust blockers: unexpected lockfile or package-source changes, unverified artifact provenance, missing required SBOM or attestation evidence, unresolved dependency advisories, unreviewed generated, retrieved, or third-party content, or unmet license or attribution obligations
 - blockers that prevent meaningful security, fuzzing, property-based, sanitizer, or coverage checks from running on high-risk input surfaces
+- missing required native-artifact or updater evidence under the applicable `secure_development.md` profile; build flags or signatures alone do not satisfy that profile
 - unapproved or undocumented compatibility breaks
 - missing env vars, secrets handling, rollback, or containment path
 - stale docs, changelog, or runbooks for user-facing or operational changes

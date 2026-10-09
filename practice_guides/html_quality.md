@@ -19,7 +19,7 @@ Before source-sensitive HTML recommendations, use project `SOURCE_PACKS.md` and 
 - prefer the native element that matches the meaning and interaction before adding ARIA, roles, keyboard handlers, or custom widgets
 - verify landmarks, headings, sections, navigation, main content, lists, tables, figures, captions, addresses, quotes, code, time, and data elements against their real content role
 - keep heading order and sectioning meaningful without using heading levels as purely visual sizing controls
-- ensure IDs are unique, fragment targets exist, labels reference existing controls, and generated names stay stable
+- ensure IDs are unique within their tree, fragment targets exist, labels resolve to labelable controls in the same tree, and generated names stay stable; for components with shadow roots, verify the actual label and accessible-name relationships across component boundaries
 - remove redundant or misleading roles, labels, `aria-*`, `tabindex`, hidden states, and inert or disabled behavior that conflict with native semantics
 
 3. Review links, buttons, forms, and states.
