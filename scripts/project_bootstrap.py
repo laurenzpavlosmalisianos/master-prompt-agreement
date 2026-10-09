@@ -1835,7 +1835,7 @@ def resolve_contract_root(
     project_root: Path,
     raw_contract_root: str | None,
 ) -> tuple[Path, str, list[str]]:
-    if raw_contract_root is None:
+    if raw_contract_root is None or raw_contract_root == ".":
         return project_root, ".", []
     try:
         relative = safe_paths.normalize_repo_relative_path(

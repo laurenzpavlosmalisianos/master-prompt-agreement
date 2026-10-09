@@ -239,7 +239,7 @@ def validate_project_input_structure(
         )
 
     revision_policy = payload.get("framework_revision_policy")
-    if revision_policy not in REVISION_POLICIES:
+    if not isinstance(revision_policy, str) or revision_policy not in REVISION_POLICIES:
         errors.append(
             "project input framework_revision_policy must be one of: "
             + ", ".join(sorted(REVISION_POLICIES))

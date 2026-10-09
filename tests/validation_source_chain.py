@@ -604,6 +604,116 @@ def assurance_artifact_fixture(**overrides: str) -> str:
 
 
 class SourceChainTests(unittest.TestCase):
+    def test_review_packet_rejects_malformed_enums_without_traceback(self) -> None:
+        malformed: tuple[object, ...] = ([], {}, None, True, 7, "unsupported_choice")
+        paths = (
+            ("lifecycle", "stage"),
+            ("invocation", "status"),
+            ("invocation", "runtime_class"),
+            ("invocation", "reasoning_effort_status"),
+            ("invocation", "observed_model", "version_kind"),
+            ("planned_model_policy", "version_kind"),
+            ("preflight", "status"),
+            ("closeout", "status"),
+            ("closeout", "cleanup_status"),
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest, _digest = write_valid_review_packet_bundle(
+                Path(temp_dir) / "packet", scope="bounded-scope",
+                approval_source="synthetic approval", redaction="synthetic evidence",
+            )
+            baseline = json.loads(manifest.read_text(encoding="utf-8"))
+            self.assertEqual([], review_packet_contract.portable_manifest_errors(baseline, manifest))
+            for path in paths:
+                for value in malformed:
+                    with self.subTest(path=path, value=value):
+                        data = copy.deepcopy(baseline)
+                        target = data
+                        for component in path[:-1]:
+                            target = target[component]
+                        target[path[-1]] = value
+                        errors = review_packet_contract.portable_manifest_errors(data, manifest)
+                        self.assertTrue(errors)
+                        if path == ("invocation", "reasoning_effort_status") and value is None:
+                            self.assertIn(
+                                "model or hybrid invocation reasoning effort must be recorded or not_exposed",
+                                errors,
+                            )
+                        else:
+                            schema_path = path[:-1] if path[-1] == "version_kind" else path
+                            field = "manifest." + ".".join(schema_path)
+                            self.assertTrue(any(field in error for error in errors), errors)
+                            if path[-1] == "version_kind":
+                                detail = ".".join(path[-2:]) + " is invalid"
+                                self.assertTrue(any(detail in error for error in errors), errors)
+
+            simultaneous = copy.deepcopy(baseline)
+            simultaneous["lifecycle"]["stage"] = []
+            simultaneous["invocation"]["runtime_class"] = {}
+            errors = review_packet_contract.portable_manifest_errors(simultaneous, manifest)
+            for field in ("manifest.lifecycle.stage", "manifest.invocation.runtime_class"):
+                self.assertTrue(any(field in error for error in errors), errors)
+
+    def test_review_packet_rejects_malformed_collection_identities(self) -> None:
+        paths = (
+            (("preflight", "checks", 0, "check_id"), "manifest.preflight.checks[0].check_id"),
+            (("closeout", "checks", 0, "check_id"), "manifest.closeout.checks[0].check_id"),
+            (("evidence_artifacts", 0, "artifact_id"), "manifest.evidence_artifacts[0].artifact_id"),
+            (("evidence_artifacts", 0, "locator"), "manifest.evidence_artifacts[0].locator"),
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest, _digest = write_valid_review_packet_bundle(
+                Path(temp_dir) / "packet", scope="bounded-scope",
+                approval_source="synthetic approval", redaction="synthetic evidence",
+            )
+            baseline = json.loads(manifest.read_text(encoding="utf-8"))
+            self.assertEqual([], review_packet_contract.portable_manifest_errors(baseline, manifest))
+            for path, diagnostic_path in paths:
+                for value in ([], {}, None, True, 7):
+                    with self.subTest(path=path, value=value):
+                        data = copy.deepcopy(baseline)
+                        target = data
+                        for component in path[:-1]:
+                            target = target[component]
+                        target[path[-1]] = value
+                        errors = review_packet_contract.portable_manifest_errors(data, manifest)
+                        self.assertTrue(any(diagnostic_path in error for error in errors), errors)
+
+            for phase in ("preflight", "closeout"):
+                data = copy.deepcopy(baseline)
+                data[phase]["checks"].append(copy.deepcopy(data[phase]["checks"][0]))
+                errors = review_packet_contract.portable_manifest_errors(data, manifest)
+                self.assertIn(f"{phase} check IDs must be unique", errors)
+            data = copy.deepcopy(baseline)
+            data["evidence_artifacts"].append(copy.deepcopy(data["evidence_artifacts"][0]))
+            errors = review_packet_contract.portable_manifest_errors(data, manifest)
+            self.assertIn("evidence artifact IDs must be unique", errors)
+            self.assertIn("evidence artifact locators must be unique", errors)
+
+            data = copy.deepcopy(baseline)
+            data["preflight"]["checks"][0]["check_id"] = []
+            manifest.write_text(json.dumps(data) + "\n", encoding="utf-8")
+            with (
+                mock.patch("sys.argv", ["review_packet_contract.py", str(manifest)]),
+                mock.patch("sys.stdout", new_callable=io.StringIO) as stdout,
+            ):
+                exit_code = review_packet_contract.main()
+            self.assertEqual(1, exit_code)
+            self.assertTrue(json.loads(stdout.getvalue())["errors"])
+
+    def test_review_packet_receipt_rejects_malformed_lifecycle_stage(self) -> None:
+        for value in ([], {}, None, True, 7, "unsupported_choice"):
+            with self.subTest(value=value):
+                prepared, errors = review_packet_contract.prepare_receipt(
+                    {"packet": {}, "lifecycle": {"stage": value},
+                     "validation_receipts": {}, "approval": {"status": "pending"},
+                     "invocation": {"status": "not_started"}},
+                    Path("synthetic-packet.json"), phase="packet_ready",
+                    validated_at="2026-07-13T10:00:00Z",
+                )
+                self.assertIsNone(prepared)
+                self.assertIn("packet_ready receipt requires a pre-approval, uninvoked lifecycle", errors)
+
     def test_review_packet_digest_contract_matches_independent_golden_vector(self) -> None:
         data = independent_review_packet_vector()
         self.assertEqual(_GOLDEN_BOUND_FIELDS, review_packet_contract.PACKET_BINDING_FIELDS)

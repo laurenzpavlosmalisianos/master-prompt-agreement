@@ -549,6 +549,49 @@ class ProjectStateInstanceContextTests(unittest.TestCase):
             project_input.validate_project_input(missing_date),
         )
 
+    def test_project_input_rejects_nonstring_revision_policies(self) -> None:
+        payload: dict[str, object] = {
+            "schema_version": project_input.SCHEMA_VERSION,
+            "project_kind": "downstream",
+            "contract_root": ".",
+            "runtime": "generic",
+            "runtime_wrappers": [],
+            "framework_reference": "$FRAMEWORK_ROOT",
+            "framework_revision_policy": "live",
+            "answers": {"date": "2026-07-14"},
+        }
+        for invalid in ([], {}, None, False, 7):
+            with self.subTest(value=invalid):
+                payload["framework_revision_policy"] = invalid
+                errors = project_input.validate_project_input(payload)
+                self.assertTrue(any("framework_revision_policy" in error for error in errors), errors)
+
+    def test_instance_rejects_nonstring_identity_enums_without_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            fixture = self._write_valid_project_instance(project_root)
+            manifest_path = cast(Path, fixture["manifest_path"])
+            pristine = cast(dict[str, object], fixture["manifest"])
+            for field in ("framework_reference_status", "framework_revision_policy"):
+                for invalid in ([], {}):
+                    with self.subTest(field=field, value=invalid):
+                        malformed = dict(pristine)
+                        malformed[field] = invalid
+                        manifest_path.write_text(json.dumps(malformed), encoding="utf-8")
+                        before = {
+                            path.relative_to(project_root).as_posix(): path.read_bytes()
+                            for path in project_root.rglob("*") if path.is_file()
+                        }
+                        result = project_instance_lint.validate_recorded_preimage(
+                            project_root, cast(str, fixture["contract_ref"])
+                        )
+                        self.assertTrue(any(field in error for error in cast(list[str], result["errors"])), result)
+                        after = {
+                            path.relative_to(project_root).as_posix(): path.read_bytes()
+                            for path in project_root.rglob("*") if path.is_file()
+                        }
+                        self.assertEqual(before, after)
+
     def test_downstream_instance_replays_retained_input_and_detects_output_drift(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project_root = Path(temp_dir)
@@ -1935,6 +1978,22 @@ class ProjectStateInstanceContextTests(unittest.TestCase):
             )
         )
 
+    def test_context_manifest_rejects_nonstring_condition_descriptions(self) -> None:
+        parser = context_manifest.build_parser()
+        args = parser.parse_args(["--task-module", "ideate"])
+        for invalid in ([], {}, None, 7, False, "missing"):
+            with self.subTest(description=invalid):
+                broken = json.loads(json.dumps(context_manifest.TASK_MODULES["ideate"]))
+                condition = broken["use_full_when_conditions"][0]
+                if invalid == "missing":
+                    condition.pop("description")
+                else:
+                    condition["description"] = invalid
+                with mock.patch.dict(context_manifest.TASK_MODULES, {"ideate": broken}):
+                    resolution = context_manifest.resolve_task_module_loading(args, "ideate")
+                self.assertEqual("unresolved", resolution["mode"])
+                self.assertIn("unresolved", {item["status"] for item in dict_items(resolution["evaluated_use_full_when"])})
+
     def test_context_manifest_condition_registry_matches_parser_destinations(
         self,
     ) -> None:
@@ -2850,6 +2909,40 @@ class ProjectStateInstanceContextTests(unittest.TestCase):
         self.assertIn("TODO.md: state header has unknown fields: unexpected_count", errors)
         self.assertTrue(any("durable_decision_count is 1, but 0 dated decision_id" in error for error in errors), errors)
         self.assertTrue(any("directive_count is 0, but 1 dated directive_id" in error for error in errors), errors)
+
+    def test_project_state_header_count_parsing_is_bounded_ascii(self) -> None:
+        invalid_counts = ["²", "١", "", "-1"]
+        digit_limit = sys.get_int_max_str_digits()
+        if digit_limit:
+            invalid_counts.append("9" * (digit_limit + 1))
+        for name, fields in (
+            ("TODO.md", ("active_count",)),
+            ("DECISIONS.md", ("durable_decision_count", "directive_count")),
+        ):
+            for field in fields:
+                for invalid in invalid_counts:
+                    with self.subTest(name=name, field=field, value=invalid[:20]):
+                        text = "state_schema_version: 1\n" + "".join(
+                            f"{key}: {invalid if key == field else '0'}\n" for key in fields
+                        ) + "\n# State\n"
+                        errors: list[str] = []
+                        project_state_lint.lint_state_header(Path(name), errors, text)
+                        self.assertIn(f"{name}: {field} must be a non-negative integer", errors)
+            valid_errors: list[str] = []
+            valid = "state_schema_version: 1\n" + "".join(f"{key}: 00\n" for key in fields) + "\n# State\n"
+            project_state_lint.lint_state_header(Path(name), valid_errors, valid)
+            self.assertEqual([], valid_errors)
+
+        if digit_limit:
+            maximum_width_count = "9" * digit_limit
+            text = (
+                "state_schema_version: 1\n"
+                f"durable_decision_count: {maximum_width_count}\n"
+                f"directive_count: {maximum_width_count}\n\n# Decisions\n"
+            )
+            errors = []
+            project_state_lint.lint_state_header(Path("DECISIONS.md"), errors, text)
+            self.assertTrue(any("does not match" in error for error in errors), errors)
 
     def test_project_state_lint_accepts_complete_durable_record_semantics(self) -> None:
         decisions_text = (
@@ -4213,6 +4306,51 @@ class ProjectStateInstanceContextTests(unittest.TestCase):
                         errors,
                     )
                     self.assertEqual([], warnings)
+
+    def test_reviewer_feedback_rejects_malformed_marker_enums(self) -> None:
+        evidence = "https://example.com/evidence"
+        cases: tuple[tuple[str, dict[str, object], tuple[str, ...]], ...] = (
+            ("REVIEWER_LANE_USED", {
+                "lane_id": "fixture_lane", "task_ref": "T1", "lane_class": "local_subagent",
+                "purpose": "bounded review", "output_ref": evidence, "evidence_refs": [evidence],
+            }, ("lane_class",)),
+            ("REVIEWER_LANE_SKIPPED", {
+                "lane_id": "fixture_lane", "task_ref": "T1", "reason_category": "not_needed", "reason": "bounded review",
+            }, ("reason_category",)),
+            ("REVIEWER_FINDING_REJECTED", {
+                "finding_id": "F1", "source_lane_id": "fixture_lane", "evidence_ref": evidence,
+                "reason_category": "unsupported", "reason": "bounded review",
+            }, ("reason_category",)),
+            ("LANE_FIT_OBSERVATION", {
+                "lane_id": "fixture_lane", "task_ref": "T1", "claim_type": "limit", "claim": "bounded observation",
+                "evidence_refs": [evidence], "routing_implication": "Use bounded evidence.", "confidence": "low",
+            }, ("claim_type", "confidence")),
+        )
+        for marker, payload, fields in cases:
+            valid = lint_reviewer_lane_feedback.lint(
+                REPO_ROOT / "feedback.md", REPO_ROOT, text=marker + " " + json.dumps(payload)
+            )
+            self.assertEqual([], valid["errors"], valid)
+            for field in fields:
+                for invalid in ([], {}, None, True, 7, "unsupported_choice"):
+                    with self.subTest(marker=marker, field=field, value=invalid):
+                        malformed = dict(payload)
+                        malformed[field] = invalid
+                        result = lint_reviewer_lane_feedback.lint(
+                            REPO_ROOT / "feedback.md", REPO_ROOT,
+                            text=marker + " " + json.dumps(malformed),
+                        )
+                        self.assertTrue(any(f"invalid {field}" in error for error in result["errors"]), result)
+                        if not isinstance(invalid, str):
+                            self.assertTrue(any(f"field {field} must be a non-empty string" in error for error in result["errors"]), result)
+            if marker == "LANE_FIT_OBSERVATION":
+                simultaneous = dict(payload, claim_type=[], confidence={})
+                result = lint_reviewer_lane_feedback.lint(
+                    REPO_ROOT / "feedback.md", REPO_ROOT,
+                    text=marker + " " + json.dumps(simultaneous),
+                )
+                for field in fields:
+                    self.assertTrue(any(f"invalid {field}" in error for error in result["errors"]), result)
 
     def test_reviewer_lane_feedback_lint_accepts_structured_markers(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -481,14 +481,16 @@ def _evaluate_module_conditions(
                     "machine condition must be an object",
                 )
             )
-        elif condition.get("description") not in described:
-            evaluated.append(
-                _unresolved_condition(
-                    condition.get("description"),
-                    "machine rule does not map to a declared use_full_when condition",
-                    condition.get("id"),
+        else:
+            description = condition.get("description")
+            if not isinstance(description, str) or description not in described:
+                evaluated.append(
+                    _unresolved_condition(
+                        description,
+                        "machine rule does not map to a declared use_full_when condition",
+                        condition.get("id"),
+                    )
                 )
-            )
     return evaluated
 
 

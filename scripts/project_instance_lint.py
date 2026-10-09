@@ -345,7 +345,7 @@ def _validate_recorded_identity(
 
     framework_reference = manifest.get("framework_reference")
     status = manifest.get("framework_reference_status")
-    if status not in REFERENCE_STATUSES:
+    if not isinstance(status, str) or status not in REFERENCE_STATUSES:
         errors.append(
             "project instance manifest framework_reference_status must be one of: "
             + ", ".join(sorted(REFERENCE_STATUSES))
@@ -358,7 +358,10 @@ def _validate_recorded_identity(
             for error in safe_paths.framework_reference_errors(framework_reference)
         )
     revision_policy = manifest.get("framework_revision_policy")
-    if revision_policy not in project_input.REVISION_POLICIES:
+    if (
+        not isinstance(revision_policy, str)
+        or revision_policy not in project_input.REVISION_POLICIES
+    ):
         errors.append(
             "project instance manifest framework_revision_policy must be one of: "
             + ", ".join(sorted(project_input.REVISION_POLICIES))
@@ -436,7 +439,11 @@ def _validate_selected_identity(
         )
         errors.extend(binding_errors)
         warnings.extend(binding_warnings)
-        if status in REFERENCE_STATUSES and status != expected_status:
+        if (
+            isinstance(status, str)
+            and status in REFERENCE_STATUSES
+            and status != expected_status
+        ):
             errors.append(
                 "project instance manifest framework_reference_status mismatch: "
                 f"expected {expected_status!r}, found {status!r}"
@@ -492,7 +499,7 @@ def _validate_selected_identity(
                 "independently verified"
             )
 
-    if project_kind in contract_model.PROJECT_KINDS:
+    if isinstance(project_kind, str) and project_kind in contract_model.PROJECT_KINDS:
         errors.extend(
             "project layout: " + error
             for error in project_bootstrap.project_layout_errors(
@@ -1682,7 +1689,11 @@ def validate_selected_checkout(
 
     answers = retained_input.get("answers")
     project_kind = retained_input.get("project_kind")
-    if isinstance(answers, dict) and project_kind in contract_model.PROJECT_KINDS:
+    if (
+        isinstance(answers, dict)
+        and isinstance(project_kind, str)
+        and project_kind in contract_model.PROJECT_KINDS
+    ):
         expected_profiles = project_bootstrap.active_project_profiles(
             answers,
             project_kind=project_kind,

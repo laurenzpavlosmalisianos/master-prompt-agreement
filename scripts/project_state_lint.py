@@ -594,16 +594,26 @@ def lint_state_header(path: Path, errors: list[str], text: str | None = None) ->
         return
     if header["state_schema_version"] != STATE_HEADER_SCHEMA_VERSION:
         errors.append(f"{path.name}: state_schema_version must be {STATE_HEADER_SCHEMA_VERSION}")
+    counts: dict[str, int] = {}
     for key in required:
         if key == "state_schema_version":
             continue
         value = header.get(key, "")
-        if not value.isdigit():
+        count = -1
+        if value.isascii() and value.isdecimal():
+            try:
+                count = int(value)
+            except ValueError:
+                # Respect the interpreter's integer-conversion bound rather
+                # than imposing a separate state-file digit-count policy.
+                pass
+        counts[key] = count
+        if count < 0:
             errors.append(f"{path.name}: {key} must be a non-negative integer")
     lines = substantive_lines(path, state_text)
     has_records = any(TOP_LEVEL_BULLET.match(line) or CHECKBOX.match(line) for line in lines)
     if path.name == "TODO.md":
-        active_count = int(header["active_count"]) if header.get("active_count", "").isdigit() else -1
+        active_count = counts["active_count"]
         actual_active_count = sum(
             1 for raw in lines if CHECKBOX.match(raw) and not DONE_CHECKBOX.match(raw)
         )
@@ -626,8 +636,8 @@ def lint_state_header(path: Path, errors: list[str], text: str | None = None) ->
                     errors.append(f"TODO.md: duplicate active entry ID: {item_id}")
                 seen_ids.add(item_id)
     elif path.name == "DECISIONS.md":
-        durable_count = int(header["durable_decision_count"]) if header.get("durable_decision_count", "").isdigit() else -1
-        directive_count = int(header["directive_count"]) if header.get("directive_count", "").isdigit() else -1
+        durable_count = counts["durable_decision_count"]
+        directive_count = counts["directive_count"]
         actual_durable_count, actual_directive_count, actual_record_count = classified_decision_record_counts(
             path,
             errors,
@@ -639,9 +649,8 @@ def lint_state_header(path: Path, errors: list[str], text: str | None = None) ->
             and durable_count + directive_count != actual_record_count
         ):
             errors.append(
-                "DECISIONS.md: durable_decision_count plus directive_count is "
-                f"{durable_count + directive_count}, but {actual_record_count} dated decision/directive "
-                f"record{'s' if actual_record_count != 1 else ''} exist"
+                "DECISIONS.md: durable_decision_count plus directive_count does not match "
+                f"the dated decision/directive record count ({actual_record_count})"
             )
         if durable_count >= 0 and durable_count != actual_durable_count:
             errors.append(

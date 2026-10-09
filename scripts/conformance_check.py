@@ -901,6 +901,7 @@ def _source_report_item(item: object) -> str | None:
         or type(line) is not int
         or line < 1
         or not isinstance(message, str)
+        or not isinstance(severity, str)
         or severity not in {"error", "warning"}
     ):
         return None

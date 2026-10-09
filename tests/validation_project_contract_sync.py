@@ -3546,6 +3546,91 @@ class ProjectContractSyncTests(unittest.TestCase):
                     self.assertNotIn("missing", payload["errors"][0])
                     self.assertNotIn("drift", payload["errors"][0])
 
+    def test_contract_numbering_compares_canonical_decimal_text(self) -> None:
+        numbered_rows = ["1. First entry", "2. Second entry"]
+        seat_rows = ["Seat 1: First reviewer", "Seat 2: Second reviewer"]
+        validators: tuple[Callable[[list[str]], list[str]], ...] = (
+            lambda rows: project_contract_sync._sow_numbered_row_errors(
+                "Deliverables and Acceptance Tests", rows
+            ),
+            lambda rows: project_contract_sync.project_section_row_grammar_errors(
+                {"Active Deliverables": rows}, set()
+            ),
+            lambda rows: project_contract_sync._sow_arbitration_row_errors(
+                "Arbitration Panel", rows
+            ),
+        )
+        for index, validate in enumerate(validators):
+            rows = seat_rows if index == 2 else numbered_rows
+            with self.subTest(surface=index):
+                self.assertEqual([], validate(rows))
+                self.assertEqual(2, len(validate(rows[::-1])))
+                oversized = "9" * 5000
+                row = (
+                    f"Seat {oversized}: Reviewer"
+                    if index == 2
+                    else f"{oversized}. Entry"
+                )
+                errors = validate([row])
+                self.assertEqual(1, len(errors), errors)
+                self.assertIn("must use", errors[0])
+                self.assertNotIn(oversized, errors[0])
+                self.assertLess(len(errors[0]), 200)
+
+    def test_project_contract_sync_reports_oversized_numbers_as_json(self) -> None:
+        answers: dict[str, object] = {
+            "bootstrap_mode": "minimal",
+            "agent": "Agent",
+            "framework_verification_runner": TEST_FRAMEWORK_RUNNER,
+            "project_name": "Demo",
+            "deliverables": [
+                {
+                    "description": "Reviewed report",
+                    "test": "inspect the rendered report",
+                    "pass_criteria": "all expected fields are present",
+                }
+            ],
+        }
+        oversized = "9" * 5000
+        cases = (
+            ("STATEMENT_OF_WORK.md", "item"),
+            ("AGENT_PROJECT.md", "item"),
+            ("STATEMENT_OF_WORK.md", "seat"),
+        )
+        with render_fixture(answers) as (root, outputs, valid):
+            self.assertEqual(0, valid.returncode, valid.stdout + valid.stderr)
+            for filename, kind in cases:
+                with self.subTest(filename=filename, kind=kind):
+                    for original_name in ("STATEMENT_OF_WORK.md", "AGENT_PROJECT.md"):
+                        (root / original_name).write_text(
+                            outputs[original_name], encoding="utf-8"
+                        )
+                    text = outputs[filename]
+                    if kind == "seat":
+                        changed = text + (
+                            f"\nArbitration Panel\n\nSeat {oversized}: Reviewer\n"
+                        )
+                    else:
+                        changed = text.replace(
+                            "1. Reviewed report", f"{oversized}. Reviewed report", 1
+                        )
+                    self.assertNotEqual(text, changed)
+                    (root / filename).write_text(changed, encoding="utf-8")
+
+                    result = run_sync(root)
+
+                    self.assertEqual(1, result.returncode, result.stdout + result.stderr)
+                    payload = json.loads(result.stdout)
+                    self.assertTrue(
+                        any(
+                            f"must use {kind} number 1" in error
+                            for error in payload["errors"]
+                        ),
+                        payload,
+                    )
+                    self.assertNotIn("Traceback", result.stdout + result.stderr)
+                    self.assertNotIn(oversized, result.stdout)
+
     def test_generated_contract_rejects_fenced_instruction_injection(self) -> None:
         answers: dict[str, object] = {
             "bootstrap_mode": "minimal",

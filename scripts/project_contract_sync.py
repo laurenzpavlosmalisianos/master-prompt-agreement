@@ -2720,11 +2720,11 @@ def _sow_arbitration_row_errors(title: str, lines: list[str]) -> list[str]:
         label, _value = parsed
         seat = re.fullmatch(r"Seat (?P<number>[1-9][0-9]*)", label)
         if seat is not None:
-            number = int(seat.group("number"))
-            if number != expected_seat:
+            number_text = seat.group("number")
+            if number_text != str(expected_seat):
                 errors.append(
                     f"STATEMENT_OF_WORK.md {title} row {index} must use seat number "
-                    f"{expected_seat}, not {number}"
+                    f"{expected_seat}"
                 )
             expected_seat += 1
             continue
@@ -2793,11 +2793,11 @@ def _sow_numbered_row_errors(title: str, lines: list[str]) -> list[str]:
                 f"nonempty numbered row: {raw!r}"
             )
             continue
-        number = int(match.group("number"))
-        if number != expected_number:
+        number_text = match.group("number")
+        if number_text != str(expected_number):
             errors.append(
                 f"STATEMENT_OF_WORK.md {title} row {index} must use item number "
-                f"{expected_number}, not {number}"
+                f"{expected_number}"
             )
         expected_number += 1
     return errors
@@ -3107,11 +3107,11 @@ def _project_section_row_grammar_errors_by_title(
                     f"nonempty numbered row: {raw!r}"
                 )
                 continue
-            number = int(match.group("number"))
-            if number != expected_number:
+            number_text = match.group("number")
+            if number_text != str(expected_number):
                 errors.append(
                     f"AGENT_PROJECT.md {title} row {index} must use item number "
-                    f"{expected_number}, not {number}"
+                    f"{expected_number}"
                 )
             expected_number += 1
         if errors:

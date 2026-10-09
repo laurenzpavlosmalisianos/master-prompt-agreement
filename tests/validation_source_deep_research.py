@@ -85,6 +85,34 @@ def _digest_text(records: list[dict[str, object]]) -> str:
 
 
 class SourceDeepResearchTests(unittest.TestCase):
+    def test_digest_rejects_malformed_record_enums_without_traceback(self) -> None:
+        malformed: tuple[object, ...] = ([], {}, None, True, 7, "unsupported_choice")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            digest = root / "digest.md"
+            digest.write_text(_digest_text([_primary_record("source-1")]), encoding="utf-8")
+            self.assertEqual([], source_deep_research_lint.validate_digest(digest, project_root=root)["errors"])
+            for field in ("verifier_role", "claim_class", "source_role"):
+                for value in malformed:
+                    with self.subTest(field=field, value=value):
+                        record = _primary_record("source-1")
+                        if field == "source_role":
+                            evidence = record["evidence"]
+                            assert isinstance(evidence, list)
+                            evidence[0][field] = value
+                        else:
+                            record[field] = value
+                        digest.write_text(_digest_text([record]), encoding="utf-8")
+                        errors = source_deep_research_lint.validate_digest(digest, project_root=root)["errors"]
+                        self.assertTrue(any("." + field + " must be" in error for error in errors), errors)
+
+            record = _primary_record("source-1")
+            record.update({"verifier_role": [], "claim_class": {}})
+            digest.write_text(_digest_text([record]), encoding="utf-8")
+            errors = source_deep_research_lint.validate_digest(digest, project_root=root)["errors"]
+            self.assertTrue(any(".verifier_role must be" in error for error in errors), errors)
+            self.assertTrue(any(".claim_class must be" in error for error in errors), errors)
+
     def _isolated_git_repository(self) -> Path:
         """Own a real temporary repository independent of checkout metadata."""
 

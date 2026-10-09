@@ -59,6 +59,7 @@ Before source-sensitive recommendations, use project `SOURCE_PACKS.md` and `SOUR
 7. Verify the contract.
 
 - Run contract linting, schema validation, generated-client/server checks, API documentation generation, and compatibility checks required by the project.
+- For generated or converted schemas, distinguish accepted input from transformed output. Check material constraints against the corresponding runtime boundary, including coercions, defaults and semantic overrides; record any lost constraints and retain independent enforcement of requirements the destination format cannot express.
 - Test negative authentication, object authorization, function authorization, property authorization, tenant isolation, malformed input, unknown fields, over-limit requests, rate-limit or quota exhaustion, replay, and error paths.
 - Exercise at least one consumer/provider or contract test for each changed operation class when generated artifacts or external consumers depend on the contract.
 - For an observation-derived adapter, use sanitized or synthetic fixtures and test expired authentication, unobserved and error responses, rate limits, schema drift, browser-mediated behavior, and side-effect reconciliation. Compare matched browser and adapter outcomes and resource use before claiming an efficiency improvement.
