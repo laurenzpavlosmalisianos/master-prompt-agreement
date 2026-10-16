@@ -34,9 +34,12 @@ def _load_trusted_import_boundary(entrypoint: str) -> str:
     source_path = bootstrap_os.path.join(scripts_root, "python_import_boundary.py")
     close_on_exec = getattr(bootstrap_os, "O_CLOEXEC", 0)
     no_follow = getattr(bootstrap_os, "O_NOFOLLOW", 0)
-    if not close_on_exec or not no_follow:
-        raise RuntimeError("project bootstrap requires O_CLOEXEC and O_NOFOLLOW")
-    flags = bootstrap_os.O_RDONLY | close_on_exec | no_follow
+    nonblock = getattr(bootstrap_os, "O_NONBLOCK", 0)
+    if not close_on_exec or not no_follow or not nonblock:
+        raise RuntimeError(
+            "project bootstrap requires O_CLOEXEC, O_NOFOLLOW, and O_NONBLOCK"
+        )
+    flags = bootstrap_os.O_RDONLY | close_on_exec | no_follow | nonblock
     descriptor = bootstrap_os.open(source_path, flags)
     try:
         metadata = bootstrap_os.fstat(descriptor)
@@ -3040,14 +3043,11 @@ def state_template_content(
             f"framework state template {template_rel} is missing its exact "
             "framework-generated state origin marker"
         )
-    def finalize(content: str) -> str:
-        if not name.endswith(".md"):
-            return content
-        return integration_registry.render_project_file_references(
-            content,
-            contract_root_ref,
+    # Rebase only the checked-in template, before inserting project-owned text.
+    if name.endswith(".md"):
+        template = integration_registry.render_project_file_references(
+            template, contract_root_ref,
         )
-
     if name == "SOURCE_UPDATE.md":
         replacements = {
             "{{SOURCE_REGISTRY_SCOPE}}": source_registry_scope(answers),
@@ -3060,15 +3060,15 @@ def state_template_content(
         }
         for placeholder, value in replacements.items():
             template = template.replace(placeholder, value)
-        return finalize(template)
+        return template
     if name == "SECURITY_VERIFICATION.md":
-        return finalize(template.replace(
+        return template.replace(
             "{{SECURITY_VERIFICATION_PROFILE_SCOPE}}",
             security_verification_profile_scope(answers),
         ).replace(
             "{{SECURITY_VERIFICATION_TARGET_POLICY}}",
             security_verification_target_policy(answers),
-        ))
+        )
     if name == "SOURCE_MONITOR_RESEARCHER.md":
         runner = field(
             answers,
@@ -3079,7 +3079,7 @@ def state_template_content(
         replacements = {
             "{{SOURCE_MONITOR_ROLE}}": source_monitor_role(answers),
             "{{SOURCE_MONITOR_INSTRUCTION_SOURCES}}": source_monitor_instruction_sources(answers),
-            "{{SOURCE_MONITOR_SOURCE_DATA}}": source_monitor_source_data(answers),
+            "{{SOURCE_MONITOR_SOURCE_DATA}}": source_monitor_source_data(answers, contract_root_ref),
             "{{SOURCE_MONITOR_BOUNDARY}}": source_monitor_boundary(answers),
             "{{SOURCE_MONITOR_ARTIFACT_LINT_COMMAND}}": (
                 contract_model.source_monitor_artifact_lint_command(
@@ -3091,13 +3091,13 @@ def state_template_content(
         for placeholder, value in replacements.items():
             template = template.replace(placeholder, value)
         if reference == "{{FRAMEWORK_ROOT}}":
-            return finalize(template)
-        return finalize(safe_paths.render_framework_reference_tokens(template, reference))
+            return template
+        return safe_paths.render_framework_reference_tokens(template, reference)
     if name == "SOURCE_PACKS.md":
-        return finalize(template.replace(
+        return template.replace(
             "{{SHARED_FRAMEWORK_SOURCE_REFERENCE}}",
             shared_framework_source_reference(answers),
-        ))
+        )
     if name == "AUTOMATION_ORDERS.json":
         automation_orders = answers.get("automation_orders") if isinstance(answers, dict) else None
         jobs = automation_orders.get("jobs") if isinstance(automation_orders, dict) else []
@@ -3107,7 +3107,7 @@ def state_template_content(
         payload["preferred_backend"] = automation_preferred_backend(answers)
         payload["jobs"] = jobs if isinstance(jobs, list) else []
         return json.dumps(payload, indent=2) + "\n"
-    return finalize(template)
+    return template
 
 
 def render_output_files(
@@ -3122,9 +3122,8 @@ def render_output_files(
 ) -> dict[str, str]:
     batch_date = effective_date or render_date(answers)
     outputs: dict[str, str] = {
-        project_relative_output(contract_root_ref, "STATEMENT_OF_WORK.md"): integration_registry.render_project_file_references(
-            render_sow(answers, effective_date=batch_date),
-            contract_root_ref,
+        project_relative_output(contract_root_ref, "STATEMENT_OF_WORK.md"): render_sow(
+            answers, effective_date=batch_date, contract_root_ref=contract_root_ref,
         ),
         project_relative_output(contract_root_ref, "AGENT_PROJECT.md"): render_project_contract(
             answers,
@@ -3597,16 +3596,26 @@ def render_auxiliary_tool(item: dict) -> str:
     return contract_model.render_structured_record("auxiliary_tools", item)
 
 
-def render_runtime_auxiliary_tool(item: dict) -> str:
-    return contract_model.render_runtime_auxiliary_tool_route(item)
+def render_runtime_auxiliary_tool(item: dict, contract_root_ref: str = ".") -> str:
+    return contract_model.render_runtime_auxiliary_tool_route(
+        item,
+        route=integration_registry.render_project_file_references(
+            contract_model.RUNTIME_AUXILIARY_TOOL_ROUTE, contract_root_ref,
+        ),
+    )
 
 
 def render_workflow(item: dict) -> str:
     return contract_model.render_structured_record("workflows", item)
 
 
-def render_runtime_workflow(item: dict) -> str:
-    return contract_model.render_runtime_workflow_route(item)
+def render_runtime_workflow(item: dict, contract_root_ref: str = ".") -> str:
+    return contract_model.render_runtime_workflow_route(
+        item,
+        route=integration_registry.render_project_file_references(
+            contract_model.RUNTIME_WORKFLOW_ROUTE, contract_root_ref,
+        ),
+    )
 
 
 def render_pattern_source(item: str) -> str:
@@ -3660,25 +3669,19 @@ def source_monitor_instruction_sources(answers: dict) -> str:
     )
 
 
-def source_monitor_source_data(answers: dict) -> str:
+def source_monitor_source_data(answers: dict, contract_root_ref: str = ".") -> str:
     configured = " / ".join(lines_for(answers.get("source_monitor_source_data")))
     if configured:
         return configured
     if answers.get("include_source_update"):
         return " / ".join(
-            (
-                contract_model.OPTIONAL_STATE_BY_DEFINITION_LABEL[
-                    "Source Packs File"
-                ].filename,
-                contract_model.OPTIONAL_STATE_BY_DEFINITION_LABEL[
-                    "Source Update File"
-                ].filename,
-            )
+            project_relative_output(contract_root_ref, optional_state_filename(label))
+            for label in ("Source Packs File", "Source Update File")
         )
     if answers.get("include_source_packs"):
-        return contract_model.OPTIONAL_STATE_BY_DEFINITION_LABEL[
-            "Source Packs File"
-        ].filename
+        return project_relative_output(
+            contract_root_ref, optional_state_filename("Source Packs File"),
+        )
     return contract_model.DEFAULT_OPTIONAL_DEFINITION_VALUE
 
 
@@ -3754,6 +3757,12 @@ class SowRenderContext:
     mode: str
     commands: dict[str, str]
     lines: list[str]
+    contract_root_ref: str = "."
+
+    def reference(self, text: str) -> str:
+        return integration_registry.render_project_file_references(
+            text, self.contract_root_ref,
+        )
 
 
 def definition_values(
@@ -3761,6 +3770,7 @@ def definition_values(
     mode: str,
     commands: dict[str, str],
     runtime_standards: str,
+    contract_root_ref: str = ".",
 ) -> dict[str, str]:
     """Resolve values using the model-owned projection declared for each Definition."""
 
@@ -3782,7 +3792,7 @@ def definition_values(
         elif spec.projection == "optional-state":
             state_spec = contract_model.OPTIONAL_STATE_BY_DEFINITION_LABEL[spec.label]
             values[spec.label] = (
-                state_spec.filename
+                project_relative_output(contract_root_ref, state_spec.filename)
                 if answers.get(state_spec.flag)
                 else spec.default or contract_model.DEFAULT_OPTIONAL_DEFINITION_VALUE
             )
@@ -3793,7 +3803,7 @@ def definition_values(
         elif spec.projection == "source-monitor-instruction-sources":
             values[spec.label] = source_monitor_instruction_sources(answers)
         elif spec.projection == "source-monitor-source-data":
-            values[spec.label] = source_monitor_source_data(answers)
+            values[spec.label] = source_monitor_source_data(answers, contract_root_ref)
         elif spec.projection == "command":
             values[spec.label] = contract_model.COMMAND_DEFINITION_POINTER
         elif spec.projection == "runtime-standards":
@@ -3813,13 +3823,14 @@ def rendered_definition_lines(
     runtime_standards: str,
     *,
     prefix: str = "",
+    contract_root_ref: str = ".",
 ) -> list[str]:
     specs = (
         contract_model.SOW_DEFINITION_SPECS
         if surface == "sow"
         else contract_model.PROJECT_DEFINITION_SPECS
     )
-    values = definition_values(answers, mode, commands, runtime_standards)
+    values = definition_values(answers, mode, commands, runtime_standards, contract_root_ref)
 
     def include(spec: contract_model.DefinitionSpec) -> bool:
         active = spec.active_when is None or answers.get(spec.active_when) is True
@@ -3846,10 +3857,11 @@ def section_owned_definition_lines(
     mode: str,
     commands: dict[str, str],
     runtime_standards: str,
+    contract_root_ref: str = ".",
 ) -> list[str]:
     """Render each active labeled fact only in its declared runtime section."""
 
-    values = definition_values(answers, mode, commands, runtime_standards)
+    values = definition_values(answers, mode, commands, runtime_standards, contract_root_ref)
     return [
         f"- {spec.label}: {values[spec.label]}"
         for spec in contract_model.PROJECT_DEFINITION_SPECS
@@ -3871,6 +3883,7 @@ def sow_preamble(
     project_name: str,
     commands: dict[str, str],
     effective_date: str,
+    contract_root_ref: str = ".",
 ) -> list[str]:
     lines = [
         contract_model.CONTRACT_FORMAT_MARKER,
@@ -3892,6 +3905,7 @@ def sow_preamble(
             mode,
             commands,
             field(answers, "language_runtime_standards"),
+            contract_root_ref=contract_root_ref,
         )
     )
     lines.append("")
@@ -4059,7 +4073,7 @@ def append_sow_execution_sections(context: SowRenderContext) -> None:
     if answers.get("include_automation_orders") or automation:
         automation_lines = [
             "Automation Orders File: "
-            + optional_state_filename("Automation Orders File"),
+            + context.reference(optional_state_filename("Automation Orders File")),
             f"Preferred Scheduler Backend: {automation_preferred_backend(answers)}",
         ]
         automation_lines.extend(
@@ -4067,7 +4081,7 @@ def append_sow_execution_sections(context: SowRenderContext) -> None:
             for job in automation.get("jobs", [])
             if isinstance(job, dict)
         )
-        automation_lines.append(AUTOMATION_AUTHORITY_RULE)
+        automation_lines.append(context.reference(AUTOMATION_AUTHORITY_RULE))
     add_section(lines, contract_model.sow_section_title("automation"), automation_lines)
 
 
@@ -4079,8 +4093,8 @@ def append_sow_source_sections(context: SowRenderContext) -> None:
             lines,
             contract_model.sow_section_title("source_update"),
             [
-                "Source Packs File: " + optional_state_filename("Source Packs File"),
-                "Source Update File: " + optional_state_filename("Source Update File"),
+                "Source Packs File: " + context.reference(optional_state_filename("Source Packs File")),
+                "Source Update File: " + context.reference(optional_state_filename("Source Update File")),
                 f"Source Registry Scope: {source_registry_scope(answers)}",
                 f"Shared Framework Source Reference: {shared_framework_source_reference(answers)}",
                 f"Default Review Cadence: {source_review_cadence(answers)}",
@@ -4092,7 +4106,7 @@ def append_sow_source_sections(context: SowRenderContext) -> None:
             lines,
             contract_model.sow_section_title("source_packs"),
             [
-                "Source Packs File: " + optional_state_filename("Source Packs File"),
+                "Source Packs File: " + context.reference(optional_state_filename("Source Packs File")),
                 contract_model.sow_section_policy_lines("source_packs")[0],
                 f"Shared Framework Source Reference: {shared_framework_source_reference(answers)}",
                 contract_model.sow_section_policy_lines("source_packs")[1],
@@ -4104,10 +4118,10 @@ def append_sow_source_sections(context: SowRenderContext) -> None:
             contract_model.sow_section_title("source_monitor"),
             [
                 "Source Monitor Researcher File: "
-                + optional_state_filename("Source Monitor Researcher Brief"),
+                + context.reference(optional_state_filename("Source Monitor Researcher Brief")),
                 f"Role: {source_monitor_role(answers)}",
                 f"Instruction Sources: {source_monitor_instruction_sources(answers)}",
-                f"Source Data: {source_monitor_source_data(answers)}",
+                "Source Data: " + source_monitor_source_data(answers, context.contract_root_ref),
                 f"Boundary: {source_monitor_boundary(answers)}",
             ],
         )
@@ -4122,7 +4136,7 @@ def append_sow_feedback_and_security_sections(context: SowRenderContext) -> None
             contract_model.sow_section_title("framework_feedback"),
             [
                 "Framework Feedback File: "
-                + optional_state_filename("Framework Feedback File"),
+                + context.reference(optional_state_filename("Framework Feedback File")),
                 *contract_model.sow_section_policy_lines("framework_feedback"),
             ],
         )
@@ -4132,8 +4146,8 @@ def append_sow_feedback_and_security_sections(context: SowRenderContext) -> None
             contract_model.sow_section_title("reviewer_feedback"),
             [
                 "Reviewer Lane Feedback File: "
-                + optional_state_filename("Reviewer Lane Feedback File"),
-                *contract_model.sow_section_policy_lines("reviewer_feedback"),
+                + context.reference(optional_state_filename("Reviewer Lane Feedback File")),
+                *(context.reference(line) for line in contract_model.sow_section_policy_lines("reviewer_feedback")),
             ],
         )
     if answers.get("include_security_verification"):
@@ -4142,9 +4156,9 @@ def append_sow_feedback_and_security_sections(context: SowRenderContext) -> None
             contract_model.sow_section_title("security_verification"),
             [
                 "Security Verification File: "
-                + optional_state_filename("Security Verification File"),
+                + context.reference(optional_state_filename("Security Verification File")),
                 f"Security Policy File: {security_policy_file(answers)}",
-                *contract_model.sow_section_policy_lines("security_verification"),
+                *(context.reference(line) for line in contract_model.sow_section_policy_lines("security_verification")),
                 f"Profile Scope: {security_verification_profile_scope(answers)}",
                 f"Default Target Policy: {security_verification_target_policy(answers)}",
             ],
@@ -4162,7 +4176,12 @@ def append_sow_annexes(context: SowRenderContext) -> None:
     add_section(lines, contract_model.sow_section_title("annexes"), annex_lines)
 
 
-def render_sow(answers: dict, *, effective_date: str | None = None) -> str:
+def render_sow(
+    answers: dict,
+    *,
+    effective_date: str | None = None,
+    contract_root_ref: str = ".",
+) -> str:
     mode = bootstrap_mode(answers)
     commands = command_values(answers)
     batch_date = effective_date or render_date(answers)
@@ -4176,7 +4195,9 @@ def render_sow(answers: dict, *, effective_date: str | None = None) -> str:
             field(answers, "project_name"),
             commands,
             batch_date,
+            contract_root_ref,
         ),
+        contract_root_ref=contract_root_ref,
     )
     append_sow_review_sections(context)
     append_sow_project_sections(context)
@@ -4194,12 +4215,19 @@ class ProjectContractRenderContext:
     commands: dict[str, str]
     runtime_standards: str
     lines: list[str]
+    contract_root_ref: str = "."
+
+    def reference(self, text: str) -> str:
+        return integration_registry.render_project_file_references(
+            text, self.contract_root_ref,
+        )
 
 
 def project_contract_preamble(
     answers: dict,
     project_name: str,
     effective_date: str,
+    contract_root_ref: str = ".",
 ) -> list[str]:
     return [
         contract_model.CONTRACT_FORMAT_MARKER,
@@ -4208,9 +4236,9 @@ def project_contract_preamble(
         f"Project: {project_name}",
         f"Date: {effective_date}",
         "",
-        contract_model.PROJECT_PREAMBLE_RULE,
+        integration_registry.render_project_file_references(contract_model.PROJECT_PREAMBLE_RULE, contract_root_ref),
         "",
-        contract_model.PROJECT_AUTHORITY_TEXT,
+        integration_registry.render_project_file_references(contract_model.PROJECT_AUTHORITY_TEXT, contract_root_ref),
         "",
     ]
 
@@ -4232,6 +4260,7 @@ def append_project_contract_active_sections(
             context.mode,
             context.commands,
             context.runtime_standards,
+            contract_root_ref,
         )
 
     runtime_stack = runtime_deferred_value(
@@ -4331,21 +4360,21 @@ def append_project_contract_active_sections(
     add_section(
         lines,
         contract_model.project_section_title("active_workflows"),
-        [f"- {render_runtime_workflow(item)}" for item in answers.get("workflows", [])],
+        [f"- {render_runtime_workflow(item, contract_root_ref)}" for item in answers.get("workflows", [])],
     )
     review_routing = owned("review_routing")
     if (
         arbitration_panel_projection(answers)
         != contract_model.DEFAULT_ARBITRATION_PANEL_PROJECTION
     ):
-        review_routing.append(f"- {contract_model.ARBITRATION_PANEL_RUNTIME_ROUTE}")
+        review_routing.append(f"- {context.reference(contract_model.ARBITRATION_PANEL_RUNTIME_ROUTE)}")
     add_section(
         lines,
         contract_model.project_section_title("review_routing"),
         review_routing,
     )
     canonical_routes = [
-        f"- {route}"
+        f"- {context.reference(route)}"
         for key, route in contract_model.CANONICAL_DETAIL_RUNTIME_ROUTES.items()
         if lines_for(answers.get(key))
     ]
@@ -4410,6 +4439,7 @@ def append_project_contract_definitions(
             context.commands,
             context.runtime_standards,
             prefix="- ",
+            contract_root_ref=context.contract_root_ref,
         )
     )
     lines.append("")
@@ -4424,14 +4454,14 @@ def append_project_contract_definitions(
         lines,
         contract_model.project_section_title("auxiliary_tools"),
         [
-            f"- {render_runtime_auxiliary_tool(item)}"
+            f"- {render_runtime_auxiliary_tool(item, context.contract_root_ref)}"
             for item in answers.get("auxiliary_tools", [])
         ],
     )
     add_section(
         lines,
         contract_model.project_section_title("loading_rule"),
-        list(PROJECT_LOADING_RULE_LINES),
+        [context.reference(line) for line in PROJECT_LOADING_RULE_LINES],
     )
 
 
@@ -4457,7 +4487,9 @@ def render_project_contract(
             answers,
             field(answers, "project_name"),
             batch_date,
+            contract_root_ref,
         ),
+        contract_root_ref=contract_root_ref,
     )
     append_project_contract_active_sections(
         context,
@@ -4466,10 +4498,7 @@ def render_project_contract(
         contract_root_ref,
     )
     append_project_contract_definitions(context)
-    return integration_registry.render_project_file_references(
-        "\n".join(context.lines).rstrip() + "\n",
-        contract_root_ref,
-    )
+    return "\n".join(context.lines).rstrip() + "\n"
 
 
 def render_entrypoint(

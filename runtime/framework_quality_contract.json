@@ -4,9 +4,9 @@
   "repeated_mistake_classes": [
     {
       "id": "private-path-leak",
-      "failure": "A declared product file or generated downstream surface contains a host path, private project name, or internal state reference.",
+      "failure": "A neutral product file or downstream template exposes maintainer-private paths, project identity, or internal state, or generated downstream output discloses such information outside its approved project boundary.",
       "guard_kind": "deterministic",
-      "guard": "Exact product membership excludes undeclared maintenance files; product input and state validators reject host paths, private-state filenames, and unsanitized feedback inputs before generation."
+      "guard": "Exact product membership excludes undeclared maintenance files; product input and state validators check their declared private-state and feedback patterns. Host-specific paths may be reported as warnings; authorized target-project paths are permitted, while tracking, sharing, and publication require the applicable privacy review."
     },
     {
       "id": "vendor-specific-public-doctrine",

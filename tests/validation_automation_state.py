@@ -31,6 +31,7 @@ import automation_orders_lint  # noqa: E402
 import project_state_lint  # noqa: E402
 import render_cron  # noqa: E402
 import run_scheduled_job  # noqa: E402
+import safe_paths  # noqa: E402
 
 
 def valid_external_review() -> dict[str, object]:
@@ -1541,6 +1542,289 @@ class AutomationStateTests(unittest.TestCase):
         )
         self.assertEqual([], clean_warnings)
         self.assertEqual([], clean_errors)
+
+    def test_scheduler_log_cannot_append_to_its_automation_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            artifact_root = project / ".automation"
+            artifact_root.mkdir(mode=0o700)
+            manifest_path = artifact_root / "orders.json"
+            job = valid_automation_job()
+            artifacts = cast(dict[str, object], job["scheduler_artifacts"])
+            artifacts["log_file"] = "orders.json"
+            manifest = {
+                "schema_version": automation_orders_lint.SCHEMA_VERSION,
+                "preferred_backend": "cron",
+                "jobs": [job],
+            }
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            manifest_path.chmod(0o600)
+            original = manifest_path.read_bytes()
+            seal = run_scheduled_job.job_authority_sha256(
+                job, project, manifest_path
+            )
+
+            errors, warnings = automation_orders_lint.validate_manifest(
+                manifest,
+                "cron",
+                project_root=project,
+                manifest_path=manifest_path,
+            )
+            with self.assertRaisesRegex(ValueError, "scheduler artifact.*control input"):
+                run_scheduled_job.run_job(
+                    project, manifest_path, str(job["id"]), seal
+                )
+
+            self.assertEqual([], warnings)
+            self.assertTrue(
+                any("control input" in error for error in errors), errors
+            )
+            self.assertEqual(original, manifest_path.read_bytes())
+            self.assertFalse((artifact_root / "locks").exists())
+
+    def test_scheduler_artifacts_protect_declared_sources_from_actual_job_cwd(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project = Path(temp_dir)
+            work = project / "local_overlays"
+            work.mkdir()
+            control_root = work / ".automation"
+            control_root.mkdir()
+            source = control_root / "runner.sh"
+            source.write_text("printf control-source\n", encoding="utf-8")
+            policy = control_root / "policy.md"
+            policy.write_text("Project policy\n", encoding="utf-8")
+            manifest_path = project / "AUTOMATION_ORDERS.json"
+            manifest_path.write_text("{}\n", encoding="utf-8")
+            first = valid_automation_job()
+            first["cwd"] = "local_overlays"
+            second = valid_automation_job()
+            second["id"] = "source_consumer"
+            second["command"] = "sh local_overlays/.automation/runner.sh"
+            second["execution_sources"] = [
+                {"root": "project", "path": "local_overlays/.automation/runner.sh"}
+            ]
+            cast(list[dict[str, str]], second["instruction_sources"]).append(
+                {"root": "project", "path": "local_overlays/.automation/policy.md"}
+            )
+            manifest = {
+                "schema_version": automation_orders_lint.SCHEMA_VERSION,
+                "preferred_backend": "cron",
+                "jobs": [first, second],
+            }
+            artifacts = cast(dict[str, object], first["scheduler_artifacts"])
+            for role, target in (
+                ("log_file", "runner.sh"),
+                ("lock_file", "runner.sh"),
+                ("log_file", "policy.md"),
+                ("lock_file", "policy.md"),
+            ):
+                with self.subTest(role=role, target=target):
+                    original_role = artifacts[role]
+                    artifacts[role] = target
+                    errors, _warnings = automation_orders_lint.validate_manifest(
+                        manifest,
+                        "cron",
+                        project_root=project,
+                        manifest_path=manifest_path,
+                    )
+                    artifacts[role] = original_role
+                    self.assertTrue(
+                        any("control input" in error for error in errors), errors
+                    )
+            clean_errors, clean_warnings = automation_orders_lint.validate_manifest(
+                manifest,
+                "cron",
+                project_root=project,
+                manifest_path=manifest_path,
+            )
+            self.assertEqual([], clean_errors)
+            self.assertEqual([], clean_warnings)
+
+    def test_scheduler_artifacts_protect_explicit_framework_rooted_sources(self) -> None:
+        job = valid_automation_job()
+        artifacts = cast(dict[str, object], job["scheduler_artifacts"])
+        artifacts["root"] = "scripts"
+        artifacts["log_file"] = "automation_orders_lint.py"
+        job["execution_sources"] = [
+            {"root": "framework", "path": "scripts/automation_orders_lint.py"}
+        ]
+        errors, _warnings = automation_orders_lint.validate_manifest(
+            {
+                "schema_version": automation_orders_lint.SCHEMA_VERSION,
+                "preferred_backend": "cron",
+                "jobs": [job],
+            },
+            project_root=REPO_ROOT,
+        )
+        self.assertTrue(any("control input" in error for error in errors), errors)
+
+    def test_scheduler_artifacts_protect_framework_sources_through_approved_aliases(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            fixture = Path(temp_dir).resolve()
+            physical = fixture / "framework"
+            sibling = fixture / "framework-sibling"
+            for root in (physical, sibling):
+                root.mkdir()
+                for relative in automation_orders_lint.AUTOMATION_REQUIRED_INSTRUCTION_SOURCES:
+                    target = root / relative
+                    target.parent.mkdir(exist_ok=True)
+                    target.write_text("Fixture instructions\n", encoding="utf-8")
+                artifacts = root / ".automation"
+                artifacts.mkdir(mode=0o700)
+                source = artifacts / "runner.sh"
+                source.write_text("printf source-input\n", encoding="utf-8")
+                source.chmod(0o600)
+            alias = fixture / "approved-alias"
+            alias.symlink_to(physical, target_is_directory=True)
+            job = valid_automation_job()
+            job["command"] = "sh .automation/runner.sh"
+            job["execution_sources"] = [
+                {"root": "framework", "path": ".automation/runner.sh"}
+            ]
+            cast(dict[str, object], job["scheduler_artifacts"])["log_file"] = "runner.sh"
+            manifest = {
+                "schema_version": automation_orders_lint.SCHEMA_VERSION,
+                "preferred_backend": "cron",
+                "jobs": [job],
+            }
+            manifest_path = alias / "AUTOMATION_ORDERS.json"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            manifest_path.chmod(0o600)
+            with mock.patch.object(
+                safe_paths, "ALLOWED_SYSTEM_SYMLINK_TARGETS", {alias: physical}
+            ):
+                self.assertTrue(safe_paths.is_allowed_system_symlink(alias))
+                self.assertEqual(alias, automation_orders_lint.normalize_project_root(alias))
+                descriptor = run_scheduled_job.open_absolute_directory(
+                    alias, description="approved-alias fixture"
+                )
+                try:
+                    self.assertEqual(
+                        (physical.stat().st_dev, physical.stat().st_ino),
+                        (os.fstat(descriptor).st_dev, os.fstat(descriptor).st_ino),
+                    )
+                finally:
+                    os.close(descriptor)
+                self.assertTrue(
+                    (physical / ".automation/runner.sh").samefile(
+                        alias / ".automation/runner.sh"
+                    )
+                )
+                for framework_root in (physical, sibling):
+                    for descriptor_bound in (False, True):
+                        with self.subTest(
+                            framework_root=framework_root.name,
+                            descriptor_bound=descriptor_bound,
+                        ), mock.patch.object(
+                            automation_orders_lint, "REPO_ROOT", framework_root
+                        ):
+                            validate = (
+                                automation_orders_lint.validate_descriptor_bound_manifest
+                                if descriptor_bound
+                                else automation_orders_lint.validate_manifest
+                            )
+                            errors, warnings = validate(
+                                manifest,
+                                "cron",
+                                project_root=alias,
+                                manifest_path=manifest_path,
+                            )
+                            self.assertEqual([], warnings)
+                            if framework_root == physical:
+                                self.assertTrue(
+                                    any("control input" in error for error in errors), errors
+                                )
+                            else:
+                                self.assertEqual([], errors)
+
+    def test_scheduled_runtime_protects_implicit_runtime_source_files(self) -> None:
+        child = """import json, sys
+from pathlib import Path
+framework = Path(sys.argv[1])
+project = Path(sys.argv[2])
+sys.path.insert(0, str(framework / 'scripts'))
+import run_scheduled_job as runner
+if project != framework:
+    runner.safe_paths.ALLOWED_SYSTEM_SYMLINK_TARGETS = {project: framework}
+manifest = project / 'AUTOMATION_ORDERS.json'
+job = json.loads(manifest.read_text(encoding='utf-8'))['jobs'][0]
+seal = runner.job_authority_sha256(job, project, manifest)
+try:
+    result = runner.run_job(project, manifest, job['id'], seal)
+except ValueError as exc:
+    print(json.dumps({'error': str(exc), 'result': None}))
+else:
+    print(json.dumps({'error': None, 'result': result}))
+"""
+        cases = tuple(
+            (relative, False) for relative in run_scheduled_job.CRON_RUNTIME_SOURCE_PATHS
+        ) + (
+            ("scripts/scheduler.log", False),
+            ("scripts/run_scheduled_job.py", True),
+            ("scripts/scheduler.log", True),
+        )
+        for log_path, use_alias in cases:
+            with self.subTest(log_path=log_path, use_alias=use_alias):
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    fixture = Path(temp_dir).resolve()
+                    framework = fixture / "framework"
+                    for relative in (
+                        *run_scheduled_job.CRON_RUNTIME_SOURCE_PATHS,
+                        *automation_orders_lint.AUTOMATION_REQUIRED_INSTRUCTION_SOURCES,
+                    ):
+                        target = framework / relative
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copyfile(REPO_ROOT / relative, target)
+                    (framework / "scripts").chmod(0o700)
+                    log_target = framework / log_path
+                    if log_target.exists():
+                        log_target.chmod(0o600)
+                    project = framework
+                    if use_alias:
+                        project = fixture / "approved-alias"
+                        project.symlink_to(framework, target_is_directory=True)
+                    job = valid_automation_job()
+                    job["command"] = "true"
+                    artifacts = cast(dict[str, object], job["scheduler_artifacts"])
+                    artifacts["root"] = "scripts"
+                    artifacts["log_file"] = Path(log_path).name
+                    artifacts["lock_file"] = "scheduler.lock"
+                    artifacts["max_log_bytes"] = automation_orders_lint.MAX_SCHEDULER_LOG_BYTES
+                    manifest_path = project / "AUTOMATION_ORDERS.json"
+                    manifest_path.write_text(
+                        json.dumps(
+                            {
+                                "schema_version": automation_orders_lint.SCHEMA_VERSION,
+                                "preferred_backend": "cron",
+                                "jobs": [job],
+                            }
+                        ),
+                        encoding="utf-8",
+                    )
+                    manifest_path.chmod(0o600)
+                    original_sources = {
+                        relative: (framework / relative).read_bytes()
+                        for relative in run_scheduled_job.CRON_RUNTIME_SOURCE_PATHS
+                    }
+                    result = run_bounded(
+                        [
+                            sys.executable, "-E", "-S", "-B", "-c", child,
+                            str(framework), str(project),
+                        ],
+                        cwd=framework,
+                    )
+                    self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+                    report = json.loads(result.stdout)
+                    if log_path in run_scheduled_job.CRON_RUNTIME_SOURCE_PATHS:
+                        self.assertIn("control input", report["error"] or "")
+                        self.assertIsNone(report["result"])
+                        self.assertFalse((framework / "scripts/scheduler.lock").exists())
+                    else:
+                        self.assertIsNone(report["error"])
+                        self.assertEqual(0, report["result"])
+                        self.assertIn(b"CONTROL run=", log_target.read_bytes())
+                    for relative, original in original_sources.items():
+                        self.assertEqual(original, (framework / relative).read_bytes())
 
     def test_cron_project_root_and_relative_cwd_are_independent_boundaries(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

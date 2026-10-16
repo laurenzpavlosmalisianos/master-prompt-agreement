@@ -2298,8 +2298,13 @@ def validate_review_decisions(
             continue
         for field_name, field_value in block.items():
             if field_name in DECISION_LIST_FIELDS:
-                if not field_value.value.strip() and not any(item.strip() for item in field_value.list_items):
-                    errors.append(f"finding block at line {block['finding_id'].line_no} has empty field: {field_name}")
+                if field_value.value.strip() or not any(
+                    item.strip() for item in field_value.list_items
+                ):
+                    errors.append(
+                        f"finding block at line {block['finding_id'].line_no} must use "
+                        f"a non-empty indented list for field: {field_name}"
+                    )
             elif not field_value.value.strip():
                 errors.append(f"finding block at line {block['finding_id'].line_no} has empty field: {field_name}")
         apply_mode = block["apply_mode"].value.strip()

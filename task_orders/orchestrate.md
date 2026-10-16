@@ -16,6 +16,13 @@ Confirm that the current runtime can launch fresh agent instances. If it cannot,
 
 Use this setup only when the task is high-consequence, architecture-critical, source-policy-sensitive, public/private-boundary-sensitive, security/privacy-sensitive, or when independent reviewers materially reduce a stated failure risk. Do not invoke multiple reviewers only because they are available.
 
+Ordinary factual source acquisition follows the task's source workflow. Retain
+its current authority, destination/data boundary, query or excerpt scope, source
+references and limits in the task handoff or result. Browser or model use alone
+does not make it a formal reviewer invocation. A fixed-candidate review or
+artifact-dependent assurance still follows the reviewer packet requirements;
+do not relabel it as research to bypass them.
+
 Before using reviewer lanes, record a reviewer lane plan in the handoff. A reviewer lane is any bounded source of candidate review output or objective verification, including a fresh agent, browser-backed external reviewer, external CLI reviewer, deterministic script, connector, or human reviewer. Availability does not grant authority; it may disqualify or constrain a lane, but it must not justify selecting one.
 
 Every selected lane must have at least:
@@ -101,6 +108,10 @@ Before approval, run the public validator with `--prepare-receipt packet_ready`
 and an explicit `--validated-at` timestamp. It prints a validated proposal and
 does not write the bundle. Record its packet digest, lifecycle update, and
 receipt, rerun ordinary validation, and bind approval to that receipt digest.
+Reuse a current User/SOW grant when it covers the concrete packet and the
+selected lane permits that approval basis. Record the actual grant and
+coordinator coverage check with its actor and time; do not claim the User saw
+or approved a later receipt when they did not.
 After exact approval and the passed, timestamped lane preflight, repeat with
 `--prepare-receipt pre_submission` immediately before invocation. Record that
 proposal and rerun ordinary validation. Never submit when either preparation or
@@ -202,7 +213,15 @@ For external reviewers participating in an audit, use the coverage ledger define
 
 When reviewer-lane feedback is in scope and `REVIEWER_LANE_FEEDBACK.md` exists, each planned reviewer lane should be accounted for with an explicit structured marker in the normal report or feedback file: `REVIEWER_LANE_USED` when the lane contributed, or `REVIEWER_LANE_SKIPPED` when it was planned but not used. Adopted reviewer findings should emit `REVIEWER_FINDING_ACCEPTED`; rejected reviewer findings should emit `REVIEWER_FINDING_REJECTED`; durable lane-fit observations should emit `LANE_FIT_OBSERVATION`. These markers are project-local evidence for routing and improvement only. They do not prove model quality, do not authorize framework changes, and must not use raw local agent session logs, browser transcripts, screenshots, or private wrapper logs as primary evidence.
 
-At closeout, update reviewer-lane feedback when reviewer lanes were used, planned then skipped, accepted or rejected, or when a commit, pull request, release, or milestone claims external review, but only when `REVIEWER_LANE_FEEDBACK.md` is receipt-declared mutable state; otherwise retain the structured markers in the ordinary report. Preserve the file's exact generated-state origin marker. If the condition applies but the reusable lesson is unclear, ask one concise follow-up before closeout. Do not create the optional file ad hoc, install mandatory VCS hooks, or block commits only because the optional feedback file is absent.
+At closeout, account for reviewer use, skips, finding dispositions and validation
+in the ordinary report or existing handoff. Update receipt-declared mutable
+`REVIEWER_LANE_FEEDBACK.md` only for a verified reusable routing observation or
+unresolved reviewer activity that its state owner retains. Completed consultation
+history belongs in the ordinary result or authorized change record. No reusable
+lesson is a valid no-entry outcome; do not ask a question solely to populate
+feedback. Preserve the file's exact generated-state origin marker. Do not create
+the optional file ad hoc, install mandatory VCS hooks, or block commits only
+because the optional feedback file is absent.
 
 For protocol-backed, daemon-backed, or persistent agent sessions, record the session identity, workspace or cwd scope, capability discovery or agent-card source, protocol and endpoint, typed input/output contract, queueing, cancellation, status or task lifecycle, timeout and retry policy, structured-output, replay/export, and teardown behavior in the handoff or project contract before relying on the session as an orchestration primitive. If a remote worker performs hard policy or compliance checks, prefer deterministic implementation and reproducible verdict evidence over LLM judgment; if the worker is unreachable or returns invalid data, route to the named fallback rather than silently continuing.
 

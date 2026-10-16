@@ -1582,6 +1582,74 @@ class SourceChainTests(unittest.TestCase):
             duplicate_report = source_chain_artifact_lint.prepare_decision_hashes(duplicate)
             after_bytes = valid.read_bytes()
 
+            list_field_items = {
+                "affected_files": ("docs/source-record.md", "docs/changed-record.md"),
+                "evidence": (
+                    "Primary release record verified for the bounded claim.",
+                    "An additional primary record verifies the bounded claim.",
+                ),
+                "required_verification": (
+                    "Re-run the source-record semantic check.",
+                    "Run the adjacent source-record semantic check.",
+                ),
+            }
+            baseline = dict_items(report["prepared_decision_hashes"])[0]
+            candidate = root / "list-field.md"
+            for field_name, (item, changed_item) in list_field_items.items():
+                original_field = f"{field_name}:\n  - {item}"
+                for form, replacement in (
+                    ("scalar", f"{field_name}: dropped-scalar"),
+                    ("mixed", f"{field_name}: dropped-scalar\n  - {item}"),
+                    ("empty", f"{field_name}:"),
+                    ("unindented", f"{field_name}:\n- {item}"),
+                ):
+                    with self.subTest(field=field_name, rejected_form=form):
+                        candidate.write_text(
+                            decision_text.replace(original_field, replacement),
+                            encoding="utf-8",
+                        )
+                        rejected = source_chain_artifact_lint.prepare_decision_hashes(
+                            candidate
+                        )
+                        self.assertEqual([], rejected["prepared_decision_hashes"])
+                        self.assertTrue(
+                            any(
+                                field_name in error
+                                for error in string_items(rejected["errors"])
+                            ),
+                            rejected["errors"],
+                        )
+                with self.subTest(field=field_name, valid_list_mutation=True):
+                    changed_text = decision_text.replace(
+                        original_field, f"{field_name}:\n  - {changed_item}"
+                    )
+                    candidate.write_text(changed_text, encoding="utf-8")
+                    changed_report = source_chain_artifact_lint.prepare_decision_hashes(
+                        candidate
+                    )
+                    self.assertEqual([], changed_report["errors"])
+                    changed = dict_items(changed_report["prepared_decision_hashes"])[0]
+                    self.assertEqual(
+                        [changed_item],
+                        cast(dict[str, object], changed["canonical_payload"])[field_name],
+                    )
+                    self.assertNotEqual(baseline["finding_hash"], changed["finding_hash"])
+                    hash_errors: list[str] = []
+                    source_chain_artifact_lint.validate_review_decisions(
+                        changed_text.replace(
+                            "finding_hash: unavailable",
+                            f"finding_hash: {baseline['finding_hash']}",
+                        ),
+                        1,
+                        0,
+                        hash_errors,
+                        verify_decision_hashes=True,
+                    )
+                    self.assertTrue(
+                        any("finding_hash does not match" in error for error in hash_errors),
+                        hash_errors,
+                    )
+
         prepared = dict_items(report["prepared_decision_hashes"])
         self.assertEqual([], report["errors"])
         self.assertEqual(1, len(prepared))

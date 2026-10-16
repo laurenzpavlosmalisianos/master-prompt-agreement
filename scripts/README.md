@@ -35,6 +35,13 @@ writes. Each command's
 repeatability, choices, and defaults. The maps below keep every command and its
 safety-relevant flags discoverable without loading implementation source.
 
+Validation of populated `DECISIONS.md` and `FINDINGS.md` additionally requires
+IANA timezone data accessible to the selected interpreter's `zoneinfo` module
+for each file's declared `record_timezone`. The state validator checks that
+requirement and rejects unavailable data; it does not install data or fall back
+to the host's timezone. A general runner prerequisite report does not establish
+availability of a project's selected record timezone.
+
 The setup, refresh, contract-synchronization, instance-lint, and `core-project`
 interfaces operate on downstream project instances. Their `--project-kind`
 discriminator accepts `downstream`; framework-product validation is the

@@ -568,6 +568,121 @@ class BootstrapTransactionTests(unittest.TestCase):
                     self.assertEqual(["close", "unlink", "fsync"] if named_identity == "exact" else ["close", "fsync"], events)
                     self.assertEqual(len(events), len(getattr(primary, "__notes__", ())))
 
+    def test_journal_install_cleanup_closes_every_held_descriptor(self) -> None:
+        cases = (
+            ("install", "temporary"),
+            ("prior-copy", "temporary"),
+            ("prior-copy", "source-close"),
+            ("prior-close", "none"),
+        )
+        for failure_point, cleanup_fault in cases:
+            for failure_type in (OSError, KeyboardInterrupt):
+                with (
+                    self.subTest(point=failure_point, cleanup=cleanup_fault, failure=failure_type),
+                    tempfile.TemporaryDirectory() as temp_dir,
+                ):
+                    project_root = Path(temp_dir) / "project"
+                    project_root.mkdir()
+                    bindings: list[bootstrap_transaction._DirectoryBinding] = []
+                    root = bootstrap_transaction._open_project_root_transaction(
+                        project_root, all_bindings=bindings,
+                    )
+                    project_lock: int | None = None
+                    held: dict[str, int] = {}
+                    real_open, real_close, real_fstat = os.open, os.close, os.fstat
+                    primary = failure_type("injected journal installation failure")
+                    close_attempts: list[int] = []
+                    try:
+                        project_lock, _created = bootstrap_transaction._acquire_project_lock(
+                            root, exclusive=True,
+                        )
+                        payload: dict[str, object] = {
+                            "schema_version": bootstrap_transaction.RECOVERY_JOURNAL_SCHEMA_VERSION,
+                            "transaction_id": bootstrap_transaction._project_lock_transaction_id(root, project_lock),
+                            "phase": "preparing", "applied_count": 0,
+                            "bound_directories": _journal_bound_root(project_root),
+                            "created_directories": [], "retired_directories": [],
+                            "operations": [{
+                                "path": "output.md", "action": "write",
+                                "transaction_directory": ".mpa-bootstrap-transaction-" + "b" * 32,
+                                "stage_name": "stage-0", "backup_name": None, "original": None,
+                                "candidate": {"sha256": hashlib.sha256(b"x").hexdigest(), "mode": None, "size": 1},
+                            }],
+                        }
+                        bootstrap_transaction._write_recovery_journal(
+                            root, payload, require_absent=True, lock_descriptor=project_lock,
+                        )
+                        canonical = project_root / bootstrap_transaction.RECOVERY_JOURNAL_NAME
+                        canonical_bytes = canonical.read_bytes()
+
+                        def track_open(
+                            path: Any, flags: int, mode: int = 0o777,
+                            *, dir_fd: int | None = None,
+                        ) -> int:
+                            descriptor = real_open(path, flags, mode, dir_fd=dir_fd)
+                            if path in {
+                                bootstrap_transaction._RECOVERY_JOURNAL_TEMP_NAME,
+                                bootstrap_transaction.RECOVERY_JOURNAL_NAME,
+                            }:
+                                held[str(path)] = descriptor
+                            return descriptor
+
+                        def track_close(descriptor: int) -> None:
+                            close_attempts.append(descriptor)
+                            real_close(descriptor)
+                            if (
+                                failure_point == "prior-close"
+                                and descriptor == held.get(bootstrap_transaction.RECOVERY_JOURNAL_NAME)
+                            ):
+                                raise primary
+                            if (
+                                cleanup_fault == "source-close"
+                                and descriptor == held.get(bootstrap_transaction.RECOVERY_JOURNAL_NAME)
+                            ):
+                                raise OSError("injected prior-source close failure")
+
+                        with ExitStack() as patches:
+                            patches.enter_context(mock.patch.object(bootstrap_transaction.os, "open", side_effect=track_open))
+                            patches.enter_context(mock.patch.object(bootstrap_transaction.os, "close", side_effect=track_close))
+                            if failure_point == "install":
+                                patches.enter_context(mock.patch.object(bootstrap_transaction.os, "rename", side_effect=primary))
+                            elif failure_point == "prior-copy":
+                                patches.enter_context(mock.patch.object(bootstrap_transaction, "_copy_open_journal_to_previous", side_effect=primary))
+                            if cleanup_fault == "temporary":
+                                patches.enter_context(mock.patch.object(
+                                    bootstrap_transaction, "_remove_recovery_journal_temporary",
+                                    side_effect=OSError("injected temporary cleanup failure"),
+                                ))
+                            with self.assertRaises((OSError, KeyboardInterrupt, bootstrap_transaction.BootstrapTransactionError)) as caught:
+                                bootstrap_transaction._write_recovery_journal(
+                                    root, payload, require_absent=False, lock_descriptor=project_lock,
+                                )
+
+                        self.assertEqual(2, len(held), held)
+                        for descriptor in held.values():
+                            with self.assertRaises(OSError) as closed:
+                                real_fstat(descriptor)
+                            self.assertEqual(errno.EBADF, closed.exception.errno)
+                            self.assertEqual(1, close_attempts.count(descriptor))
+                        self.assertIs(primary, caught.exception)
+                        if cleanup_fault != "none":
+                            self.assertTrue(any("cleanup failure" in note for note in getattr(primary, "__notes__", ())))
+                        self.assertEqual(canonical_bytes, canonical.read_bytes())
+                        self.assertTrue((project_root / bootstrap_transaction.TRANSACTION_LOCK_NAME).is_file())
+                        self.assertEqual(
+                            cleanup_fault == "temporary",
+                            (project_root / bootstrap_transaction._RECOVERY_JOURNAL_TEMP_NAME).exists(),
+                        )
+                    finally:
+                        # A failing pre-fix oracle must not leak descriptors from the test.
+                        for descriptor in held.values():
+                            try:
+                                real_fstat(descriptor)
+                            except OSError:
+                                continue
+                            real_close(descriptor)
+                        bootstrap_transaction._cleanup_transaction_resources(root, project_lock, bindings)
+
     def test_recovery_journal_rejects_unhashable_operation_actions(self) -> None:
         payload: dict[str, object] = {
             "schema_version": bootstrap_transaction.RECOVERY_JOURNAL_SCHEMA_VERSION,
@@ -5640,6 +5755,89 @@ class BootstrapTransactionTests(unittest.TestCase):
                 [],
                 list(project_root.rglob(".mpa-bootstrap-transaction-*")),
             )
+
+    @unittest.skipUnless(hasattr(os, "fork"), "requires fork for hard-exit recovery")
+    def test_identical_content_rollback_preserves_original_across_interruptions(self) -> None:
+        for installed in (False, True):
+            for candidate_mode in (0o640, 0o600):
+                for interrupt_cleanup in (False, True):
+                    with (
+                        self.subTest(
+                            installed=installed,
+                            candidate_mode=candidate_mode,
+                            interrupt_cleanup=interrupt_cleanup,
+                        ),
+                        tempfile.TemporaryDirectory() as temp_dir,
+                    ):
+                        project_root = Path(temp_dir) / "project"
+                        project_root.mkdir()
+                        target = project_root / "same.md"
+                        original = b"unchanged content\n"
+                        target.write_bytes(original)
+                        target.chmod(0o640)
+
+                        def interrupt_install() -> int:
+                            real_install = bootstrap_transaction._install_staged_output
+
+                            def install_or_exit(*args: Any, **kwargs: Any) -> None:
+                                if installed:
+                                    real_install(*args, **kwargs)
+                                os._exit(43)
+
+                            with mock.patch.object(
+                                bootstrap_transaction,
+                                "_install_staged_output",
+                                side_effect=install_or_exit,
+                            ):
+                                bootstrap_transaction.transactional_write_outputs(
+                                    project_root,
+                                    [("same.md", original.decode("utf-8"))],
+                                    force=True,
+                                    target_modes={"same.md": candidate_mode},
+                                )
+                            return 99
+
+                        self.assertEqual(43, _run_fork_fixture(interrupt_install))
+                        status = bootstrap_transaction.transaction_recovery_status(
+                            project_root
+                        )
+                        self.assertTrue(status.can_rollback, status)
+                        transaction_id = status.transaction_id
+                        if transaction_id is None:
+                            self.fail("recovery status omitted its transaction ID")
+
+                        if interrupt_cleanup:
+                            def interrupt_recovery_cleanup(
+                                recovery_id: str = transaction_id,
+                            ) -> int:
+                                with mock.patch.object(
+                                    bootstrap_transaction,
+                                    "_remove_recovery_journal",
+                                    side_effect=lambda *_args: os._exit(44),
+                                ):
+                                    bootstrap_transaction.rollback_interrupted_transaction(
+                                        project_root,
+                                        expected_transaction_id=recovery_id,
+                                    )
+                                return 99
+
+                            self.assertEqual(
+                                44,
+                                _run_fork_fixture(interrupt_recovery_cleanup),
+                            )
+                            self.assertEqual(original, target.read_bytes())
+                            self.assertEqual(0o640, target.stat().st_mode & 0o777)
+
+                        recovered = bootstrap_transaction.rollback_interrupted_transaction(
+                            project_root,
+                            expected_transaction_id=transaction_id,
+                        )
+                        self.assertEqual("clean", recovered.state, recovered)
+                        self.assertEqual(original, target.read_bytes())
+                        self.assertEqual(0o640, target.stat().st_mode & 0o777)
+                        self.assertEqual(["same.md"], sorted(
+                            path.name for path in project_root.iterdir()
+                        ))
 
     @unittest.skipUnless(hasattr(os, "fork"), "requires fork for hard-exit recovery")
     def test_project_bootstrap_cleanup_hard_exit_leaves_exact_finalize_journal(self) -> None:

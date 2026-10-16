@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+from contextlib import redirect_stdout
 from dataclasses import replace
 import io
 import json
@@ -34,6 +35,166 @@ import safe_paths  # noqa: E402
 
 
 class BootstrapRenderingTests(unittest.TestCase):
+    def test_nested_source_monitor_defaults_and_wrappers_bind_owned_files(self) -> None:
+        answers = {
+            "bootstrap_mode": "minimal", "agent": "Agent",
+            "project_name": "Demo", "date": "2026-10-16",
+            "framework_verification_runner": TEST_FRAMEWORK_RUNNER,
+            "include_source_packs": True, "include_source_update": True,
+            "include_source_monitor_researcher": True,
+        }
+        outputs = project_bootstrap.render_output_files(
+            answers, "codex", "$FRAMEWORK", contract_root_ref="contracts",
+            runtime_wrappers=("project_init",),
+        )
+        for filename in ("STATEMENT_OF_WORK.md", "SOURCE_MONITOR_RESEARCHER.md"):
+            self.assertIn(
+                "Source Data: contracts/SOURCE_PACKS.md / contracts/SOURCE_UPDATE.md",
+                outputs["contracts/" + filename],
+            )
+        self.assertIn("Read `contracts/AGENT_PROJECT.md`", outputs["AGENTS.md"])
+        self.assertIn(
+            "task_orders/init.md", outputs[".agents/skills/master-prompt-new-project/SKILL.md"],
+        )
+
+    def test_nested_literal_payloads_retain_input_and_owned_routes(self) -> None:
+        answers = {
+            "bootstrap_mode": "minimal",
+            "agent": "Agent TODO.md",
+            "project_name": "Demo TODO.md",
+            "date": "2026-10-16",
+            "framework_verification_runner": TEST_FRAMEWORK_RUNNER,
+            "tech_stack": "tools that read TODO.md",
+            "architecture": "project tools inspect TODO.md",
+            "language_runtime_standards": "project-defined TODO.md format",
+            "recitals": ["Inspect TODO.md content."],
+            "in_scope": ["Check TODO.md"],
+            "out_of_scope": ["Change TODO.md"],
+            "commands": {
+                **{key: "none" for key in project_contract_model.COMMAND_KEYS},
+                "test": "printf '%s' 'TODO.md'",
+            },
+            "workflows": [{
+                "name": "inspect TODO.md", "sequence": "read TODO.md",
+                "when": "TODO.md changes",
+            }],
+            "auxiliary_tools": [{
+                "name": "TODO.md inspector", "purpose": "inspect TODO.md",
+                "source": "TODO.md usage guide",
+                "owner": "project",
+                "transport": "native extension",
+                "capability_surface": "read project files and return a report",
+                "permissions": "read-only project files",
+                "data_boundary": "project files only",
+                "effect_boundary": "read-only report generation; no project writes",
+                "persistence": "task-scoped unless explicitly saved",
+                "trust": "project-owned configuration",
+                "credential_source": "none", "approval": "none",
+                "control_role": "none",
+            }],
+            "deliverables": [{
+                "description": "Inspect TODO.md", "test": "read TODO.md",
+                "pass_criteria": "TODO.md inspected",
+            }],
+            "include_source_packs": True,
+            "include_source_update": True,
+            "include_source_monitor_researcher": True,
+            "include_security_verification": True,
+            "include_reviewer_lane_feedback": True,
+            "source_registry_scope": "TODO.md material",
+            "source_review_cadence": "after TODO.md changes",
+            "shared_framework_source_reference": "TODO.md",
+            "source_monitor_role": "observe TODO.md",
+            "source_monitor_instruction_sources": ["TODO.md instructions"],
+            "source_monitor_source_data": ["TODO.md data"],
+            "source_monitor_boundary": "preserve TODO.md",
+            "security_verification_profile_scope": "inspect TODO.md",
+            "security_verification_target_policy": "local TODO.md",
+        }
+        self.assertEqual([], project_bootstrap.validate_answers(answers))
+        for contract_root, mode in (
+            (".", "minimal"), ("contracts", "minimal"),
+            (".", "full"), ("contracts", "full"),
+        ):
+            answers["bootstrap_mode"] = mode
+            self.assertEqual([], project_bootstrap.validate_answers(answers))
+            with self.subTest(contract_root=contract_root, mode=mode), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                answers_path = root / "answers.json"
+                answers_path.write_text(json.dumps(answers), encoding="utf-8")
+                inputs = project_bootstrap.load_bootstrap_inputs(
+                    project_bootstrap.BootstrapOptions(
+                        answers=str(answers_path), project_root=str(root),
+                        project_kind="downstream", contract_root=contract_root,
+                        setup_profile=None, runtime="generic", framework_ref="$FRAMEWORK",
+                        dry_run=True, create_contract_root=True,
+                        framework_revision_policy="pinned",
+                    )
+                )
+                outputs = project_bootstrap.render_bootstrap_write_outputs(
+                    inputs, answers, answers_path.read_bytes(), "2026-10-16",
+                )
+                prefix = "" if contract_root == "." else contract_root + "/"
+                retained = json.loads(outputs[prefix + "PROJECT_INPUT.json"])
+                self.assertEqual(answers, retained["answers"])
+                sow = outputs[prefix + "STATEMENT_OF_WORK.md"]
+                runtime = outputs[prefix + "AGENT_PROJECT.md"]
+                self.assertIn("inspect TODO.md: load " + prefix + "STATEMENT_OF_WORK.md Workflows entry when TODO.md changes", runtime)
+                self.assertIn("TODO.md inspector — inspect TODO.md — load " + prefix + "STATEMENT_OF_WORK.md Auxiliary Tools entry before use", runtime)
+                self.assertIn("Scope: TODO.md material", outputs[prefix + "SOURCE_UPDATE.md"])
+                self.assertIn("observe TODO.md", outputs[prefix + "SOURCE_MONITOR_RESEARCHER.md"])
+                self.assertIn("TODO.md instructions", outputs[prefix + "SOURCE_MONITOR_RESEARCHER.md"])
+                self.assertIn("TODO.md data", outputs[prefix + "SOURCE_MONITOR_RESEARCHER.md"])
+                self.assertIn("local TODO.md", outputs[prefix + "SECURITY_VERIFICATION.md"])
+                self.assertIn(prefix + "SECURITY_VERIFICATION.md defines verification procedures", sow)
+                self.assertIn(prefix + "FRAMEWORK_FEEDBACK.md candidates", sow)
+                for name, text in outputs.items():
+                    destination = root / name
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    destination.write_text(text, encoding="utf-8")
+                diagnostics = io.StringIO()
+                with redirect_stdout(diagnostics):
+                    result = project_contract_sync.main([
+                        "--contract-root", contract_root, str(root),
+                    ])
+                self.assertEqual(0, result, diagnostics.getvalue())
+
+    def test_nested_contract_rendering_preserves_answer_literals(self) -> None:
+        command = "printf '%s' 'TODO.md'"
+        restriction = "printf '%s' 'DECISIONS.md'"
+        answers = {
+            "bootstrap_mode": "minimal",
+            "agent": "Agent",
+            "project_name": "Literal TODO.md Demo",
+            "date": "2026-10-16",
+            "framework_verification_runner": TEST_FRAMEWORK_RUNNER,
+            "commands": {"test": command},
+            "command_restrictions": [{
+                "command": restriction,
+                "reason": "requires approval",
+                "alternative": "ask first",
+            }],
+            "constraints": ["Retain literal FINDINGS.md examples."],
+            "include_source_packs": True,
+            "shared_framework_source_reference": "TODO.md",
+        }
+        self.assertEqual([], project_bootstrap.validate_answers(answers))
+        for contract_root in (".", "contracts"):
+            with self.subTest(contract_root=contract_root):
+                outputs = project_bootstrap.render_output_files(
+                    answers, "generic", "$FRAMEWORK",
+                    contract_root_ref=contract_root,
+                )
+                prefix = "" if contract_root == "." else contract_root + "/"
+                for filename in ("STATEMENT_OF_WORK.md", "AGENT_PROJECT.md"):
+                    self.assertIn(command, outputs[prefix + filename])
+                    self.assertIn(restriction, outputs[prefix + filename])
+                    self.assertIn("Literal TODO.md Demo", outputs[prefix + filename])
+                    self.assertIn("Retain literal FINDINGS.md examples.", outputs[prefix + filename])
+                self.assertIn("Shared Framework Source Reference: TODO.md", outputs[prefix + "SOURCE_PACKS.md"])
+                self.assertIn(f"Source Packs File: {prefix}SOURCE_PACKS.md", outputs[prefix + "STATEMENT_OF_WORK.md"])
+                self.assertIn(f"Read `{prefix}AGENT_PROJECT.md`", outputs["AGENTS.md"])
+
     def test_authority_modules_require_utf8_text(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -2432,11 +2593,76 @@ class BootstrapRenderingTests(unittest.TestCase):
             result.stderr,
         )
 
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "requires POSIX FIFOs")
+    def test_product_launchers_reject_fifo_boundary_source_without_waiting(self) -> None:
+        for entrypoint in (
+            "check_prereqs.py",
+            "project_bootstrap.py",
+            "project_refresh.py",
+        ):
+            with self.subTest(entrypoint=entrypoint), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                scripts = root / "scripts"
+                scripts.mkdir()
+                source = scripts / entrypoint
+                shutil.copy2(SCRIPTS_DIR / entrypoint, source)
+                os.mkfifo(scripts / "python_import_boundary.py")
+                result = run_bounded(
+                    [sys.executable, "-E", "-S", "-B", str(source), "--help"],
+                    cwd=root,
+                    timeout_seconds=2.0,
+                )
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn("import boundary is not a regular file", result.stderr)
+
+    def test_exact_source_trampoline_requires_nonblocking_open(self) -> None:
+        with mock.patch.object(os, "O_NONBLOCK", 0):
+            with self.assertRaisesRegex(RuntimeError, "requires.*O_NONBLOCK"):
+                project_bootstrap._load_trusted_import_boundary(
+                    str(SCRIPTS_DIR / "project_bootstrap.py")
+                )
+
+    def test_exact_source_trampoline_preserves_link_and_source_rejection(self) -> None:
+        for kind in ("symlink", "hardlink", "oversize"):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                scripts = root / "scripts"
+                scripts.mkdir()
+                entrypoint = scripts / "project_bootstrap.py"
+                shutil.copy2(SCRIPTS_DIR / entrypoint.name, entrypoint)
+                boundary = scripts / "python_import_boundary.py"
+                original = root / "boundary-source.py"
+                marker = root / "boundary-executed"
+                original.write_text(
+                    f"open({str(marker)!r}, 'w').close()\n",
+                    encoding="utf-8",
+                )
+                if kind == "symlink":
+                    boundary.symlink_to(original)
+                elif kind == "hardlink":
+                    os.link(original, boundary)
+                else:
+                    boundary.write_bytes(b"#" + b"x" * 65_536)
+                result = run_bounded(
+                    [sys.executable, "-E", "-S", "-B", str(entrypoint), "--help"],
+                    cwd=root,
+                    timeout_seconds=2.0,
+                )
+                self.assertNotEqual(0, result.returncode)
+                self.assertFalse(marker.exists())
+                if kind == "hardlink":
+                    self.assertIn("import boundary is not a regular file", result.stderr)
+                elif kind == "oversize":
+                    self.assertIn("import boundary source is invalid", result.stderr)
+                else:
+                    self.assertIn("OSError", result.stderr)
+                    self.assertIn("python_import_boundary.py", result.stderr)
+
     def test_exact_source_trampoline_requires_no_follow_open(self) -> None:
         with mock.patch.object(os, "O_NOFOLLOW", 0):
             with self.assertRaisesRegex(
                 RuntimeError,
-                "requires O_CLOEXEC and O_NOFOLLOW",
+                "requires O_CLOEXEC, O_NOFOLLOW, and O_NONBLOCK",
             ):
                 project_bootstrap._load_trusted_import_boundary(
                     str(SCRIPTS_DIR / "project_bootstrap.py")

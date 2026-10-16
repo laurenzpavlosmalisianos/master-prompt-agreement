@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date, datetime, timedelta, timezone
 import io
 import json
 import os
@@ -11,6 +12,7 @@ import tempfile
 import unittest
 from unittest import mock
 from typing import cast
+from zoneinfo import ZoneInfoNotFoundError, available_timezones
 
 from tests.validation_test_support import (
     REPO_ROOT,
@@ -89,6 +91,367 @@ def valid_framework_feedback_entry() -> str:
 
 
 class ProjectStateInstanceContextTests(unittest.TestCase):
+    def _dated_state_text(
+        self,
+        name: str,
+        record_date: str | None,
+        metadata: str = "record_timezone: UTC",
+    ) -> str:
+        marker = project_state_identity.MARKDOWN_STATE_MARKER
+        if name == "DECISIONS.md":
+            prefix = (
+                "state_schema_version: 1\n"
+                "durable_decision_count: 0\n"
+                f"directive_count: {int(record_date is not None)}\n\n"
+            )
+            record = (
+                f"- {record_date}, directive_id: DIR-calendar\n"
+                "  Status: active\n"
+                "  Directive: Preserve the declared record calendar.\n"
+                "  Authority source: Synthetic project owner instruction.\n"
+                "  Scope: State records.\n"
+                "  Expiry or review trigger: Calendar convention changes.\n"
+                "  Affected files or surfaces: State records.\n"
+            )
+        else:
+            prefix = ""
+            record = f"- {record_date}, calendar finding, Help, fixture, project, test.\n"
+        return (
+            prefix + marker + "\n" + (metadata + "\n" if metadata else "")
+            + "\n# State\n\n" + (record if record_date is not None else "")
+        )
+
+    def test_project_state_lint_compares_dates_in_declared_calendar(self) -> None:
+        instant = datetime(2025, 1, 1, 0, 30, tzinfo=timezone.utc)
+        cases = (
+            ("UTC", "2025-01-01", None),
+            ("Japan", "2025-01-01", None),
+            ("America/New_York", "2024-12-31", None),
+            ("America/New_York", "2025-01-01", "in the future"),
+            ("UTC", "2025-01-02", "in the future"),
+            ("UTC", "2099-01-01", "in the future"),
+            ("UTC", "2025-02-30", "not a valid ISO date"),
+        )
+        for name, lint in (
+            ("DECISIONS.md", project_state_lint.lint_decisions),
+            ("FINDINGS.md", project_state_lint.lint_findings),
+        ):
+            for zone, record_date, expected in cases:
+                with self.subTest(name=name, zone=zone, record_date=record_date):
+                    errors: list[str] = []
+                    with (
+                        mock.patch.object(project_state_lint, "date", wraps=date) as clock_date,
+                        mock.patch.object(
+                            project_state_lint, "datetime", wraps=datetime, create=True
+                        ) as clock_datetime,
+                    ):
+                        clock_date.today.return_value = date(2024, 12, 31)
+                        clock_datetime.now.return_value = instant
+                        lint(
+                            Path(name), errors,
+                            self._dated_state_text(name, record_date, f"record_timezone: {zone}"),
+                        )
+                    self.assertEqual(
+                        [] if expected is None else [
+                            f"{name}: date bullet is {expected}: {record_date}"
+                        ],
+                        errors,
+                    )
+
+    def test_project_state_lint_requires_valid_record_timezone(self) -> None:
+        cases = (
+            ("", "missing record_timezone"),
+            ("record_timezone:", "invalid record_timezone"),
+            ("record_timezone: ../UTC", "unknown or unavailable record_timezone"),
+            ("record_timezone: /etc/passwd", "unknown or unavailable record_timezone"),
+            ("record_timezone UTC", "invalid record_timezone"),
+            ("record_timezone: localtime", "host-dependent localtime"),
+            ("record_timezone: Not/A_Zone", "unknown or unavailable record_timezone"),
+            ("record_timezone: UTC\nrecord_timezone: UTC", "duplicate record_timezone"),
+        )
+        for name, lint in (
+            ("DECISIONS.md", project_state_lint.lint_decisions),
+            ("FINDINGS.md", project_state_lint.lint_findings),
+        ):
+            for metadata, expected in cases:
+                for populated in (False, True):
+                    if not metadata and not populated:
+                        continue
+                    with self.subTest(name=name, metadata=metadata, populated=populated):
+                        errors: list[str] = []
+                        lint(
+                            Path(name), errors,
+                            self._dated_state_text(
+                                name, "2024-01-01" if populated else None, metadata
+                            ),
+                        )
+                        self.assertTrue(any(expected in error for error in errors), errors)
+
+    def test_project_state_lint_rejects_unavailable_record_timezone(self) -> None:
+        for name, lint in (
+            ("DECISIONS.md", project_state_lint.lint_decisions),
+            ("FINDINGS.md", project_state_lint.lint_findings),
+        ):
+            with self.subTest(name=name):
+                errors: list[str] = []
+                with mock.patch.object(
+                    project_state_lint, "ZoneInfo", create=True,
+                    side_effect=ZoneInfoNotFoundError("synthetic missing timezone data"),
+                ):
+                    lint(Path(name), errors, self._dated_state_text(name, None))
+                self.assertEqual(
+                    [f"{name}: unknown or unavailable record_timezone: UTC"], errors
+                )
+
+    def test_project_state_lint_rejects_loadable_non_iana_timezone_keys(self) -> None:
+        for name, lint in (
+            ("DECISIONS.md", project_state_lint.lint_decisions),
+            ("FINDINGS.md", project_state_lint.lint_findings),
+        ):
+            for key in ("right/UTC", "posix/UTC", "posixrules"):
+                with self.subTest(name=name, key=key):
+                    errors: list[str] = []
+                    with (
+                        mock.patch.object(
+                            project_state_lint, "available_timezones", create=True,
+                            return_value={"UTC", "Japan"},
+                        ),
+                        mock.patch.object(
+                            project_state_lint, "ZoneInfo", return_value=timezone.utc
+                        ) as zone_loader,
+                    ):
+                        lint(
+                            Path(name), errors,
+                            self._dated_state_text(name, "2024-01-01", f"record_timezone: {key}"),
+                        )
+                        self.assertEqual(
+                            [f"{name}: unknown or unavailable record_timezone: {key}"], errors
+                        )
+                        zone_loader.assert_not_called()
+
+    def test_project_state_lint_accepts_manual_calendar_and_receiptless_cli(self) -> None:
+        marker = project_state_identity.MARKDOWN_STATE_MARKER + "\n"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "TODO.md").write_text(
+                "state_schema_version: 1\nactive_count: 0\n\n# TODO\n",
+                encoding="utf-8",
+            )
+            for name, lint in (
+                ("DECISIONS.md", project_state_lint.lint_decisions),
+                ("FINDINGS.md", project_state_lint.lint_findings),
+            ):
+                for has_title in (True, False):
+                    text = self._dated_state_text(name, "2024-01-01").replace(marker, "")
+                    if not has_title:
+                        text = text.replace("# State\n\n", "")
+                    (root / name).write_text(text, encoding="utf-8")
+                    with self.subTest(name=name, has_title=has_title):
+                        errors: list[str] = []
+                        lint(Path(name), errors, text)
+                        self.assertEqual([], errors)
+                        self.assertEqual(
+                            (False, None),
+                            project_state_identity.inspect_generated_state_origin(
+                                name, text.encode("utf-8")
+                            ),
+                        )
+            self.assertIsNone(project_state_lint.receipt_owned_state_names(root, root))
+            with (
+                mock.patch.object(sys, "argv", ["project_state_lint.py", "--root", str(root)]),
+                mock.patch("sys.stdout", new_callable=io.StringIO) as stdout,
+            ):
+                result = project_state_lint.main()
+            self.assertEqual(0, result, stdout.getvalue())
+            self.assertEqual({"errors": [], "warnings": []}, json.loads(stdout.getvalue()))
+
+    def test_project_state_lint_requires_calendar_metadata_before_title(self) -> None:
+        for name, lint in (
+            ("DECISIONS.md", project_state_lint.lint_decisions),
+            ("FINDINGS.md", project_state_lint.lint_findings),
+        ):
+            text = self._dated_state_text(name, "2024-01-01", "")
+            marker = project_state_identity.MARKDOWN_STATE_MARKER
+            for misplaced in (
+                text.replace(marker, "record_timezone: UTC\n" + marker),
+                text.replace("# State", "# State\n\nrecord_timezone: UTC"),
+                text.replace("# State\n\n", "") + "\nrecord_timezone: UTC\n",
+            ):
+                with self.subTest(name=name, misplaced=misplaced):
+                    errors: list[str] = []
+                    lint(Path(name), errors, misplaced)
+                    self.assertEqual(
+                        [f"{name}: record_timezone must appear before any title or dated record "
+                         "and after any origin marker"],
+                        errors,
+                    )
+
+    def test_project_state_lint_empty_templates_need_no_calendar(self) -> None:
+        for name, lint in (
+            ("DECISIONS.md", project_state_lint.lint_decisions),
+            ("FINDINGS.md", project_state_lint.lint_findings),
+        ):
+            with self.subTest(name=name):
+                text = (REPO_ROOT / "project_state_templates" / name).read_text(
+                    encoding="utf-8"
+                )
+                errors: list[str] = []
+                with mock.patch.object(
+                    project_state_lint, "available_timezones",
+                    side_effect=AssertionError("empty state must not need timezone data"),
+                ):
+                    lint(Path(name), errors, text)
+                self.assertEqual([], errors)
+                recognized, origin_error = project_state_identity.inspect_generated_state_origin(
+                    name, text.encode("utf-8")
+                )
+                self.assertTrue(recognized, origin_error)
+                errors = []
+                lint(Path(name), errors, "record_timezone: UTC\n")
+                self.assertEqual([], errors)
+
+    def test_project_state_lint_preserves_generated_origin_identity(self) -> None:
+        marker = project_state_identity.MARKDOWN_STATE_MARKER
+        for name, lint in (
+            ("DECISIONS.md", project_state_lint.lint_decisions),
+            ("FINDINGS.md", project_state_lint.lint_findings),
+        ):
+            with self.subTest(name=name):
+                text = self._dated_state_text(name, "2024-01-01")
+                self.assertEqual(
+                    (True, None),
+                    project_state_identity.inspect_generated_state_origin(
+                        name, text.encode("utf-8")
+                    ),
+                )
+                errors: list[str] = []
+                duplicate = text.replace(marker, marker + "\n" + marker)
+                lint(Path(name), errors, duplicate)
+                self.assertEqual(
+                    [f"{name}: duplicate generated-state origin markers"], errors
+                )
+                for malformed in (duplicate, "\n" + text):
+                    recognized, origin_error = project_state_identity.inspect_generated_state_origin(
+                        name, malformed.encode("utf-8")
+                    )
+                    self.assertFalse(recognized)
+                    self.assertIn("canonical line", origin_error or "")
+
+    def test_project_state_lint_uses_declared_zone_daylight_saving_rules(self) -> None:
+        # At 04:30 UTC, this calendar is on the previous day before the spring
+        # change, but on the current day after the offset changes to UTC-04.
+        cases = (
+            (datetime(2025, 3, 8, 4, 30, tzinfo=timezone.utc), "2025-03-08", False),
+            (datetime(2025, 3, 10, 4, 30, tzinfo=timezone.utc), "2025-03-10", True),
+        )
+        for name, lint in (
+            ("DECISIONS.md", project_state_lint.lint_decisions),
+            ("FINDINGS.md", project_state_lint.lint_findings),
+        ):
+            for instant, record_date, valid in cases:
+                with self.subTest(name=name, instant=instant):
+                    errors: list[str] = []
+                    lint(
+                        Path(name), errors,
+                        self._dated_state_text(
+                            name, record_date, "record_timezone: America/New_York"
+                        ),
+                        now=instant,
+                    )
+                    self.assertEqual(
+                        [] if valid else [
+                            f"{name}: date bullet is in the future: {record_date}"
+                        ],
+                        errors,
+                    )
+
+    def test_project_state_lint_rejects_naive_validation_clock(self) -> None:
+        naive = datetime(2025, 1, 1)
+        for name, lint in (
+            ("DECISIONS.md", project_state_lint.lint_decisions),
+            ("FINDINGS.md", project_state_lint.lint_findings),
+        ):
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(ValueError, "clock must be timezone-aware"):
+                    lint(Path(name), [], self._dated_state_text(name, None), now=naive)
+        with self.assertRaisesRegex(ValueError, "clock must be timezone-aware"):
+            project_state_lint.lint_state_files(Path("unused"), now=naive)
+
+    def test_project_state_lint_shares_one_instant_and_calendar_snapshot(self) -> None:
+        instant = datetime(2025, 1, 1, 0, 30, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            for name, record_date, zone in (
+                ("DECISIONS.md", "2025-01-01", "UTC"),
+                ("FINDINGS.md", "2024-12-31", "America/New_York"),
+            ):
+                (root / name).write_text(
+                    self._dated_state_text(name, record_date, f"record_timezone: {zone}"),
+                    encoding="utf-8",
+                )
+            reads: list[str] = []
+            reader = safe_paths.read_regular_file_bytes
+
+            def read_then_replace(
+                path: Path,
+                *,
+                description: str,
+                max_bytes: int = safe_paths.DEFAULT_JSON_INPUT_MAX_BYTES,
+                require_single_link: bool = True,
+            ) -> bytes:
+                raw = reader(
+                    path, description=description, max_bytes=max_bytes,
+                    require_single_link=require_single_link,
+                )
+                reads.append(path.name)
+                path.write_text(
+                    self._dated_state_text(
+                        path.name, "2099-01-01", "record_timezone: Not/A_Zone"
+                    ),
+                    encoding="utf-8",
+                )
+                return raw
+
+            with (
+                mock.patch.object(
+                    project_state_lint.safe_paths, "read_regular_file_bytes",
+                    side_effect=read_then_replace,
+                ),
+                mock.patch.object(project_state_lint, "datetime", wraps=datetime) as clock,
+                mock.patch.object(
+                    project_state_lint, "available_timezones", wraps=available_timezones
+                ) as zone_inventory,
+            ):
+                clock.now.side_effect = [instant, instant + timedelta(days=1)]
+                report = project_state_lint.lint_state_files(
+                    root, selected_names=("DECISIONS.md", "FINDINGS.md"), require_core=False
+                )
+                clock.now.assert_called_once_with(timezone.utc)
+                zone_inventory.assert_called_once_with()
+            self.assertEqual(["DECISIONS.md", "FINDINGS.md"], reads)
+            self.assertEqual({"errors": [], "warnings": []}, report)
+
+    def test_project_state_lint_reports_unavailable_timezone_inventory_once(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            for name in ("DECISIONS.md", "FINDINGS.md"):
+                (root / name).write_text(
+                    self._dated_state_text(name, "2024-01-01"), encoding="utf-8"
+                )
+            with mock.patch.object(
+                project_state_lint, "available_timezones",
+                side_effect=OSError("synthetic inventory read failure"),
+            ) as zone_inventory:
+                report = project_state_lint.lint_state_files(
+                    root, selected_names=("DECISIONS.md", "FINDINGS.md"), require_core=False
+                )
+                zone_inventory.assert_called_once_with()
+            self.assertEqual(
+                [f"{name}: record_timezone database unavailable"
+                 for name in ("DECISIONS.md", "FINDINGS.md")],
+                report["errors"],
+            )
+
     def test_project_state_lint_dispatches_every_optional_template_family(self) -> None:
         names = (
             "SOURCE_PACKS.md",
@@ -2470,6 +2833,7 @@ class ProjectStateInstanceContextTests(unittest.TestCase):
                 encoding="utf-8",
             )
             decisions.write_text(
+                "record_timezone: UTC\n\n"
                 "* 2026-06-12, decision_id: DEC-2026-06-12-01\n"
                 "  Status: active\n"
                 "  Scope: state parser fixtures\n"
@@ -2485,6 +2849,7 @@ class ProjectStateInstanceContextTests(unittest.TestCase):
                 encoding="utf-8",
             )
             findings.write_text(
+                "record_timezone: UTC\n\n"
                 "+ 2026-06-12, durable finding\n"
                 "  - nested detail\n",
                 encoding="utf-8",
@@ -2946,6 +3311,7 @@ class ProjectStateInstanceContextTests(unittest.TestCase):
 
     def test_project_state_lint_accepts_complete_durable_record_semantics(self) -> None:
         decisions_text = (
+            "record_timezone: UTC\n\n"
             "- 2026-06-10, decision_id: DEC-2026-06-10-01\n"
             "  Status: superseded\n"
             "  Scope: project state records\n"
@@ -2987,6 +3353,7 @@ class ProjectStateInstanceContextTests(unittest.TestCase):
 
     def test_project_state_lint_rejects_invalid_durable_record_fields_and_ids(self) -> None:
         valid = (
+            "record_timezone: UTC\n\n"
             "- 2026-06-10, decision_id: DEC-ONE\n"
             "  Status: active\n"
             "  Scope: state records\n"
@@ -3055,6 +3422,7 @@ class ProjectStateInstanceContextTests(unittest.TestCase):
 
     def test_project_state_lint_rejects_incoherent_supersession_references(self) -> None:
         valid = (
+            "record_timezone: UTC\n\n"
             "- 2026-06-10, decision_id: DEC-OLD\n"
             "  Status: superseded\n"
             "  Scope: state records\n"
@@ -4550,7 +4918,28 @@ class ProjectStateInstanceContextTests(unittest.TestCase):
 
         self.assertTrue(any("possible host path" in error for error in result["errors"]), result["errors"])
 
-    def test_reviewer_lane_feedback_lint_rejects_vote_and_model_comparison_language(self) -> None:
+    def test_reviewer_lane_feedback_lint_allows_rejection_of_agreement_as_evidence(self) -> None:
+        for reason in (
+            "Reviewer agreement is not evidence.",
+            "Consensus among reviewers does not establish correctness.",
+        ):
+            with self.subTest(reason=reason):
+                payload = {
+                    "finding_id": "T1-F1",
+                    "source_lane_id": "fixture_lane",
+                    "evidence_ref": "https://example.com/evidence",
+                    "reason_category": "unsupported",
+                    "reason": reason,
+                }
+                result = lint_reviewer_lane_feedback.lint(
+                    REPO_ROOT / "feedback.md",
+                    REPO_ROOT,
+                    text="REVIEWER_FINDING_REJECTED " + json.dumps(payload),
+                )
+
+                self.assertEqual([], result["errors"], result)
+
+    def test_reviewer_lane_feedback_lint_flags_vote_and_model_comparison_for_semantic_review(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             reports = root / "reports"
@@ -4572,10 +4961,13 @@ class ProjectStateInstanceContextTests(unittest.TestCase):
 
             result = lint_reviewer_lane_feedback.lint(feedback, root)
 
-        errors = result["errors"]
-        self.assertTrue(any("anti-benchmark wording" in error for error in errors), errors)
+        self.assertEqual([], result["errors"], result)
+        self.assertTrue(
+            any("requires semantic review" in warning for warning in result["warnings"]),
+            result,
+        )
 
-    def test_reviewer_lane_feedback_lint_rejects_caveated_model_comparison_language(self) -> None:
+    def test_reviewer_lane_feedback_lint_flags_caveated_comparison_for_semantic_review(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             reports = root / "reports"
@@ -4597,5 +4989,8 @@ class ProjectStateInstanceContextTests(unittest.TestCase):
 
             result = lint_reviewer_lane_feedback.lint(feedback, root)
 
-        errors = result["errors"]
-        self.assertTrue(any("anti-benchmark wording" in error for error in errors), errors)
+        self.assertEqual([], result["errors"], result)
+        self.assertTrue(
+            any("requires semantic review" in warning for warning in result["warnings"]),
+            result,
+        )

@@ -3631,8 +3631,9 @@ def _write_recovery_journal(
                     "bootstrap recovery journal replacement did not retain the "
                     "exact descriptor-bound prior journal"
                 )
-            os.close(previous_source_descriptor)
+            completed_source_descriptor = previous_source_descriptor
             previous_source_descriptor = None
+            os.close(completed_source_descriptor)
         if previous_source_identity is not None:
             rebound_canonical = _journal_metadata(root)
             if (
@@ -3682,7 +3683,7 @@ def _write_recovery_journal(
                 expected_payload_identity=previous_payload_identity,
             )
     except BaseException as exc:
-        try:
+        def retire_exact_temporary() -> None:
             current_temporary = _journal_temporary_metadata(root)
             if (
                 current_temporary is not None
@@ -3692,21 +3693,26 @@ def _write_recovery_journal(
                     root,
                     expected_object_identity=temporary_object_identity,
                 )
-        except BaseException as cleanup_exc:
-            raise BootstrapTransactionError(
-                "bootstrap recovery journal installation failed and its exact "
-                f"temporary file could not be removed: {cleanup_exc}"
-            ) from exc
-        try:
-            if previous_source_descriptor is not None:
-                os.close(previous_source_descriptor)
-                previous_source_descriptor = None
-            os.close(descriptor)
-        except BaseException as close_exc:
-            exc.add_note(
-                "bootstrap recovery journal staged descriptor cleanup failure: "
-                f"{close_exc}"
+
+        cleanup_actions: list[tuple[str, Callable[[], object]]] = [
+            ("exact bootstrap recovery journal temporary file", retire_exact_temporary)
+        ]
+        if previous_source_descriptor is not None:
+            failed_source_descriptor = previous_source_descriptor
+            previous_source_descriptor = None
+            cleanup_actions.append(
+                (
+                    "bootstrap recovery journal prior-source descriptor",
+                    lambda: os.close(failed_source_descriptor),
+                )
             )
+        cleanup_actions.append(
+            (
+                "bootstrap recovery journal staged descriptor",
+                lambda: os.close(descriptor),
+            )
+        )
+        resource_cleanup.cleanup_actions(cleanup_actions, primary=exc)
         raise
     else:
         os.close(descriptor)
@@ -5123,7 +5129,10 @@ def _recover_interrupted_transaction(
                                 description=f"bootstrap recovery candidate {path}",
                             )
                             view.target_quarantine_evidence = None
-                        elif _evidence_matches(
+                        elif not _evidence_matches(
+                            view.target_evidence,
+                            original,
+                        ) and _evidence_matches(
                             view.target_evidence,
                             operation.get("candidate"),
                         ):

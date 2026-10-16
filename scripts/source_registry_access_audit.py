@@ -38,6 +38,7 @@ REDIRECT_STATUS_CODES = {301, 302, 303, 307, 308}
 CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 MAX_WORKERS = 64
 MAX_READ_BYTES = 1_000_000
+ROBOTS_MAX_READ_BYTES = 20_000
 MAX_TIMEOUT_SECONDS = 300.0
 MAX_REDIRECTS = 20
 MAX_USER_AGENT_CHARS = 200
@@ -1006,7 +1007,10 @@ def robots_status(
                 content_type = response.headers.get("content-type", "")
                 if not isinstance(content_type, str):
                     return "unknown"
-                body = response.read(20000).decode("utf-8", "replace")
+                raw_body = response.read(ROBOTS_MAX_READ_BYTES + 1)
+                if len(raw_body) > ROBOTS_MAX_READ_BYTES:
+                    return "unknown"
+                body = raw_body.decode("utf-8", "replace")
             break
         except HTTPError as exc:
             try:
