@@ -1023,6 +1023,8 @@ class ProjectLayoutPolicy:
     instruction_surfaces: tuple[InstructionSurfaceRequirement, ...] = ()
     state_template_source_paths: frozenset[str] = frozenset()
     contract_sync_command_prefix: tuple[str, ...] = ()
+    # Framework-relative Python entrypoint followed by literal argument tokens.
+    conformance_entrypoint: tuple[str, ...] = ("scripts/conformance_check.py",)
 
 
 _PROJECT_LAYOUT_POLICIES: dict[str, ProjectLayoutPolicy] = {}
@@ -1043,6 +1045,31 @@ def register_project_layout_policy(policy: ProjectLayoutPolicy) -> None:
         raise ValueError("layout without a runtime entrypoint cannot allow wrappers")
     if any(not token for token in policy.contract_sync_command_prefix):
         raise ValueError("project layout contract-sync prefix tokens must be non-empty")
+    if not policy.conformance_entrypoint or any(
+        not isinstance(token, str)
+        or not token.strip()
+        or safe_paths.PATH_CONTROL_RE.search(token)
+        or contains_splitlines_boundary(token)
+        for token in policy.conformance_entrypoint
+    ):
+        raise ValueError(
+            "project layout conformance entrypoint tokens must be non-empty clean text"
+        )
+    entrypoint = policy.conformance_entrypoint[0]
+    entrypoint_path = Path(entrypoint)
+    if (
+        entrypoint_path.is_absolute()
+        or not entrypoint_path.parts
+        or ".." in entrypoint_path.parts
+        or entrypoint_path.as_posix() != entrypoint
+        or safe_paths.project_relative_reference_errors(
+            entrypoint,
+            "project layout conformance entrypoint",
+        )
+    ):
+        raise ValueError(
+            "project layout conformance entrypoint must be a safe normalized relative path"
+        )
     for surface in policy.instruction_surfaces:
         if not surface.relative_path or not surface.description.strip():
             raise ValueError(
@@ -1568,11 +1595,15 @@ def normalized_contract_identity(value: str) -> str:
     return unicodedata.normalize("NFC", " ".join(canonical.split()))
 
 
-def render_runtime_workflow_route(item: Mapping[str, object]) -> str:
+def render_runtime_workflow_route(
+    item: Mapping[str, object],
+    *,
+    route: str = RUNTIME_WORKFLOW_ROUTE,
+) -> str:
     """Render the active workflow index without copying its canonical sequence."""
 
     segments = [
-        f"{str(item.get('name', '')).strip()}: {RUNTIME_WORKFLOW_ROUTE} "
+        f"{str(item.get('name', '')).strip()}: {route} "
         f"{str(item.get('when', '')).strip()}"
     ]
     for key, label in RUNTIME_WORKFLOW_CONTROL_FIELDS:
@@ -1582,13 +1613,17 @@ def render_runtime_workflow_route(item: Mapping[str, object]) -> str:
     return " — ".join(segments)
 
 
-def render_runtime_auxiliary_tool_route(item: Mapping[str, object]) -> str:
+def render_runtime_auxiliary_tool_route(
+    item: Mapping[str, object],
+    *,
+    route: str = RUNTIME_AUXILIARY_TOOL_ROUTE,
+) -> str:
     """Render an auxiliary-tool index while canonical detail remains in the SOW."""
 
     segments = [
         str(item.get("name", "")).strip(),
         str(item.get("purpose", "")).strip(),
-        RUNTIME_AUXILIARY_TOOL_ROUTE,
+        route,
     ]
     for key, label in RUNTIME_AUXILIARY_TOOL_FIELDS:
         value = str(item.get(key, "")).strip()
@@ -2693,12 +2728,19 @@ def source_monitor_framework_reference_lines(
     framework_reference: str,
     *,
     root: Path = REPO_ROOT,
+    template_text: str | None = None,
 ) -> tuple[str, ...]:
-    """Render exact model-owned SOURCE_MONITOR_RESEARCHER framework-ref lines."""
+    """Render reference lines from source or a caller-rebased trusted template.
 
-    template = (root / state_template_source_path("SOURCE_MONITOR_RESEARCHER.md")).read_text(
-        encoding="utf-8"
-    )
+    ``template_text`` must come from the framework template, never from the
+    generated file whose projection is being checked.
+    """
+
+    template = template_text
+    if template is None:
+        template = (root / state_template_source_path("SOURCE_MONITOR_RESEARCHER.md")).read_text(
+            encoding="utf-8"
+        )
     return tuple(
         safe_paths.render_framework_reference_tokens(line, framework_reference)
         for line in template.splitlines()
@@ -3238,6 +3280,7 @@ def framework_verification_command_lines(
         else safe_paths.canonical_framework_reference(framework_ref)
     )
     configured_runner = runner.strip() or FRAMEWORK_VERIFICATION_RUNNER_PLACEHOLDER
+    policy = project_layout_policy(project_kind)
     layout_args = f" --project-kind {project_kind}"
     if contract_root_ref != ".":
         layout_args += f" --contract-root {contract_root_ref}"
@@ -3250,11 +3293,17 @@ def framework_verification_command_lines(
             return f'"{reference}/{relative}"'
         return safe_paths.shell_framework_path_token(reference, relative)
 
+    conformance_command = " ".join(
+        (
+            script_reference(policy.conformance_entrypoint[0]),
+            *(shlex.quote(token) for token in policy.conformance_entrypoint[1:]),
+        )
+    )
     return [
         f"- Framework reference: {reference}",
         f"- Framework Verification Runner: {configured_runner}",
         "- Run from the project root; the routine gate calls the framework-owned aggregate checker through the framework reference. Use its named child checks only for setup or diagnosis.",
-        f"- Core conformance: {configured_runner} -- {script_reference('scripts/conformance_check.py')} --profile core-project --root .{layout_args}",
+        f"- Core conformance: {configured_runner} -- {conformance_command} --profile core-project --root .{layout_args}",
         f"- Runner fallback: do not silently replace the configured runner. If it is unavailable, stop and resolve the project runner requirement; when available, its prerequisite command is {configured_runner} -- {script_reference('scripts/check_prereqs.py')}.",
     ]
 

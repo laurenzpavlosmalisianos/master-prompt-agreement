@@ -1652,12 +1652,19 @@ class ProjectRefreshLifecycleTests(unittest.TestCase):
             )
             authority_path.write_text("# Revised authority\n", encoding="utf-8")
 
+            inspected = project_refresh.inspect_project(project_root)
             built = project_refresh.build_plan(
                 project_root,
                 post_apply_backout={"kind": "none"},
                 rebind_authority_modules=True,
             )
 
+        self.assertEqual("manual-update-required", inspected["status"], inspected)
+        self.assertFalse(inspected.get("rebind_eligible", False), inspected)
+        self.assertIn(
+            "canonical serialization",
+            " ".join(cast(list[str], inspected["errors"])),
+        )
         self.assertIsNone(built.payload)
         self.assertIn("canonical serialization", " ".join(built.errors))
 

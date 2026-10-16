@@ -846,6 +846,54 @@ class SourceRegistryAccessTests(unittest.TestCase):
         self.assertEqual(["https://example.com/start"], attempts)
         self.assertEqual(1, budget.used)
 
+    def test_robots_policy_does_not_allow_truncated_body(self) -> None:
+        body = b"#" + b"x" * 20_000 + b"\nUser-agent: *\nDisallow: /\n"
+        response = _FakeResponse("https://example.com/robots.txt", body=body)
+        with (
+            mock.patch.object(
+                response, "read", side_effect=io.BytesIO(body).read
+            ) as read_body,
+            mock.patch.object(
+                source_registry_access_audit,
+                "safe_urlopen",
+                return_value=response,
+            ),
+        ):
+            result = source_registry_access_audit.robots_status(
+                "https://example.com/source",
+                1.0,
+                "test-agent",
+            )
+
+        self.assertEqual("unknown", result)
+        read_body.assert_called_once_with(20_001)
+
+    def test_robots_policy_classifies_complete_bodies_through_byte_limit(self) -> None:
+        for rule, expected in ((b"Allow: /\n", "allow"), (b"Disallow: /\n", "disallow")):
+            rules = b"User-agent: *\n" + rule
+            boundary_body = b"#" + b"x" * (20_000 - len(rules) - 2) + b"\n" + rules
+            for body in (rules, boundary_body):
+                with self.subTest(expected=expected, size=len(body)):
+                    response = _FakeResponse("https://example.com/robots.txt", body=body)
+                    with (
+                        mock.patch.object(
+                            response, "read", side_effect=io.BytesIO(body).read
+                        ) as read_body,
+                        mock.patch.object(
+                            source_registry_access_audit,
+                            "safe_urlopen",
+                            return_value=response,
+                        ),
+                    ):
+                        result = source_registry_access_audit.robots_status(
+                            "https://example.com/source",
+                            1.0,
+                            "test-agent",
+                        )
+
+                    self.assertEqual(expected, result)
+                    read_body.assert_called_once_with(20_001)
+
     def test_head_get_and_robots_each_consume_transport_budget(self) -> None:
         attempts: list[tuple[str, str]] = []
 

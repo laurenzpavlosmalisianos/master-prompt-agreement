@@ -5,16 +5,18 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timezone
 import json
 import re
 from pathlib import Path
-from typing import Iterable
+from typing import Callable, Iterable
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
 
 import automation_orders_lint
 import lint_reviewer_lane_feedback
 import markdown_structure
 import project_contract_model
+import project_state_identity
 import safe_paths
 
 
@@ -679,7 +681,90 @@ def lint_todo(
             warnings.append(f"{path.name}: dated durable entry looks misplaced in TODO")
 
 
-def has_valid_date_bullet(path: Path, raw: str, errors: list[str]) -> bool:
+def state_validation_now(now: datetime | None = None) -> datetime:
+    selected = datetime.now(timezone.utc) if now is None else now
+    if selected.tzinfo is None or selected.utcoffset() is None:
+        raise ValueError("state validation clock must be timezone-aware")
+    return selected
+
+
+def record_reference_today(
+    path: Path,
+    text: str,
+    errors: list[str],
+    now: datetime,
+    timezone_names: Callable[[], frozenset[str]] | None = None,
+) -> date | None:
+    """Resolve the file's declared record calendar from the same state snapshot."""
+
+    lines = list(markdown_structure.operative_lines(text))
+    entries: list[tuple[int, str]] = []
+    for number, raw in lines:
+        if re.match(r"^\s*record_timezone(?:\s|:|$)", raw):
+            match = re.fullmatch(r"record_timezone:[ \t]*(.*)", raw)
+            if match is None:
+                errors.append(f"{path.name}: invalid record_timezone metadata syntax")
+                return None
+            entries.append((number, match.group(1).strip()))
+    if not entries:
+        if any(DATE_BULLET.match(raw) for _number, raw in lines):
+            errors.append(f"{path.name}: missing record_timezone for dated records")
+        return None
+    if len(entries) != 1:
+        errors.append(f"{path.name}: duplicate record_timezone metadata")
+        return None
+    number, value = entries[0]
+    marker_lines = [
+        index for index, raw in enumerate(text.splitlines(), start=1)
+        if raw == project_state_identity.MARKDOWN_STATE_MARKER
+    ]
+    metadata_end = next(
+        (index for index, raw in lines if raw.startswith("# ") or DATE_BULLET.match(raw)),
+        len(text.splitlines()) + 1,
+    )
+    if len(marker_lines) > 1:
+        errors.append(f"{path.name}: duplicate generated-state origin markers")
+        return None
+    if (
+        number >= metadata_end
+        or (marker_lines and marker_lines[0] >= number)
+    ):
+        errors.append(
+            f"{path.name}: record_timezone must appear before any title or dated record "
+            "and after any origin marker"
+        )
+        return None
+    if not value:
+        errors.append(f"{path.name}: invalid record_timezone: empty name")
+        return None
+    if value.split("/")[-1] == "localtime":
+        errors.append(f"{path.name}: record_timezone cannot select host-dependent localtime")
+        return None
+    try:
+        names = frozenset(available_timezones()) if timezone_names is None else timezone_names()
+    except OSError:
+        errors.append(f"{path.name}: record_timezone database unavailable")
+        return None
+    if value not in names:
+        errors.append(f"{path.name}: unknown or unavailable record_timezone: {value}")
+        return None
+    try:
+        record_zone = ZoneInfo(value)
+    except ValueError:
+        errors.append(f"{path.name}: invalid record_timezone: {value}")
+        return None
+    except (ZoneInfoNotFoundError, OSError):
+        errors.append(f"{path.name}: unknown or unavailable record_timezone: {value}")
+        return None
+    return now.astimezone(record_zone).date()
+
+
+def has_valid_date_bullet(
+    path: Path,
+    raw: str,
+    errors: list[str],
+    reference_today: date | None,
+) -> bool:
     match = DATE_BULLET.match(raw)
     if not match:
         return False
@@ -688,7 +773,7 @@ def has_valid_date_bullet(path: Path, raw: str, errors: list[str]) -> bool:
     except ValueError:
         errors.append(f"{path.name}: date bullet is not a valid ISO date: {match.group(1)}")
         return False
-    if parsed > date.today():
+    if reference_today is not None and parsed > reference_today:
         errors.append(f"{path.name}: date bullet is in the future: {match.group(1)}")
         return False
     return True
@@ -855,25 +940,47 @@ def validate_durable_records(
     validate_decision_supersession(path, decision_records, errors)
 
 
-def lint_decisions(path: Path, errors: list[str], text: str | None = None) -> None:
+def lint_decisions(
+    path: Path,
+    errors: list[str],
+    text: str | None = None,
+    *,
+    now: datetime | None = None,
+    _timezone_names: Callable[[], frozenset[str]] | None = None,
+) -> None:
+    text = _state_text(path, text)
+    reference_today = record_reference_today(
+        path, text, errors, state_validation_now(now), _timezone_names
+    )
     for raw in substantive_lines(path, text):
         if CHECKBOX.match(raw):
             errors.append(f"{path.name}: task checkboxes do not belong in durable decisions")
         elif TOP_LEVEL_BULLET.match(raw):
             if DATE_BULLET.match(raw):
-                has_valid_date_bullet(path, raw, errors)
+                has_valid_date_bullet(path, raw, errors, reference_today)
             else:
                 errors.append(f"{path.name}: decision entries must start with an ISO date bullet")
     validate_durable_records(path, errors, text)
 
 
-def lint_findings(path: Path, errors: list[str], text: str | None = None) -> None:
+def lint_findings(
+    path: Path,
+    errors: list[str],
+    text: str | None = None,
+    *,
+    now: datetime | None = None,
+    _timezone_names: Callable[[], frozenset[str]] | None = None,
+) -> None:
+    text = _state_text(path, text)
+    reference_today = record_reference_today(
+        path, text, errors, state_validation_now(now), _timezone_names
+    )
     for raw in substantive_lines(path, text):
         if CHECKBOX.match(raw):
             errors.append(f"{path.name}: task checkboxes do not belong in findings")
         elif TOP_LEVEL_BULLET.match(raw):
             if DATE_BULLET.match(raw):
-                has_valid_date_bullet(path, raw, errors)
+                has_valid_date_bullet(path, raw, errors, reference_today)
             else:
                 errors.append(f"{path.name}: finding entries must start with an ISO date bullet")
 
@@ -1532,7 +1639,22 @@ def lint_state_files(
     *,
     require_core: bool = True,
     project_root: Path | None = None,
+    now: datetime | None = None,
 ) -> dict[str, list[str]]:
+    captured_now = state_validation_now(now)
+    captured_timezones: frozenset[str] | OSError | None = None
+
+    def timezone_names() -> frozenset[str]:
+        nonlocal captured_timezones
+        if captured_timezones is None:
+            try:
+                captured_timezones = frozenset(available_timezones())
+            except OSError as exc:
+                captured_timezones = exc
+        if isinstance(captured_timezones, OSError):
+            raise captured_timezones
+        return captured_timezones
+
     root = root.resolve()
     selected_project_root = (project_root or root).resolve()
     files = {
@@ -1593,13 +1715,19 @@ def lint_state_files(
     if "DECISIONS.md" in supported and "DECISIONS.md" in snapshots:
         text = snapshots["DECISIONS.md"]
         lint_state_header(files["DECISIONS.md"], errors, text)
-        lint_decisions(files["DECISIONS.md"], errors, text)
+        lint_decisions(
+            files["DECISIONS.md"], errors, text, now=captured_now,
+            _timezone_names=timezone_names,
+        )
     if "FRAMEWORK_FEEDBACK.md" in supported and "FRAMEWORK_FEEDBACK.md" in snapshots:
         text = snapshots["FRAMEWORK_FEEDBACK.md"]
         lint_framework_feedback(files["FRAMEWORK_FEEDBACK.md"], errors, warnings, text)
     if "FINDINGS.md" in supported and "FINDINGS.md" in snapshots:
         text = snapshots["FINDINGS.md"]
-        lint_findings(files["FINDINGS.md"], errors, text)
+        lint_findings(
+            files["FINDINGS.md"], errors, text, now=captured_now,
+            _timezone_names=timezone_names,
+        )
     if "PRECEDENTS.md" in supported and "PRECEDENTS.md" in snapshots:
         text = snapshots["PRECEDENTS.md"]
         lint_precedents(files["PRECEDENTS.md"], errors, text)

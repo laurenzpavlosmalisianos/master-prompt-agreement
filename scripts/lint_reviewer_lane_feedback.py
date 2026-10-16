@@ -128,7 +128,7 @@ LEAK_PATTERNS = (
     ("environment assignment", re.compile(r"\b[A-Z][A-Z0-9_]{2,}=")),
     ("long token", re.compile(r"\b[A-Za-z0-9_-]{40,}\b")),
 )
-ANTI_BENCHMARK_PATTERNS = (
+COMPARISON_REVIEW_PATTERNS = (
     re.compile(r"\bbest model\b", re.IGNORECASE),
     re.compile(r"\bwinner\b", re.IGNORECASE),
     re.compile(r"\bbeats\b", re.IGNORECASE),
@@ -171,14 +171,22 @@ def all_lines(text: str) -> list[tuple[int, str]]:
     return list(enumerate(text.splitlines(), start=1))
 
 
-def scan_forbidden_text(line_number: int, text: str, errors: list[str]) -> None:
+def scan_feedback_text(
+    line_number: int,
+    text: str,
+    errors: list[str],
+    warnings: list[str],
+) -> None:
     stripped = text.strip()
     for label, pattern in LEAK_PATTERNS:
         if pattern.search(stripped):
             errors.append(f"line {line_number}: possible {label} in reviewer lane feedback")
-    for pattern in ANTI_BENCHMARK_PATTERNS:
+    # Word matches cannot distinguish an unsupported claim from its rejection.
+    for pattern in COMPARISON_REVIEW_PATTERNS:
         if pattern.search(stripped):
-            errors.append(f"line {line_number}: anti-benchmark wording is not allowed: {pattern.pattern}")
+            warnings.append(
+                f"line {line_number}: possible comparison requires semantic review: {pattern.pattern}"
+            )
 
 
 def as_str(value: Any) -> str:
@@ -403,7 +411,7 @@ def lint(
     current_lane: str | None = None
 
     for line_number, raw in all_lines(text):
-        scan_forbidden_text(line_number, raw, errors)
+        scan_feedback_text(line_number, raw, errors, warnings)
 
     for line_number, raw in non_fenced_lines(text):
         stripped = raw.strip()

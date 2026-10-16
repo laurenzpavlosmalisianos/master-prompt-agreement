@@ -5,13 +5,24 @@
 Status: project-local, evidence-bound, non-benchmark.
 Context-loading: opt-in only. Load this file only for reviewer routing, external-review orchestration, source-monitoring strategy, prompt-agent-quality work, or decision-triggered insights.
 
-Use this file to record what actually happened when reviewer lanes were used. A reviewer lane can be a local subagent, browser-backed external reviewer, deep-research surface, bounded wrapper, deterministic checker, connector, human reviewer, or other bounded review source.
+Retain current evidence-backed routing observations and unresolved reviewer
+activity in this file. Per-task reviewer use, skips, accepted/rejected findings
+and verification belong in the ordinary report or authorized change record. A
+reviewer lane can be a local subagent, browser-backed external reviewer,
+deep-research surface, bounded wrapper, deterministic checker, connector, human
+reviewer, or other bounded review source.
 
 This file is not a model leaderboard. It is not proof that one model is better than another. It is routing evidence for future work.
 
 ## Closeout Trigger
 
-At task closeout, update this file when reviewer lanes were used, planned then skipped, reviewer findings were accepted or rejected, or a commit, pull request, release, or milestone claims external review. If that condition applies but it is unclear whether the observation is reusable, ask one concise follow-up before closeout. Do not install mandatory VCS hooks or block commits only because this optional file is absent.
+At task closeout, update this file only for a verified reusable routing
+observation or unresolved reviewer activity. Account for ordinary completed use
+and skips in the task report; no reusable lesson is a valid no-entry outcome
+and needs no follow-up question solely to populate this file. Remove or replace
+resolved activity while preserving evidence needed by a live claim. Required
+review receipts remain under their own lifecycle. Do not install mandatory VCS
+hooks or block commits only because this optional file is absent.
 
 ## Marker Rules
 
@@ -29,7 +40,9 @@ LANE_FIT_OBSERVATION {"lane_id":"local_schema_reviewer","task_ref":"ORCH-R1","cl
 
 ## Lane Summaries
 
-Keep one section per lane. Keep each section short. Use "no direct evidence" when the project has no attributable use of the lane.
+Keep one short section per lane with a retained routing observation or unresolved
+activity. Do not add an empty section merely because a lane exists. Use
+"no direct evidence" for an unestablished aspect of a retained observation.
 
 ## Lane: [lane_id]
 

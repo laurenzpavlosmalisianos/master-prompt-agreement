@@ -34,9 +34,12 @@ def _load_trusted_import_boundary(entrypoint: str) -> str:
     source_path = bootstrap_os.path.join(scripts_root, "python_import_boundary.py")
     close_on_exec = getattr(bootstrap_os, "O_CLOEXEC", 0)
     no_follow = getattr(bootstrap_os, "O_NOFOLLOW", 0)
-    if not close_on_exec or not no_follow:
-        raise RuntimeError("prerequisite diagnostic requires O_CLOEXEC and O_NOFOLLOW")
-    flags = bootstrap_os.O_RDONLY | close_on_exec | no_follow
+    nonblock = getattr(bootstrap_os, "O_NONBLOCK", 0)
+    if not close_on_exec or not no_follow or not nonblock:
+        raise RuntimeError(
+            "prerequisite diagnostic requires O_CLOEXEC, O_NOFOLLOW, and O_NONBLOCK"
+        )
+    flags = bootstrap_os.O_RDONLY | close_on_exec | no_follow | nonblock
     descriptor = bootstrap_os.open(source_path, flags)
     try:
         metadata = bootstrap_os.fstat(descriptor)

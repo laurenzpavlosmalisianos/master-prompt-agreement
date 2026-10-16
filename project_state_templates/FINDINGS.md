@@ -21,3 +21,11 @@ supporting an active claim, obligation, incident review, or unresolved safety
 concern.
 
 _Format: date, finding, category (Mistake / Help / Hinder / Missing), detail, scope (project / framework candidate), evidence._
+
+When adding the first record, declare `record_timezone: <IANA timezone name>`
+before any title or dated record and after the origin marker when present.
+Manual files need no origin marker or title. All record dates use that calendar.
+Validation compares them with today's date in the declared
+timezone and rejects future dates. Review existing dates before changing the
+calendar convention; do not invent event timestamps from date-only records.
+Empty files may omit this metadata.

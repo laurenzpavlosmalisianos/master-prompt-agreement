@@ -58,7 +58,7 @@ Before making source-sensitive findings, use project `SOURCE_PACKS.md` and `SOUR
 - skill, plugin, IDE/editor extension, and agent-package risks such as malicious packages, unsafe manifest parsing, secret capture or exfiltration, over-privileged behaviors, dependency drift, repository-controlled execution before trust confirmation, weak sandboxing, and absent inventory or audit logs
 - trajectory risks where the final answer is acceptable but the run accessed unauthorized resources, leaked context to the wrong agent or tool, bypassed a deterministic gate, or relied on an unverified intermediate result
 
-For AI-assisted, broad, or multi-pass security review, keep the pipeline explicit:
+For broad or multi-pass security review, keep the pipeline explicit:
 
 1. Run architecture and trust-boundary reconnaissance, threat modeling, candidate discovery, validation, attack-path or severity analysis, then final reporting as separate phases.
 2. Use a compact reconnaissance artifact as shared input so later audit lanes start from the same target model rather than rediscovering the system independently.

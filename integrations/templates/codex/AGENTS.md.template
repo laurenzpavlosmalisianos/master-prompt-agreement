@@ -16,7 +16,7 @@ Read `AGENT_PROJECT.md` before acting. It is the compact runtime project contrac
 </project-contract>
 
 <codex-goals>
-Use Codex Goals only when the user requests persistent continuation or an active Goal already exists.
+Create a Codex Goal only on an explicit user request and when the native tool contract permits it; ordinary requests to keep working do not activate this feature. Continue an existing Goal within its current scope and native controls.
 Derive a Goal from one current task or SOW-backed deliverable with a verifiable stopping condition, constraints, boundaries, and blocked stop condition.
 Do not set the whole SOW, backlog, or standing project policy as a Goal; treat Goals as thread-scoped state, not project memory or project instructions.
 Mark a Goal complete only after checking concrete evidence against the objective.

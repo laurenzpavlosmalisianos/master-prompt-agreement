@@ -35,6 +35,7 @@ Before source-sensitive recommendations, use project `SOURCE_PACKS.md` and `SOUR
 
 - verify `--env`, host-variable inheritance, `--env-file`, `--ssh`, `--mount`, `--volume`, `--publish`, `--publish-socket`, `--network`, DNS, user and group overrides, capabilities, runtime handler, init image, read-only root filesystem, custom kernel, nested virtualization, and resource flags before running
 - mount only necessary host paths, prefer read-only mounts for external review, and verify ownership, permissions, symlinks, and cleanup for host-mounted files
+- for copy-in/out involving guest-influenced host paths, verify the local source/destination root, its ancestors, and who can mutate them during transfer. Prefer host-controlled extraction staging outside guest-writable mounts, or a verified equivalent that establishes and preserves the intended root authority throughout the operation; apply the filesystem identity and race controls in `secure_development.md`
 - separate writable development profiles from read-only review profiles; write reviewer reports or generated artifacts to an explicit scratch path or volume, not to a broad host project mount
 - verify a claimed read-only host mount with a harmless write-denial check before relying on it for external-review isolation
 - pass commands as structured argv through the approved runner; avoid untrusted shell strings inside `container run` or `container exec`
@@ -67,7 +68,7 @@ Provide:
 
 - Do not assume Docker daemon, Docker Compose, or shared-VM semantics when the active runtime is Apple `container`.
 - Do not run registry login, image push, system start/stop, machine mutation, network mutation, custom-kernel, nested-virtualization, host-home exposure, or destructive cleanup commands without approval.
-- Do not rely on registry `auto` transport for sensitive credentials or pushes without verifying host, namespace, scheme, and credential scope.
+- Before registry authentication or image push, verify the selected release's supported transport schemes, the scheme actually selected, the registry host and namespace, and the credential scope.
 - Do not mount broad host directories, secrets, or project-private state unless the task requires it and the boundary is explicit.
 - Do not run unattended or external reviewer lanes on a broad writable host-project mount.
 - Do not encode project-local container names, host paths, non-production access-helper details, service names, package managers, or product-specific setup commands into public framework doctrine; keep them in the owning project or private integration layer.

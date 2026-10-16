@@ -605,11 +605,72 @@ def _portable_artifact_components(*values: str) -> tuple[str, ...]:
 def validate_scheduler_artifact_topology(
     jobs: list[object],
     errors: list[str],
+    *,
+    project_root: Path,
+    manifest_path: Path | None,
+    additional_framework_control_paths: tuple[str, ...] = (),
 ) -> None:
-    """Reject portable file/directory collisions across every declared job."""
+    """Keep scheduler files distinct from each other and declared control inputs."""
 
     files: list[tuple[str, str, tuple[str, ...]]] = []
     directories: dict[tuple[str, ...], set[str]] = {}
+    control_inputs: list[tuple[str, tuple[str, ...]]] = []
+
+    def absolute_components(root: Path, relative: tuple[str, ...]) -> tuple[str, ...]:
+        root = safe_paths._physical_system_alias_path(root)
+        return tuple(
+            unicodedata.normalize("NFC", part).casefold()
+            for part in (*root.parts, *relative)
+        )
+
+    for source_path in additional_framework_control_paths:
+        control_inputs.append(
+            (
+                f"framework runtime source {source_path}",
+                absolute_components(REPO_ROOT, _portable_artifact_components(source_path)),
+            )
+        )
+    if manifest_path is not None:
+        try:
+            _normalized_manifest, manifest_relative = (
+                _manifest_relative_to_project_lexical(project_root, manifest_path)
+            )
+        except ValueError:
+            pass  # The manifest boundary is diagnosed by its owning check.
+        else:
+            control_inputs.append(
+                (
+                    "automation manifest",
+                    absolute_components(project_root, manifest_relative.parts),
+                )
+            )
+    for item in jobs:
+        if not isinstance(item, dict):
+            continue
+        for field_name in ("instruction_sources", "execution_sources"):
+            references = item.get(field_name)
+            if not isinstance(references, list):
+                continue
+            for reference in references:
+                if not isinstance(reference, dict):
+                    continue
+                source_root = reference.get("root")
+                source_path = reference.get("path")
+                if source_root not in ("framework", "project") or not isinstance(
+                    source_path, str
+                ):
+                    continue
+                try:
+                    relative = _portable_artifact_components(source_path)
+                except ValueError:
+                    continue
+                root = REPO_ROOT if source_root == "framework" else project_root
+                control_inputs.append(
+                    (
+                        f"job {item.get('id', '<missing>')} {field_name} {source_path}",
+                        absolute_components(root, relative),
+                    )
+                )
     for index, item in enumerate(jobs, start=1):
         if not isinstance(item, dict):
             continue
@@ -665,6 +726,14 @@ def validate_scheduler_artifact_topology(
                 f"{left_label} resolves where {directory_label} requires a directory"
             )
             reported.add(key)
+        absolute_path = absolute_components(project_root, left_path)
+        for control_label, control_path in control_inputs:
+            common_length = min(len(absolute_path), len(control_path))
+            if absolute_path[:common_length] == control_path[:common_length]:
+                errors.append(
+                    "scheduler artifact topology collision with control input: "
+                    f"{left_label} overlaps {control_label}"
+                )
 
 
 def validate_scheduler_artifacts(
@@ -2547,7 +2616,12 @@ def _validate_manifest(
             require_existing_project_root=require_existing_project_root,
             filesystem_checks=filesystem_checks,
         )
-    validate_scheduler_artifact_topology(jobs, errors)
+    validate_scheduler_artifact_topology(
+        jobs,
+        errors,
+        project_root=validation_root,
+        manifest_path=manifest_path,
+    )
     return errors, warnings
 
 

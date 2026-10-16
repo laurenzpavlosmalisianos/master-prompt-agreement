@@ -550,7 +550,10 @@ class ProjectContractSyncTests(unittest.TestCase):
         self.assertNotIn("/Users/", feedback)
         self.assertIn("REVIEWER_LANE_FEEDBACK.md", outputs)
         self.assertIn("This file is not a model leaderboard", outputs["REVIEWER_LANE_FEEDBACK.md"])
-        self.assertIn("Do not install mandatory VCS hooks", outputs["REVIEWER_LANE_FEEDBACK.md"])
+        self.assertIn(
+            "Do not install mandatory VCS hooks",
+            " ".join(outputs["REVIEWER_LANE_FEEDBACK.md"].split()),
+        )
         self.assertNotIn("/Users/", outputs["REVIEWER_LANE_FEEDBACK.md"])
         self.assertIn("SOURCE_MONITOR_RESEARCHER.md", outputs)
         self.assertNotIn("path/to/project_check.py", outputs["SOURCE_MONITOR_RESEARCHER.md"])
@@ -7189,6 +7192,42 @@ class ProjectContractSyncTests(unittest.TestCase):
             self.assertNotEqual(0, result.returncode)
             self.assertIn("Common Commands Development drift", result.stdout)
 
+    def test_project_contract_sync_preserves_exact_common_command_values(self) -> None:
+        cases = (
+            ("case", "printf '%s' 'APPROVED'", "printf '%s' 'approved'"),
+            (
+                "quoted whitespace",
+                "printf '%s' 'first  second'",
+                "printf '%s' 'first second'",
+            ),
+            ("literal em dash", "printf '%s' '—'", "printf '%s' '-'"),
+        )
+        for label, command, changed_command in cases:
+            with self.subTest(change=label):
+                answers: dict[str, object] = {
+                    "bootstrap_mode": "minimal",
+                    "agent": "Agent",
+                    "project_name": "Demo",
+                    "framework_verification_runner": TEST_FRAMEWORK_RUNNER,
+                    "commands": {"test": command},
+                }
+                self.assertEqual([], project_bootstrap.validate_answers(answers))
+                with render_fixture(answers) as (root, _outputs, valid):
+                    self.assertEqual(0, valid.returncode, valid.stdout + valid.stderr)
+                    contract_path = root / "AGENT_PROJECT.md"
+                    contract_path.write_text(
+                        contract_path.read_text(encoding="utf-8").replace(
+                            f"- Test: {command}\n",
+                            f"- Test: {changed_command}\n",
+                            1,
+                        ),
+                        encoding="utf-8",
+                    )
+                    changed = run_sync(root)
+
+                self.assertEqual(1, changed.returncode, changed.stdout + changed.stderr)
+                self.assertIn("Common Commands Test drift", changed.stdout)
+
     def test_project_contract_sync_rejects_missing_sow_command_row(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -7734,7 +7773,7 @@ class ProjectContractSyncTests(unittest.TestCase):
                 outputs[f"{contract_root_ref}/AUTOMATION_ORDERS.json"]
             )
             self.assertIn(
-                "Review contracts/project/FRAMEWORK_FEEDBACK.md and report changes",
+                "Review FRAMEWORK_FEEDBACK.md and report changes",
                 sow,
             )
             self.assertIn("contracts/project/AUTOMATION_ORDERS.json", sow)
@@ -9215,6 +9254,108 @@ class ProjectContractSyncTests(unittest.TestCase):
             self.assertIn(canonical, outputs["STATEMENT_OF_WORK.md"])
             self.assertIn("- " + canonical, outputs["AGENT_PROJECT.md"])
             self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_project_contract_sync_preserves_exact_restricted_command_values(self) -> None:
+        cases = (
+            ("case", "printf '%s' 'APPROVED'", "printf '%s' 'approved'"),
+            (
+                "quoted whitespace",
+                "printf '%s' 'first  second'",
+                "printf '%s' 'first second'",
+            ),
+            ("literal em dash", "printf '%s' '—'", "printf '%s' '-'"),
+        )
+        for label, command, changed_command in cases:
+            with self.subTest(change=label):
+                restriction = {
+                    "command": command,
+                    "reason": "requires approval",
+                    "alternative": "ask first",
+                }
+                answers: dict[str, object] = {
+                    "bootstrap_mode": "minimal",
+                    "agent": "Agent",
+                    "project_name": "Demo",
+                    "framework_verification_runner": TEST_FRAMEWORK_RUNNER,
+                    "command_restrictions": [restriction],
+                }
+                canonical = project_contract_model.render_command_restriction_record(
+                    restriction
+                )
+                changed_row = project_contract_model.render_command_restriction_record(
+                    {**restriction, "command": changed_command}
+                )
+                self.assertEqual([], project_bootstrap.validate_answers(answers))
+                with render_fixture(answers) as (root, _outputs, valid):
+                    self.assertEqual(0, valid.returncode, valid.stdout + valid.stderr)
+                    contract_path = root / "AGENT_PROJECT.md"
+                    contract_path.write_text(
+                        contract_path.read_text(encoding="utf-8").replace(
+                            f"- {canonical}\n", f"- {changed_row}\n", 1
+                        ),
+                        encoding="utf-8",
+                    )
+                    changed = run_sync(root)
+
+                self.assertEqual(1, changed.returncode, changed.stdout + changed.stderr)
+                self.assertIn(
+                    "Command Restrictions drift between SOW and project contract",
+                    changed.stdout,
+                )
+
+    def test_project_contract_sync_restrictions_preserve_rows_with_unordered_parity(self) -> None:
+        restrictions = [
+            {
+                "command": command,
+                "reason": "requires approval",
+                "alternative": "ask first",
+            }
+            for command in ("uv run python production.py", "uv run python rollback.py")
+        ]
+        answers: dict[str, object] = {
+            "bootstrap_mode": "minimal",
+            "agent": "Agent",
+            "project_name": "Demo",
+            "framework_verification_runner": TEST_FRAMEWORK_RUNNER,
+            "command_restrictions": restrictions,
+        }
+        rows = [
+            "- " + project_contract_model.render_command_restriction_record(item) + "\n"
+            for item in restrictions
+        ]
+        with render_fixture(answers) as (root, outputs, valid):
+            self.assertEqual(0, valid.returncode, valid.stdout + valid.stderr)
+            reordered = outputs["AGENT_PROJECT.md"].replace(
+                "".join(rows), "".join(reversed(rows)), 1
+            )
+            self.assertNotEqual(outputs["AGENT_PROJECT.md"], reordered)
+            contract_path = root / "AGENT_PROJECT.md"
+            contract_path.write_text(reordered, encoding="utf-8")
+            reordered_result = run_sync(root)
+            self.assertEqual(
+                0, reordered_result.returncode,
+                reordered_result.stdout + reordered_result.stderr,
+            )
+            contract_path.write_text(
+                reordered.replace(rows[0], "", 1), encoding="utf-8"
+            )
+            missing = run_sync(root)
+
+        self.assertEqual(1, missing.returncode, missing.stdout + missing.stderr)
+        self.assertIn(
+            "Command Restrictions drift between SOW and project contract", missing.stdout
+        )
+        for key in project_contract_model.RESTRICTION_KEYS:
+            with self.subTest(missing_field=key):
+                incomplete = {
+                    field: value
+                    for field, value in restrictions[0].items()
+                    if field != key
+                }
+                errors = project_bootstrap.validate_answers(
+                    {**answers, "command_restrictions": [incomplete]}
+                )
+                self.assertIn(f"missing command restriction key in item 1: {key}", errors)
 
     def test_project_contract_sync_warns_when_sow_constraints_deliverables_or_restrictions_are_missing(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

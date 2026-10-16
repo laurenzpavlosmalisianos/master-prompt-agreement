@@ -1301,6 +1301,16 @@ def _validate_descriptor_bound_data(
         project_root=project_root,
         manifest_path=manifest_path,
     )
+    if not errors and isinstance(data, dict):
+        jobs = data.get("jobs")
+        if isinstance(jobs, list):
+            automation_orders_lint.validate_scheduler_artifact_topology(
+                jobs,
+                errors,
+                project_root=project_root,
+                manifest_path=manifest_path,
+                additional_framework_control_paths=CRON_RUNTIME_SOURCE_PATHS,
+            )
     if errors:
         raise ValueError(
             "automation manifest is no longer cron-compatible: "

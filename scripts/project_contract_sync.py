@@ -1213,6 +1213,7 @@ def source_monitor_runtime_projection_errors(
     *,
     expected_runner: str,
     expected_framework_reference: str,
+    contract_root_ref: str = ".",
 ) -> list[str]:
     """Verify model-owned runner/reference projections in the monitor brief."""
 
@@ -1246,6 +1247,13 @@ def source_monitor_runtime_projection_errors(
     expected_reference_lines = (
         contract_model.source_monitor_framework_reference_lines(
             expected_framework_reference,
+            template_text=integration_registry.render_project_file_references(
+                project_bootstrap.read_framework_source_text(
+                    contract_model.state_template_source_path("SOURCE_MONITOR_RESEARCHER.md"),
+                    description="source-monitor framework-reference template",
+                ),
+                contract_root_ref,
+            ),
         )
     )
     if any(actual_lines.count(line) != 1 for line in expected_reference_lines):
@@ -1410,10 +1418,7 @@ def automation_projection_parity_errors(
         errors,
     )
     expected_job_rows = [
-        integration_registry.render_project_file_references(
-            contract_model.render_automation_job_summary(job),
-            contract_root_ref,
-        )
+        contract_model.render_automation_job_summary(job)
         for job in jobs
         if isinstance(job, dict)
     ]
@@ -2066,9 +2071,11 @@ def runtime_workflow_routes(
         errors.extend(item_errors)
         if item is not None:
             routes.append(
-                integration_registry.render_project_file_references(
-                    contract_model.render_runtime_workflow_route(item),
-                    contract_root_ref,
+                contract_model.render_runtime_workflow_route(
+                    item,
+                    route=integration_registry.render_project_file_references(
+                        contract_model.RUNTIME_WORKFLOW_ROUTE, contract_root_ref,
+                    ),
                 )
             )
     return routes, errors
@@ -2127,9 +2134,11 @@ def runtime_auxiliary_tool_routes(
         errors.extend(item_errors)
         if item is not None:
             routes.append(
-                integration_registry.render_project_file_references(
-                    contract_model.render_runtime_auxiliary_tool_route(item),
-                    contract_root_ref,
+                contract_model.render_runtime_auxiliary_tool_route(
+                    item,
+                    route=integration_registry.render_project_file_references(
+                        contract_model.RUNTIME_AUXILIARY_TOOL_ROUTE, contract_root_ref,
+                    ),
                 )
             )
     return routes, errors
@@ -3852,6 +3861,7 @@ def _collect_semantic_errors(
                             "Framework Verification Runner"
                         ],
                         expected_framework_reference=framework_reference,
+                        contract_root_ref=context.contract_root_ref,
                     )
                 )
 
@@ -4357,7 +4367,7 @@ def _collect_command_parity(
 
     if prerequisites.sow_commands and common_command_keys_valid:
         for sow_label, contract_label in COMMON_COMMAND_LABELS.items():
-            compare_value(
+            compare_exact_value(
                 f"Common Commands {contract_label}",
                 context.sow_commands.get(sow_label),
                 context.contract_common_commands.get(contract_label),
@@ -4511,13 +4521,8 @@ def _collect_list_parity(
                 sow_restrictions,
             )
         )
-        errors.extend(
-            exact_list_parity_errors(
-                "Command Restrictions",
-                sow_restrictions,
-                contract_restrictions,
-            )
-        )
+        if sorted(sow_restrictions) != sorted(contract_restrictions):
+            errors.append("Command Restrictions drift between SOW and project contract")
     if project_rows_valid("Command Restrictions"):
         errors.extend(
             rendered_command_restriction_identity_errors(
