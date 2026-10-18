@@ -18,6 +18,7 @@ from tests.validation_test_support import (
 )
 
 import bootstrap_transaction  # noqa: E402
+import integration_registry  # noqa: E402
 import project_bootstrap  # noqa: E402
 import project_contract_model  # noqa: E402
 import project_contract_sync  # noqa: E402
@@ -110,6 +111,7 @@ def run_sync(
     *,
     mutate: tuple[str, str, str] | None = None,
     mutations: tuple[tuple[str, str, str], ...] = (),
+    extra_files: dict[str, str] | None = None,
 ) -> tuple[int, dict[str, list[str]]]:
     with tempfile.TemporaryDirectory() as temp_dir:
         root = Path(temp_dir)
@@ -123,6 +125,10 @@ def run_sync(
             for mutated_name, before, after in selected_mutations:
                 if name == mutated_name:
                     content = content.replace(before, after, 1)
+            path = root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+        for name, content in (extra_files or {}).items():
             path = root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content, encoding="utf-8")
@@ -362,11 +368,71 @@ class RuntimeCompactnessTests(unittest.TestCase):
         self.assertNotIn("exact-preimage backout bundle", runtime)
         self.assertIn("task_orders/framework_refresh.md", runtime)
         self.assertEqual(
-            list(project_contract_model.PROJECT_LOADING_RULE_LINES),
+            list(project_contract_model.project_loading_rule_lines(has_project_modules=False)),
             loading,
         )
-        for line in project_contract_model.PROJECT_LOADING_RULE_LINES:
+        for line in loading:
             self.assertEqual(1, runtime.count(line), line)
+
+    def test_module_loading_rule_tracks_declared_authority_and_security_modules(self) -> None:
+        rule = project_contract_model.PROJECT_MODULE_LOADING_RULE
+        cases = (
+            (minimal_answers(), {}, False, False),
+            (
+                minimal_answers(annexes={"authority": "AUTHORITY.md"}),
+                {"AUTHORITY.md": "# Scope of Authority\n\nBounded project authority.\n"},
+                True,
+                True,
+            ),
+            (
+                minimal_answers(security_policy_file="project SECURITY.md"),
+                {"SECURITY.md": "# Security Policy\n\nProject security boundaries.\n"},
+                True,
+                True,
+            ),
+            (
+                minimal_answers(
+                    security_policy_file="inline in this SOW",
+                    security_policy_terms=["Project security boundaries."],
+                ),
+                {},
+                False,
+                True,
+            ),
+        )
+        for answers, files, has_modules, has_module_section in cases:
+            with self.subTest(answers=answers):
+                for contract_root in (".", ".mpa/contracts"):
+                    runtime = project_bootstrap.render_project_contract(
+                        answers, "$FRAMEWORK", contract_root_ref=contract_root,
+                    )
+                    self.assertEqual(has_modules, rule in runtime)
+                    self.assertEqual(has_module_section, "Active Project Modules" in runtime_sections(runtime))
+                code, report = run_sync(answers, extra_files=files)
+                self.assertEqual(0, code, report)
+                if has_modules:
+                    mutation = ("AGENT_PROJECT.md", rule + "\n", "")
+                else:
+                    mutation = ("AGENT_PROJECT.md", "## Loading Rule\n", "## Loading Rule\n\n" + rule + "\n")
+                code, report = run_sync(answers, extra_files=files, mutate=mutation)
+                self.assertNotEqual(0, code)
+                self.assertTrue(any("Loading Rule drift" in error for error in report["errors"]), report)
+
+    def test_runtime_families_share_the_complete_workflow_loading_route(self) -> None:
+        for family in integration_registry.family_names(REPO_ROOT):
+            with self.subTest(family=family):
+                config = integration_registry.family_config(family, REPO_ROOT)
+                outputs = project_bootstrap.render_output_files(
+                    minimal_answers(), family, "$FRAMEWORK",
+                )
+                entrypoint = outputs[config["entrypoint"]["output"]]
+                expected = integration_registry.render_template_text(
+                    integration_registry.WORKFLOW_LOADING_CLAUSE_TOKEN,
+                    "$FRAMEWORK", ".", template_label="workflow route",
+                )
+                self.assertEqual(1, entrypoint.count(expected))
+                self.assertNotIn(integration_registry.WORKFLOW_LOADING_CLAUSE_TOKEN, entrypoint)
+                self.assertLess(entrypoint.index(integration_registry.STATE_LOADING_MARKER), entrypoint.index(expected))
 
     def test_runtime_excludes_canonical_only_rationale_and_review_detail(self) -> None:
         answers = minimal_answers(

@@ -143,7 +143,6 @@ from project_contract_model import (
     PANEL_CONFIG_KEYS,
     PANEL_SEAT_KEYS,
     PROJECTED_DEFINITION_FIELDS,
-    PROJECT_LOADING_RULE_LINES,
     REQUIRED_AUXILIARY_TOOL_KEYS,
     REQUIRED_KEYS_FULL,
     REQUIRED_KEYS_MINIMAL,
@@ -4461,7 +4460,12 @@ def append_project_contract_definitions(
     add_section(
         lines,
         contract_model.project_section_title("loading_rule"),
-        [context.reference(line) for line in PROJECT_LOADING_RULE_LINES],
+        [
+            context.reference(line)
+            for line in contract_model.project_loading_rule_lines(
+                has_project_modules=bool(project_module_references(answers)),
+            )
+        ],
     )
 
 

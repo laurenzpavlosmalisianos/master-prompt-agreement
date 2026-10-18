@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -14,6 +15,68 @@ import link_check  # noqa: E402
 
 
 class LinkCheckTests(unittest.TestCase):
+    def test_link_check_same_document_fragments_use_the_source_document(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "nested").mkdir()
+            for relative in ("README.md", "nested/guide.md"):
+                with self.subTest(source=relative):
+                    doc = root / relative
+                    doc.write_text(
+                        "# Get started\n"
+                        "[start](#get-started)\n"
+                        "[encoded](#get%2Dstarted)\n"
+                        "[query](?view=print#get-started)\n"
+                        "[top](#)\n"
+                        "[missing](#absent)\n",
+                        encoding="utf-8",
+                    )
+                    report = link_check.check_links(root, [doc], False, True, 1.0)
+                    self.assertEqual(5, report["local_links"])
+                    self.assertEqual(
+                        [{"file": relative, "line": 6, "target": "#absent", "message": "anchor not found: absent"}],
+                        report["errors"],
+                    )
+                    unchecked = link_check.check_links(root, [doc], False, False, 1.0)
+                    self.assertEqual([], unchecked["errors"])
+
+    def test_link_check_same_document_fragment_cli_accepts_file_and_directory_roots(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            doc = root / "README.md"
+            doc.write_text("# Get started\n[start](#get-started)\n", encoding="utf-8")
+            for requested_root in (root, doc):
+                with (
+                    self.subTest(root=requested_root.name),
+                    mock.patch("sys.argv", ["link_check.py", "--root", str(requested_root)]),
+                    mock.patch("sys.stdout", new_callable=io.StringIO) as output,
+                ):
+                    self.assertEqual(0, link_check.main())
+                    report = json.loads(output.getvalue())
+                    self.assertEqual(["README.md"], report["checked_files"])
+                    self.assertEqual(1, report["local_links"])
+                    self.assertEqual([], report["errors"])
+
+    def test_link_check_explicit_local_paths_keep_their_resolution_rules(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            nested = root / "nested"
+            nested.mkdir()
+            doc = nested / "guide.md"
+            (root / "landing.md").write_text("# Landing\n", encoding="utf-8")
+            (nested / "peer.md").write_text("# Peer\n", encoding="utf-8")
+            (nested / "peer name.md").write_text("# Peer\n", encoding="utf-8")
+            doc.write_text(
+                "[relative](peer.md#peer)\n"
+                "[root](/landing.md#landing)\n"
+                "[line](./peer.md:4#peer)\n"
+                "[encoded](peer%20name.md#peer)\n",
+                encoding="utf-8",
+            )
+            report = link_check.check_links(root, [doc], False, True, 1.0)
+            self.assertEqual(4, report["local_links"])
+            self.assertEqual([], report["errors"])
+
     def test_link_check_detects_missing_files_and_bad_anchors(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

@@ -3514,7 +3514,13 @@ def _collect_structure_errors(
             if line.strip()
         ]
         expected_loading_rule = integration_registry.render_project_file_references(
-            "\n".join(contract_model.PROJECT_LOADING_RULE_LINES),
+            "\n".join(
+                contract_model.project_loading_rule_lines(
+                    has_project_modules=bool(
+                        annex_project_file_references(context.sow.get("Annexes", []))
+                    ),
+                )
+            ),
             context.contract_root_ref,
         ).splitlines()
         if actual_loading_rule != expected_loading_rule:

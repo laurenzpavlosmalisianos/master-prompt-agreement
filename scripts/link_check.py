@@ -264,6 +264,8 @@ def strip_line_suffix(path_text: str) -> str:
 
 
 def resolve_local_target(root: Path, source: Path, target_path: str) -> Path:
+    if not target_path:
+        return source
     decoded = unquote(target_path)
     if decoded.startswith("/"):
         candidate = root / decoded.lstrip("/")
@@ -384,7 +386,7 @@ def check_links(
                 continue
 
             local_links += 1
-            target_file = resolve_local_target(root, source, parsed.path or source.as_posix())
+            target_file = resolve_local_target(root, source, parsed.path)
             resolved = target_file.resolve(strict=False)
             if not resolved.is_relative_to(root.resolve()):
                 add_issue(errors, root, source, line_number, target, "local link escapes the checked root")

@@ -25,14 +25,14 @@ Use this Practice Guide when changing maintained prompts, agent entrypoints, too
 - prefer the smallest prompt or workflow that satisfies the contract and passes the relevant checks
 - state each durable instruction once. On a model, endpoint, runtime, or harness change, re-baseline whether earlier scaffolding is still necessary instead of carrying it forward automatically. When reducing a working prompt, remove one coherent instruction, example, or tool group at a time and rerun the same representative checks; retain project authority, hard constraints, approval and tool boundaries, success criteria, and any example or style rule that encodes a requirement or corrects a measured failure
 
-2. Route specialized concerns to their owning guide.
+2. Route specialized concerns to their owning guide or Task Order.
 - unclear scope or acceptance: `task_contract`
 - multi-step execution after the approach is chosen: `implementation_planning`
 - current sources or source changes: `source_grounded_research` or `source_freshness_review`
 - untrusted retrieved content, tool output, memory, tool-protocol, or connector flows: `prompt_injection_review`
 - personal, customer, private, or production-derived prompts, traces, outputs, screenshots, account state, or regression corpora: `privacy_data_handling`
 - recurring, unattended, browser-assisted, or multi-agent automation: `scheduled_automation`
-- reviewer or owner understanding of a complex agent-generated change: `knowledge_transfer`
+- reviewer or owner understanding of a complex agent-generated change: the [Knowledge Transfer Task Order](../task_orders/knowledge_transfer.md)
 - generated code quality, security, dependency, release, migration, or visual work: load the matching domain guide
 - before editing a maintained skill, tool-protocol server, connector, adapter, agent tool contract, or tool schema, record a short loading receipt in the working notes or final report: domain guide loaded, security guide loaded or explicitly not applicable, prompt-injection/tool-boundary guide loaded or explicitly not applicable, current runtime/source docs checked when behavior is volatile, and negative verification planned for the changed boundary
 

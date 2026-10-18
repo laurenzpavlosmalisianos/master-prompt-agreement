@@ -29,7 +29,7 @@ Apply Article 5 of `{{FRAMEWORK_ROOT}}/runtime/operative_charter.md` to project 
 
 <!-- mpa-entrypoint-contract: entrypoint-routing-after-state-v1 -->
 Consult `{{FRAMEWORK_ROOT}}/master_service_agreement.md` only when interpreting framework rule text, resolving ambiguity, or revising the framework itself.
-When the workflow is known and a compact runtime module exists, load `{{FRAMEWORK_ROOT}}/runtime/task_modules/<workflow>.md` first. If the applicable procedure is unclear, consult `{{FRAMEWORK_ROOT}}/task_orders/README.md` and load only the matching Task Order.
+{{MPA_WORKFLOW_LOADING_CLAUSE}}
 Native skills or plugins may route frequent workflows, but framework instructions remain in the framework files referenced here.
 
 <practice-guide-loader>

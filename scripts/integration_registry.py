@@ -48,6 +48,18 @@ PROJECT_CONTRACT_CONFLICT_CLAUSE_TEMPLATE = (
     "`{{FRAMEWORK_ROOT}}/task_orders/framework_refresh.md` or a separately "
     "reviewed manual correction."
 )
+WORKFLOW_LOADING_CLAUSE_TOKEN = "{{MPA_WORKFLOW_LOADING_CLAUSE}}"
+WORKFLOW_LOADING_CLAUSE_TEMPLATE = (
+    "Select one workflow from explicit selection evidence or a clear, exclusive "
+    "match to the current request. Check its row in "
+    "`{{FRAMEWORK_ROOT}}/runtime/workflow_catalog.json`: load only "
+    "`{{FRAMEWORK_ROOT}}/runtime/task_modules/<workflow>.md` when a compact "
+    "module exists and no `use_full_when` condition applies; otherwise load "
+    "the full Task Order. If selection or a condition is unresolved, consult "
+    "`{{FRAMEWORK_ROOT}}/task_orders/README.md` and use the matching full "
+    "procedure. If conditions change, replace the compact procedure with the "
+    "full Task Order before continuing; do not load both as duplicate procedure."
+)
 WRAPPER_AUTHORITY_PRECONDITION_ID = "entrypoint-recovery-project-contract-v1"
 WRAPPER_AUTHORITY_PRECONDITION_MARKER = (
     "<!-- mpa-wrapper-contract: entrypoint-recovery-project-contract-v1 -->"
@@ -195,6 +207,10 @@ def render_template_text(
     rendered = text.replace(
         PROJECT_CONTRACT_CONFLICT_CLAUSE_TOKEN,
         PROJECT_CONTRACT_CONFLICT_CLAUSE_TEMPLATE,
+    )
+    rendered = rendered.replace(
+        WORKFLOW_LOADING_CLAUSE_TOKEN,
+        WORKFLOW_LOADING_CLAUSE_TEMPLATE,
     )
     rendered = safe_paths.render_framework_reference_tokens(rendered, framework_ref)
     rendered = render_project_file_references(rendered, contract_root_ref)

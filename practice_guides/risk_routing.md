@@ -89,7 +89,7 @@ Minimum burdens:
 - SEO work: `seo`
 - adversarial security review, vulnerability triage, threat-path analysis, or a security-sensitive change that needs independent attack-minded findings: `security_audit`
 - briefing or recommendation memo: `decision_brief`
-- teaching, onboarding, session/change explanation, or comprehension check: `knowledge_transfer`
+- teaching, onboarding, session/change explanation, or comprehension check: the [Knowledge Transfer Task Order](../task_orders/knowledge_transfer.md)
 - writing or style-profile work: load `scholarly_writing` only for academic, citation, or source-heavy writing; otherwise ask for the desired style source during setup or task intake when none is supplied
 - academic writing, citation, or source-heavy scholarly revision: `scholarly_writing`
 

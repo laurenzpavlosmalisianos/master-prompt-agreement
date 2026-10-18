@@ -86,7 +86,6 @@
     {"path": "practice_guides/incident_response.md", "owns": ["incident response", "developer endpoint tooling compromise"], "supports": ["security audit", "root cause investigation"], "must_not_own": ["ordinary bug triage"]},
     {"path": "practice_guides/infrastructure_as_code_review.md", "owns": ["infrastructure as code review"], "supports": ["platform architecture", "security audit"], "must_not_own": ["vendor-specific deployment recipe"]},
     {"path": "practice_guides/javascript_coding_quality.md", "owns": ["javascript coding quality"], "supports": ["website frontend quality", "testing strategy"], "must_not_own": ["TypeScript type policy"]},
-    {"path": "practice_guides/knowledge_transfer.md", "owns": ["knowledge transfer"], "supports": ["review closeout", "handoff"], "must_not_own": ["acceptance authority"]},
     {"path": "practice_guides/kubernetes_workload_review.md", "owns": ["kubernetes workload review"], "supports": ["container image security", "platform architecture"], "must_not_own": ["cloud-vendor recipe"]},
     {"path": "practice_guides/logical_spec_review.md", "owns": ["logical specification review"], "supports": ["task contract", "testing strategy"], "must_not_own": ["source freshness"]},
     {"path": "practice_guides/migration_safety.md", "owns": ["migration safety"], "supports": ["dependency risk", "release readiness"], "must_not_own": ["routine refactor style"]},

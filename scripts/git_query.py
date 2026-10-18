@@ -1976,8 +1976,25 @@ def closed_git_query_command(
         ):
             raise ValueError("Git cat-file query must request one blob or blob size")
     elif subcommand == "check-ignore":
-        if selected[1:4] != ["--no-index", "-q", "--"] or len(selected) != 5:
-            raise ValueError("Git check-ignore query must use the maintained exact form")
+        quiet_single = selected[1:4] == ["--no-index", "-q", "--"] and len(selected) == 5
+        if not quiet_single:
+            operands = selected[3:]
+            if (
+                selected[1:3] != ["--no-index", "--"]
+                or not 1 <= len(operands) <= 1024
+                or sum(len(operand) + 1 for operand in operands) > 64 * 1024
+                or len(set(operands)) != len(operands)
+                or any(
+                    re.fullmatch(r"[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*", operand) is None
+                    or operand.startswith("-")
+                    or any(part in {".", ".."} for part in operand.split("/"))
+                    for operand in operands
+                )
+            ):
+                raise ValueError(
+                    "Git check-ignore query must use the maintained quiet single-path "
+                    "or bounded unquoted relative-path batch form"
+                )
     elif subcommand == "rev-parse":
         if (
             len(selected) != 4

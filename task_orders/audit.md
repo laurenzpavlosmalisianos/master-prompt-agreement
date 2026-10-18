@@ -10,8 +10,8 @@ criteria, load `practice_guides/security_audit.md`.
 
 Procedure
 
-1. Read `AGENT_PROJECT.md` for project context. Read `TODO.md` when it exists or active handoff state or project policy requires it. Consult `STATEMENT_OF_WORK.md` for the full Code Review Checklist, acceptance terms, or other canonical SOW terms. Read `DECISIONS.md` for durable exceptions or directives when it exists. Read `PRECEDENTS.md` when the audit scope matches a recorded trigger.
-2. Read every active policy or verification file referenced by the SOW or `AGENT_PROJECT.md`. If Annex D (`SECURITY.md`) exists, read it. If `SECURITY_VERIFICATION.md` exists and is active for the audited scope, read it. Use their checklists as additional audit criteria alongside the project contract and the SOW Code Review Checklist.
+1. Read `AGENT_PROJECT.md` for project context. Apply Article 5 of `runtime/operative_charter.md` to state: inspect headers first and load records relevant to the audited scope, including matching durable exceptions, directives, and precedent triggers. A state-file audit makes those records relevant; their mere presence does not. Consult `STATEMENT_OF_WORK.md` for the full Code Review Checklist, acceptance terms, or other canonical SOW terms that govern this audit.
+2. Read every policy or verification file referenced by the SOW or `AGENT_PROJECT.md` that governs the audited scope. Include Annex D (`SECURITY.md`) and `SECURITY_VERIFICATION.md` when applicable. Use their checklists as additional audit criteria alongside the project contract and the SOW Code Review Checklist.
 3. Read every relevant source file within the audit scope. Do not limit yourself to what the checklists mention.
 4. Use the project contract plus the SOW Code Review Checklist as minimum coverage. Apply independent judgment: if you find a problem no checklist addresses, report it.
 5. If validator, linter, scanner, benchmark, Lighthouse, or audit output is part of the evidence, classify each material item before it drives an edit or finding:

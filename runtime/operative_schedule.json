@@ -85,10 +85,7 @@
       "path": "practice_guides/task_contract.md",
       "category": "task-framing",
       "trigger_flags": [
-        "ambiguous",
-        "migration",
-        "multi_file",
-        "planning"
+        "ambiguous"
       ],
       "wrapper_status": "not-applicable"
     },
@@ -496,15 +493,6 @@
       "category": "writing",
       "trigger_flags": [
         "scholarly_writing"
-      ],
-      "wrapper_status": "not-applicable"
-    },
-    {
-      "name": "knowledge_transfer",
-      "path": "practice_guides/knowledge_transfer.md",
-      "category": "communication",
-      "trigger_flags": [
-        "knowledge_transfer"
       ],
       "wrapper_status": "not-applicable"
     },

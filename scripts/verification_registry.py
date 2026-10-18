@@ -648,21 +648,18 @@ CHECKS: tuple[VerificationCheck, ...] = (
         "define the learner-facing scope, depth, and evidence base before teaching",
         "before_edit",
         _flags("knowledge_transfer"),
-        guide="knowledge_transfer",
     ),
     _check(
         "knowledge.grounding",
         "ground the explanation in inspected files, diffs, tests, logs, or decisions",
         "during_work",
         _flags("knowledge_transfer"),
-        guide="knowledge_transfer",
     ),
     _check(
         "knowledge.optional-comprehension",
         "keep comprehension checks optional, bounded, and separate from completion",
         "before_completion",
         _flags("knowledge_transfer"),
-        guide="knowledge_transfer",
     ),
     _check(
         "visual.generated-assets-review",

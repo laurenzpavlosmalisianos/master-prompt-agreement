@@ -2144,7 +2144,7 @@ class ProjectRefreshLifecycleTests(unittest.TestCase):
                     built.payload,
                     approved_digest=str(built.payload["plan_sha256"]),
                     approved_actions=set(),
-                    approved_warnings=set(),
+                    approved_warnings=set(_warning_ids(built.payload)),
                 )
                 self.assertEqual(project_refresh.EXIT_BLOCKED, code, report)
                 self.assertEqual("stale-plan", report["status"])
@@ -2178,7 +2178,7 @@ class ProjectRefreshLifecycleTests(unittest.TestCase):
                     built.payload,
                     approved_digest=str(built.payload["plan_sha256"]),
                     approved_actions=set(),
-                    approved_warnings=set(),
+                    approved_warnings=set(_warning_ids(built.payload)),
                 )
                 self.assertEqual(project_refresh.EXIT_BLOCKED, code, report)
                 self.assertEqual("stale-plan", report["status"])

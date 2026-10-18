@@ -6,7 +6,7 @@ Define or revise a standing automation order for recurring agent work. Keep the 
 
 Procedure
 
-1. Read `AGENT_PROJECT.md`, project state, and any existing automation order file. Because this task creates or revises standing automation authority, also consult `STATEMENT_OF_WORK.md` for canonical approval, external-system, VCS, source-acquisition, and automation terms; if `AGENT_PROJECT.md` conflicts with the SOW, the SOW governs.
+1. Read `AGENT_PROJECT.md` and the applicable existing automation order. Load project state through Article 5 of `runtime/operative_charter.md`, limited to relevant records. Because this task creates or revises standing automation authority, also consult `STATEMENT_OF_WORK.md` for canonical approval, external-system, VCS, source-acquisition, and automation terms; if `AGENT_PROJECT.md` conflicts with the SOW, the SOW governs.
 2. Confirm the recurring objective, cadence, timezone, autonomy level, scheduler context mode, workload class, reviewer boundary, source-access class, and allowed effects.
 3. From the framework root, run `scripts/check_prereqs.py` with the approved Python runner if `<runner>` is not already recorded for this project. Use the reported `<runner>` command for stdlib-only framework scripts.
 4. Load `practice_guides/scheduled_automation.md`.

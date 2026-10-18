@@ -227,7 +227,6 @@ PRODUCT_REQUIRED_FILES = (
     "practice_guides/javascript_coding_quality.md",
     "practice_guides/kubernetes_workload_review.md",
     "practice_guides/infrastructure_as_code_review.md",
-    "practice_guides/knowledge_transfer.md",
     "practice_guides/logical_spec_review.md",
     "practice_guides/migration_safety.md",
     "practice_guides/platform_architecture_review.md",
