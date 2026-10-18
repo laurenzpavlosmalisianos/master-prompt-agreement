@@ -1,153 +1,118 @@
 # Downstream Setup
 
-Use this chapter for orientation. The executable setup procedure remains
-`GETTING_STARTED.md` and `task_orders/init.md`.
+Setup turns the project's facts into a small set of durable agent instructions.
+Use this chapter for orientation, then follow
+[Getting Started](../GETTING_STARTED.md) and the
+[initialization Task Order](../task_orders/init.md) for the executable procedure.
 
 ## Setup Shape
 
-1. Give the agent read access to this framework checkout and write access to the
-   target project.
-2. The agent reads `runtime/operative_charter.md` and `task_orders/init.md`.
-3. The agent inspects the target project before asking setup questions.
-4. The agent writes a temporary answers JSON outside both repositories.
-5. Through the intended execution boundary, the agent runs
-   `<candidate-python> -E -S -B -- "<framework-checkout-on-diagnostic-host>/scripts/check_prereqs.py"`;
-   only its exact compatible CPython interpreter and startup flags are qualified.
-6. The agent resolves the checkout inside that retained runner and runs
-   `<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/project_bootstrap.py" --dry-run`.
-7. After reviewing the complete rendered plan, the agent reruns the same command
-   with `--approve-write-plan-sha256 <write_plan_sha256>`. The plan digest is
-   required even when the informational warning list is empty and changes with
-   the target, inputs/profile, runtime/wrappers, framework identity, warnings,
-   output names, or rendered bytes.
-8. The non-dry bootstrap transaction runs one strict union of every profile in
-   the generated receipt and rolls back the installed outputs if that union
-   reports a warning or error.
-9. The agent and User perform the required post-write human or manual review,
-   then remove the temporary raw answers file through the approved cleanup path.
+```mermaid
+flowchart TB
+  A["Inspect the project"] --> B["Fill missing project facts"]
+  B --> C["Review and approve the exact plan"]
+  C --> D["Write and verify transactionally"]
+  D --> E["Review the installed result"]
+```
 
-Core conformance includes required-surface preflight,
-retained-input/current-receipt validation, project-contract synchronization,
-and project-state lint.
-Optional active profiles extend it with checks for their generated surfaces.
-The approved non-dry bootstrap runs one strict union of the receipt-listed
-active profiles inside the write transaction; any conformance warning or error
-fails the transaction and triggers rollback. The digest approval is valid only
-for the unchanged dry-run warning sequence and does not waive this gate. An incomplete rollback leaves at least one closed-set
-transaction control rather than a successful setup result.
+1. **Inspect.** Give the agent read access to the framework and write access to
+   the existing target directory. It checks the project's files and setup
+   eligibility before asking questions.
+2. **Complete the inputs.** Supply only missing facts. Temporary answers stay
+   outside both repositories. An approved reusable profile may fill absent
+   defaults; project answers replace its fields atomically. The profile does
+   not establish project authority or execution capabilities.
+3. **Review the plan.** Qualify the intended runner, generate a dry run, and
+   review its rendered files, warnings, and effects. Approval binds to the exact
+   plan digest, including when there are no warnings. Changed inputs or outputs
+   require a fresh plan and approval.
+4. **Write and verify.** The approved non-dry bootstrap runs one strict union of
+   the receipt-listed active profiles inside the write transaction; any
+   conformance warning or error fails the transaction and triggers rollback.
+5. **Review the result.** Post-write human or manual review remains a distinct
+   acceptance obligation; deterministic conformance does not replace it.
+   Complete approved cleanup of temporary answers after that review. Do not
+   immediately rerun the same conformance profiles; rerun conformance only for
+   recovery verification, focused diagnosis, later drift, or independently
+   requested evidence.
 
-Post-write human or manual review remains a distinct acceptance obligation;
-deterministic conformance does not replace it. Do not immediately rerun the same
-conformance profiles; rerun conformance only for recovery verification, focused
-diagnosis, later drift, or independently requested evidence. Run child
-validators separately only for focused diagnosis, not as duplicate conformance
-evidence.
+The [Bootstrap Safety Map](../scripts/README.md#bootstrap-safety-map) explains
+the command boundary. Exact commands and arguments belong to
+[Getting Started](../GETTING_STARTED.md), the
+[Task Order](../task_orders/init.md), and executable help.
 
-`examples/project_bootstrap_answers.example.json` is a minimal starting
-example. `examples/project_bootstrap_answers.schema.json` is the closed
-machine-readable answer contract; inspect only definitions for the fields and
-optional modules in use, then review the actual rendered dry-run outputs. The
-full schema and output templates are compiler inputs, not mandatory prompt
-imports. Use targeted schema lookup and `project_bootstrap.py --help` instead
-of inferring supported fields from the example.
+### Existing Or Interrupted Instances
 
-Bootstrap creates a first current-format instance only when no
-framework-generated surfaces exist and no selected managed output path collides. Preserve
-an ordinary same-name file and follow the non-colliding-layout or
-project-specific integration route in `GETTING_STARTED.md`; absence of generated
-identity alone does not authorize overwrite. Complete current-format instances use
-[`UPDATING.md`](../UPDATING.md) and
-[`task_orders/framework_refresh.md`](../task_orders/framework_refresh.md).
-Refresh keeps retained mutable state byte-for-byte unchanged and regenerates
-receipt-owned immutable outputs. A reviewed candidate may disable an optional
-surface only through the plan-bound `RETIRE-IMMUTABLE-####` or
-`RETIRE-MUTABLE-####` action matching its receipt partition, a path-specific
-warning, and the applicable exact-preimage controls. Refresh separates framework changes from project-contract revision and
-binds apply authority to one exact plan digest. Partial, malformed,
-inconsistent, older, or unrecognized formats
-fail closed for a separately reviewed manual project update; a clearly newer
-schema requires a supporting framework checkout. Bootstrap rerender and state
-reset are not update paths.
-If any of `.mpa-bootstrap-recovery.json`, `.mpa-bootstrap.lock`, or
-`.mpa-bootstrap-recovery.tmp` exists at the project root, ordinary work must
-stop before loading generated project authority and use bounded inspection,
-followed by exact-ID recovery only when inspection identifies a permitted
-action.
+Bootstrap creates a first current-format instance only when no generated
+surface exists and no selected managed output path collides. Preserve ordinary
+same-name files and use a reviewed non-colliding layout or project-specific
+integration.
 
-An optional reusable bootstrap profile may fill absent setup defaults when the
-User supplies or approves it. It is not project authority: project answers
-replace profile fields atomically, and environment capabilities, project
-identity, scope, stack, architecture, commands, deliverables, and paths remain
-project-specific.
+Complete current-format instances use [Updating](../UPDATING.md).
+Partial, malformed, inconsistent, older, or unrecognized instances need its
+reviewed manual-update route. A clearly newer format needs a supporting
+framework checkout. Bootstrap rerender and state reset are not update paths.
 
-The answers must set `framework_verification_runner` to the exact tested
-interpreter reported by `scripts/check_prereqs.py`, or to the exact environment,
-container, or `uv` invocation prefix only when it actually ran that successful
-diagnostic. A reusable profile must
-not supply this capability. The SOW owns the runner requirement; the generated
-runtime contract reuses it verbatim and must not silently fall back to another
-environment.
+If the project root contains `.mpa-bootstrap-recovery.json`,
+`.mpa-bootstrap.lock`, or `.mpa-bootstrap-recovery.tmp`, stop ordinary work
+before reading generated authority or state. Use bounded inspection and only
+the exact-transaction-ID recovery action it reports as permitted. An incomplete
+rollback retains a transaction control; it is not a successful setup.
 
 ## Generated Downstream Files
 
-Typical generated files are:
+| File | Role |
+|---|---|
+| `STATEMENT_OF_WORK.md` | Governing project scope, commands, constraints, and acceptance criteria |
+| `AGENT_PROJECT.md` | Checked runtime projection of the governing terms |
+| `AGENTS.md`, `CLAUDE.md`, or another selected entrypoint | Runtime-specific loading and routing |
+| `TODO.md` and `DECISIONS.md` | Active work and durable decisions |
+| `PROJECT_INPUT.json` | Retained, fully materialized regeneration input |
+| Project-root `PROJECT_INSTANCE.json` | Current instance receipt and location of the contract root |
 
-- `STATEMENT_OF_WORK.md`
-- `AGENT_PROJECT.md`
-- a runtime entrypoint such as `AGENTS.md` or `CLAUDE.md`
-- `TODO.md`
-- `DECISIONS.md`
-- `PROJECT_INPUT.json`, the retained fully materialized regeneration source
-- project-root `PROJECT_INSTANCE.json`, the single current-state
-  generated-instance receipt
+The retained input contains project facts, including paths and commands. Keep
+secrets out and review it before tracking, sharing, or publishing the project.
+The framework checkout's ignore rules do not sanitize downstream repositories.
+The receipt records current instance identity and the contract effective date;
+it is not an update log.
 
-Retained input materializes project facts such as paths and commands. Keep
-secrets out, minimize unnecessary sensitive material while retaining required
-project facts, and review the file before tracking, sharing, or publishing the
-downstream repository. Ignore rules in the framework checkout do not sanitize
-downstream repositories. The current
-instance receipt carries the retained contract effective date and its
-`contract_root` field locates nested authority and input; it is not a
-refresh-history log.
+Optional source, feedback, reviewer, security, precedent, and automation
+surfaces are selected only when needed. Their active profiles are recorded in
+the receipt. Inspect the relevant definitions in the
+[answer schema](../examples/project_bootstrap_answers.schema.json) and use the
+[minimal example](../examples/project_bootstrap_answers.example.json) as a
+starting point; neither the complete schema nor output templates need to be
+loaded into every agent context.
 
-Optional files such as `SOURCE_PACKS.md`, `SOURCE_UPDATE.md`,
-`SOURCE_MONITOR_RESEARCHER.md`, `FRAMEWORK_FEEDBACK.md`,
-`REVIEWER_LANE_FEEDBACK.md`, `PRECEDENTS.md`, `SECURITY_VERIFICATION.md`, and
-`AUTOMATION_ORDERS.json` are selected during initialization or an approved
-candidate-input refresh only when the project needs that surface. Procedures
-may edit a receipt-declared mutable surface while preserving its origin marker.
-`SOURCE_MONITOR_RESEARCHER.md` is instead generated immutable procedure from
-retained configuration and refreshes with the framework; project additions use
-the declared source/state/overlay owners. Procedures do not create, copy,
-rename, or delete optional generated state ad hoc.
-Applicable selected optional surfaces also activate receipt-listed conformance
-profiles. Do not hand-prune generated files; remove an optional surface through
-refresh so retained input, the generated managed-file set, any applicable
-active-profile declaration, and the receipt update together. Its plan must
-expose the exact partition-matched `RETIRE-IMMUTABLE-####` or
-`RETIRE-MUTABLE-####` action, path-specific warning, and applicable exact-preimage
-controls.
+Refresh preserves retained mutable state byte-for-byte while regenerating
+immutable outputs. Procedures may edit receipt-declared mutable state while
+preserving its origin marker. Generated immutable procedures, including
+`SOURCE_MONITOR_RESEARCHER.md`, change through refresh. Adding or retiring
+optional surfaces also belongs to an exact approved refresh plan. Retirement
+additionally requires the matching receipt partition, path-specific warning,
+and applicable preimage controls. Do not create or hand-prune generated state
+ad hoc.
 
 ## Stable Framework Reference
 
-If generated downstream files may be committed, shared, or published, use a
-stable framework reference with `--framework-ref`. Avoid committing personal
-absolute paths into shared project entrypoints.
+Use a stable `--framework-ref` when project files may be shared or published;
+avoid personal absolute paths in shared entrypoints.
 
 Select `--framework-revision-policy live` or `pinned` deliberately. A pinned
 reference stays operator-fixed until a separate explicit revision-selection
-action. A live reference can expose changed operative-charter bytes before
-generated project files refresh. Neither policy fetches, installs, or chooses a
-newer framework checkout. See [`UPDATING.md`](../UPDATING.md) for lifecycle
-details.
+action. A live reference can expose changed charter bytes before generated
+files refresh. Neither policy fetches, installs, or chooses a newer checkout.
+
+The project must also retain the exact runner, including the
+compatible CPython interpreter and startup flags qualified by
+`scripts/check_prereqs.py`. The SOW owns that requirement, and the generated
+runtime contract reuses it without silently switching execution environments.
+See [Updating](../UPDATING.md) for lifecycle details.
 
 ## Native Runtime Wrappers
 
-Runtime-native wrappers are launchers, not workflow owners. The setup wrapper
-loads `task_orders/init.md` by default and consults `GETTING_STARTED.md` only when
-the User asks for setup explanation, manual command guidance, or troubleshooting.
-The refresh wrapper preserves its recovery
-gate, then loads [`task_orders/framework_refresh.md`](../task_orders/framework_refresh.md)
-by default and consults [`UPDATING.md`](../UPDATING.md) only when the User asks for
-update explanation, manual command guidance, or troubleshooting; it never routes to initialization. Neither wrapper duplicates
-its canonical procedure.
+Runtime-native wrappers are optional launchers, not workflow owners. The setup
+wrapper enters `task_orders/init.md`; the refresh wrapper enters
+`task_orders/framework_refresh.md` and never routes to initialization. Both
+preserve the recovery gate and consult `GETTING_STARTED.md` or `UPDATING.md`
+respectively for explanation, manual commands, or troubleshooting.

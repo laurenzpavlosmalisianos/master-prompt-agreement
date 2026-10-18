@@ -212,16 +212,23 @@ def infer_direct_full_task_orders(args: argparse.Namespace) -> list[str]:
     return selected
 
 
-def resolve_direct_full_loading(names: list[str]) -> dict[str, object]:
-    if len(names) != 1:
+def resolve_direct_full_loading(
+    names: list[str],
+    module_candidates: list[str] | None = None,
+) -> dict[str, object]:
+    if len(names) != 1 or module_candidates:
         return {
             "canonical_task_order": None,
             "candidate_task_orders": names,
-            "candidate_task_modules": [],
+            "candidate_task_modules": module_candidates or [],
             "evaluated_use_full_when": [],
             "explicit_full_task_order": True,
             "mode": "unresolved",
-            "required_action": "resolve the competing direct full Task Order routes",
+            "required_action": (
+                "resolve the competing Task Order and runtime module routes"
+                if module_candidates
+                else "resolve the competing direct full Task Order routes"
+            ),
         }
     name = names[0]
     return {
@@ -606,7 +613,10 @@ def main() -> int:
     direct_full_orders = infer_direct_full_task_orders(args)
     task_module = None if direct_full_orders else infer_task_module(args)
     task_module_loading = (
-        resolve_direct_full_loading(direct_full_orders)
+        resolve_direct_full_loading(
+            direct_full_orders,
+            workflow_selection_candidates(args),
+        )
         if direct_full_orders
         else resolve_task_module_loading(args, task_module)
     )

@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+from contextlib import redirect_stdout
+import io
+import json
 import unittest
+from unittest import mock
 
 from tests.validation_test_support import SCRIPTS_DIR as _SCRIPTS_DIR
 
 import recommend_stack  # noqa: E402
+import context_manifest  # noqa: E402
 import routing_policy  # noqa: E402
 import verification_plan  # noqa: E402
 import verification_registry  # noqa: E402
@@ -134,7 +139,6 @@ class ValidationRoutingTests(unittest.TestCase):
             ("platform-architecture", "platform_architecture_review", {"platform.boundary", "platform.tradeoffs", "platform.failure-modes"}),
             ("infrastructure-as-code", "infrastructure_as_code_review", {"iac.boundary", "iac.verification"}),
             ("prompt-agent-quality", "prompt_agent_quality", {"agent.current-sources", "agent.acceptance-evals", "agent.tool-memory-verifier-boundaries", "agent.runtime-goal-contract"}),
-            ("knowledge-transfer", "knowledge_transfer", {"knowledge.scope-depth-evidence", "knowledge.grounding", "knowledge.optional-comprehension"}),
             ("source-originality", "source_originality_review", {"originality.behavior-contract", "originality.license-provenance", "originality.fingerprint-scan"}),
             ("container-image-security", "container_image_security", {"container.image-boundary", "container.image-verification"}),
             ("build-pipeline-integrity", "build_pipeline_integrity", {"pipeline.boundary", "pipeline.integrity-verification"}),
@@ -187,6 +191,105 @@ class ValidationRoutingTests(unittest.TestCase):
                 )
                 self.assertIn(guide, guides)
                 self.assertTrue(expected_checks <= checks)
+
+    def test_task_framing_loads_only_for_ambiguity_without_losing_acceptance(self) -> None:
+        for flag in ("multi-file", "migration", "planning"):
+            for ambiguous in (False, True):
+                with self.subTest(flag=flag, ambiguous=ambiguous):
+                    argv = [f"--{flag}"] + (["--ambiguous"] if ambiguous else [])
+                    args = self.parser.parse_args(argv)
+                    guides = recommend_stack.collect_practice_guides(args, self.schedule)
+                    self.assertEqual(ambiguous, "task_contract" in guides)
+                    self.assertIn("planning.acceptance-before-edit", self.routed_check_ids(argv)[1])
+                    if flag == "planning":
+                        self.assertIn("implementation_planning", guides)
+
+    def test_knowledge_transfer_has_one_procedure_and_preserves_teaching_checks(self) -> None:
+        parser = context_manifest.build_parser()
+        for argv, teaching in ((["--knowledge-transfer"], True), (["--review"], False), ([], False)):
+            with self.subTest(argv=argv):
+                args = parser.parse_args(argv)
+                orders = context_manifest.infer_direct_full_task_orders(args)
+                self.assertEqual(["knowledge_transfer"] if teaching else [], orders)
+                self.assertNotIn("knowledge_transfer", recommend_stack.collect_practice_guides(args, self.schedule))
+                checks = self.routed_check_ids(argv)[1]
+                for check in ("knowledge.scope-depth-evidence", "knowledge.grounding", "knowledge.optional-comprehension"):
+                    self.assertEqual(teaching, check in checks)
+                if teaching:
+                    loading = context_manifest.resolve_direct_full_loading(orders)
+                    self.assertEqual("full_task_order", loading["mode"])
+                    self.assertEqual({"name": "knowledge_transfer", "path": "task_orders/knowledge_transfer.md"}, loading["canonical_task_order"])
+
+    def test_knowledge_transfer_does_not_discard_another_requested_workflow(self) -> None:
+        cases = (
+            (["--review"], ["review"]),
+            (["--audit"], ["audit"]),
+            (["--planning"], ["plan"]),
+            (["--scheduled"], ["automation"]),
+            (["--task-module", "review"], ["review"]),
+            (["--task-module", "arbitrate"], ["arbitrate"]),
+            (["--review", "--task-module", "review"], ["review"]),
+            (["--review", "--audit"], ["audit", "review"]),
+        )
+        for workflow_argv, expected_modules in cases:
+            with self.subTest(workflow_argv=workflow_argv):
+                output = io.StringIO()
+                with (
+                    mock.patch(
+                        "sys.argv",
+                        ["context_manifest.py", "--knowledge-transfer", *workflow_argv],
+                    ),
+                    redirect_stdout(output),
+                ):
+                    self.assertEqual(0, context_manifest.main())
+                manifest = json.loads(output.getvalue())
+                loading = manifest["task_module_loading"]
+                self.assertEqual("unresolved", loading["mode"])
+                self.assertEqual(["knowledge_transfer"], loading["candidate_task_orders"])
+                self.assertEqual(expected_modules, loading["candidate_task_modules"])
+                self.assertIsNone(manifest["task_order"])
+                self.assertIsNone(manifest["task_module"])
+                self.assertTrue(
+                    {
+                        "knowledge.scope-depth-evidence",
+                        "knowledge.grounding",
+                        "knowledge.optional-comprehension",
+                    }
+                    <= {check["check_id"] for check in manifest["required_checks"]}
+                )
+
+    def test_direct_full_routes_stay_full_when_no_workflow_competes(self) -> None:
+        parser = context_manifest.build_parser()
+        for argv, expected_order in (
+            (["--knowledge-transfer"], "knowledge_transfer"),
+            (["--incident"], "incident_response"),
+        ):
+            with self.subTest(argv=argv):
+                args = parser.parse_args(argv)
+                loading = context_manifest.resolve_direct_full_loading(
+                    context_manifest.infer_direct_full_task_orders(args),
+                    context_manifest.workflow_selection_candidates(args),
+                )
+                self.assertEqual("full_task_order", loading["mode"])
+                self.assertEqual(
+                    {"name": expected_order, "path": f"task_orders/{expected_order}.md"},
+                    loading["canonical_task_order"],
+                )
+
+        args = parser.parse_args(["--knowledge-transfer", "--incident"])
+        loading = context_manifest.resolve_direct_full_loading(
+            context_manifest.infer_direct_full_task_orders(args),
+            context_manifest.workflow_selection_candidates(args),
+        )
+        self.assertEqual("unresolved", loading["mode"])
+        candidate_orders = loading["candidate_task_orders"]
+        if not isinstance(candidate_orders, list):
+            self.fail("competing Task Order candidates must be a list")
+        self.assertCountEqual(
+            ["knowledge_transfer", "incident_response"],
+            candidate_orders,
+        )
+        self.assertIsNone(loading["canonical_task_order"])
 
     def test_frontend_visual_and_combined_container_routes_are_additive(self) -> None:
         frontend = self.parser.parse_args(["--frontend-quality"])

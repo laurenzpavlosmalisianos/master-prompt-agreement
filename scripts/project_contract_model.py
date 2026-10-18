@@ -2184,11 +2184,14 @@ PROJECT_AUTHORITY_TEXT = (
     "Authority: Generated projection, not independent authority. `STATEMENT_OF_WORK.md` "
     "governs conflicting project terms. Never hand-edit this file."
 )
+PROJECT_MODULE_LOADING_RULE = (
+    "- Resolve Active Project Modules references from the project root. Load Scope of Authority before any action and each other listed module before work governed by its subject; after compaction, restart, or handoff, reload applicable modules before resuming that work."
+)
 PROJECT_LOADING_RULE_OPERATIVE_LINES = (
     "- After context compaction, restart, or handoff, reload this file from disk; do not rely on summaries.",
-    "- Resolve Active Project Modules references from the project root. Load Scope of Authority before any action and each other listed module before work governed by its subject; after compaction, restart, or handoff, reload applicable modules before resuming that work.",
+    PROJECT_MODULE_LOADING_RULE,
     "- Active Workflows, Auxiliary Tools, Review Routing, and Canonical Detail Routes are indexes, not complete procedures. Before executing a workflow, invoking a tool, convening custom review, or using routed canonical detail, load the same-named STATEMENT_OF_WORK.md entry.",
-    "- If this file conflicts with STATEMENT_OF_WORK.md, the SOW governs; stop relying on the conflicting projection. Diagnose and correct a generated contract, framework-reference binding, or generated optional-state lifecycle only through the selected framework's `task_orders/framework_refresh.md` route; never hand-edit managed projections or add or retire generated state ad hoc.",
+    "- Stop relying on a conflicting projection. Diagnose and correct a generated contract, framework-reference binding, or generated optional-state lifecycle only through the selected framework's `task_orders/framework_refresh.md` route; never hand-edit managed projections or add or retire generated state ad hoc.",
     "- Preserve the exact framework-generated origin marker when editing receipt-declared mutable state.",
     "- Keep project-specific rules in this contract rather than growing the runtime entrypoint unless that entrypoint itself must carry the rule.",
 )
@@ -2201,6 +2204,18 @@ PROJECT_LOADING_RULE_AUTHOR_GUIDANCE = (
     "- Keep active VCS, release, rollback, and memory-boundary facts concise; detailed history and standing policy remain in their owning project surfaces.",
 )
 PROJECT_LOADING_RULE_LINES = PROJECT_LOADING_RULE_OPERATIVE_LINES
+
+
+def project_loading_rule_lines(*, has_project_modules: bool) -> tuple[str, ...]:
+    """Emit module-loading instructions only for contracts that declare modules."""
+
+    return tuple(
+        line
+        for line in PROJECT_LOADING_RULE_LINES
+        if has_project_modules or line != PROJECT_MODULE_LOADING_RULE
+    )
+
+
 ARBITRATION_PANEL_RUNTIME_ROUTE = (
     "Arbitration Panel: load STATEMENT_OF_WORK.md Arbitration Panel before panel use"
 )

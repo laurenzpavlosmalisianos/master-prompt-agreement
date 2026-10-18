@@ -362,6 +362,32 @@ class EvidenceScopeTests(unittest.TestCase):
                 executable="git",
             )
 
+    def test_git_query_accepts_only_bounded_unquoted_ignore_batches(self) -> None:
+        policy = evidence_scope.git_query
+        probes = ["fixtures/results/output.md", "tools/__init__.py"]
+        arguments = ["check-ignore", "--no-index", "--", *probes]
+        command = policy.closed_git_query_command(arguments)
+        self.assertEqual(arguments, command[-len(arguments):])
+        quiet = ["check-ignore", "--no-index", "-q", "--", probes[0]]
+        self.assertEqual(quiet, policy.closed_git_query_command(quiet)[-len(quiet):])
+        forbidden = (
+            ["check-ignore", "--no-index", "--"],
+            ["check-ignore", "--no-index", "-v", "--", *probes],
+            ["check-ignore", "--no-index", "-q", "--", *probes],
+            ["check-ignore", "--no-index", "--", probes[0], probes[0]],
+            ["check-ignore", "--no-index", "--", *[f"p/{i}" for i in range(1025)]],
+            ["check-ignore", "--no-index", "--", "x" * (64 * 1024 + 1)],
+        )
+        for unsafe in (
+            "/absolute", "../outside", "a/../b", "a/./b", "a//b", "a/",
+            "-option", "space path", "tab\tpath", "line\npath", "a\\b",
+            'a"b', "a\x00b", "caf\u00e9", "a/*", ":(glob)a",
+        ):
+            forbidden += (["check-ignore", "--no-index", "--", unsafe],)
+        for selected in forbidden:
+            with self.subTest(arguments=selected), self.assertRaises(ValueError):
+                policy.closed_git_query_command(selected)
+
     def test_evidence_scope_does_not_execute_ambient_path_git(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             base = Path(temp_dir)

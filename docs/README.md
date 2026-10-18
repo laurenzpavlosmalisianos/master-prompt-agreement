@@ -1,24 +1,22 @@
 # Documentation
 
-This index routes the chapter-style documentation and root operator guides for
-Master Prompt Agreement. They explain how the framework fits together without
-becoming a second authority layer. If an orientation surface conflicts with the
-Master Service Agreement, Statement of Work, Task Orders, Practice Guides,
-runtime files, or executable command help, correct the orientation surface and
-follow the owning canonical file.
+Choose the path that matches what you want to do:
 
-The interactive HTML and TypeScript documentation is a human-facing
-presentation layer over these markdown chapters and framework files. It may
-illustrate concepts, flows, and architecture, but it must not become the source
-of truth for agent behavior.
+| Start here | Purpose |
+|---|---|
+| [Set up a project](../GETTING_STARTED.md) | Create its first MPA instance after inspection and an approved plan. |
+| [Update an existing instance](../UPDATING.md) | Inspect, refresh, revise, recover, or restore generated project files. |
+| [Understand the framework](concepts.md) | Learn how project authority, task guidance, state, and evidence fit together. |
+
+For a visual walkthrough, download or clone the framework and open the
+[local interactive guide](interactive/index.html). GitHub displays its HTML
+source rather than running it.
 
 ## Root Guides
 
 | Guide | Use When |
 |---|---|
 | [README](../README.md) | You need the product overview and normal operating path. |
-| [Getting Started](../GETTING_STARTED.md) | You are creating a first current-format project instance. |
-| [Updating](../UPDATING.md) | You are inspecting, refreshing, revising, recovering, or restoring an existing generated instance. |
 | [Architecture](../ARCHITECTURE.md) | You need the authority, runtime-assembly, lifecycle, and integration design. |
 | [Specification](../SPECIFICATION.md) | You need the normative/informative surface classification and authority rules. |
 | [Conformance](../CONFORMANCE.md) | You need profile meanings, checker behavior, and conformance limits. |
@@ -32,7 +30,6 @@ of truth for agent behavior.
 |---|---|
 | [Concepts](concepts.md) | You need the operating model: authority, runtime packets, Task Orders, Practice Guides, state, source discipline, and feedback. |
 | [Downstream Setup](downstream_setup.md) | You want the setup flow before following the full setup procedure in `GETTING_STARTED.md` and `task_orders/init.md`. |
-| [Updating A Generated Project](../UPDATING.md) | You need the operator recipe for inspecting, refreshing, revising, recovering, restoring, or triaging an unsupported generated format; `task_orders/framework_refresh.md` remains the workflow authority. |
 | [Repository Taxonomy](repository_taxonomy.md) | You need to know where a file belongs, which surfaces are product files, and which generated files are templates. |
 | [Source And Feedback](source_and_feedback.md) | You are reviewing external sources, source-monitor packets, or downstream project feedback. |
 | [Source-Chain Artifacts](source_chain_artifacts.md) | You need the complete, version-bound monitor, review, apply, and assurance artifact contract used by the product source-chain helpers. |
@@ -42,16 +39,16 @@ of truth for agent behavior.
 
 ## Human-Facing Interactive View
 
-[Interactive Guide](interactive/index.html) is a static HTML and TypeScript
-presentation layer for humans. Download or clone the product and open the file
-locally; GitHub's repository view displays its source instead of executing it.
-It exists to make the architecture easier to inspect visually. Agents may use
-it as an explanatory aid when teaching or walking a human through the framework,
-but it does not replace, override, or extend the Markdown framework files. Its
-[source layout and verification notes](interactive/README.md) explain the
-TypeScript/generated-JavaScript boundary.
+The guide illustrates the same architecture as these chapters. Its
+[source layout and verification notes](interactive/README.md) explain how the
+TypeScript source and checked-in JavaScript stay aligned.
 
 ## Canonical References
+
+These chapters and the interactive view explain the framework; they do not
+create agent instructions. If an explanation conflicts with an owning file,
+follow that file and correct the explanation. Exact command interfaces belong
+to executable help.
 
 - `master_service_agreement.md` is the universal doctrine.
 - `scripts/project_contract_model.py` owns the machine-readable downstream project-contract semantics and generates the answer schema and Markdown blueprints.
