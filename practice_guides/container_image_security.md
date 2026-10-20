@@ -28,7 +28,7 @@ Before source-sensitive recommendations, use project `SOURCE_PACKS.md` and `SOUR
 
 3. Prevent secret and layer leakage.
 
-- Do not pass secrets through build args, environment variables, labels, tags, copied files, command strings, package config, generated logs, or cacheable layers.
+- Do not pass secrets through build args, persistent build or image environment configuration, labels, tags, copied files, command strings, package config, generated logs, or cacheable layers.
 - Use the builder's approved secret or SSH mount mechanism when a build truly needs a credential, and verify the secret does not remain in the final image, build cache, history, logs, or provenance mode.
 - Review image history, layer contents, labels, environment defaults, package manager configuration, shell profiles, and generated artifacts for hidden secrets or internal host data.
 - Treat provenance, SBOM, debug symbols, source maps, build logs, and scanner reports as possible disclosure surfaces.
@@ -69,7 +69,6 @@ Provide:
 ## Guardrails
 
 - Do not treat a clean Containerfile, successful build, or green scanner as proof that the built image is safe.
-- Do not pass secrets through build args, environment variables, labels, copied files, command strings, remote bootstrap scripts, or cacheable layers.
 - Do not use floating tags as release identity when a digest, provenance record, or deployment pin is required.
 - Do not push, publish, delete, retag, log in to registries, or mutate remote image state without current approval.
 - Do not assume local container behavior proves Kubernetes, production, or Apple `container` runtime behavior.
