@@ -23,6 +23,7 @@ Use this Practice Guide when changing maintained prompts, agent entrypoints, too
 - for runtime-native goals or long-running agent workflows, define the outcome, verification surface, measurement environment, constraints, ownership boundaries, iteration policy, and blocked stop condition before execution
 - separate durable policy from task-local examples, source excerpts, and current-version facts
 - prefer the smallest prompt or workflow that satisfies the contract and passes the relevant checks
+- retire cosmetic prompt micromanagement: do not use prompt instructions to micromanage cosmetic formatting, indentation preferences, variable naming aesthetics, or personal coding style preferences. Prompting AI to match subjective author styling is an antipattern that consumes valuable context, introduces friction, and yields zero functional return. Deterministic linters, AST formatters, and type checkers must enforce syntax; system prompts must govern behavioral contracts, safety boundaries, and verifiable invariants
 - state each durable instruction once. On a model, endpoint, runtime, or harness change, re-baseline whether earlier scaffolding is still necessary instead of carrying it forward automatically. When reducing a working prompt, remove one coherent instruction, example, or tool group at a time and rerun the same representative checks; retain project authority, hard constraints, approval and tool boundaries, success criteria, and any example or style rule that encodes a requirement or corrects a measured failure
 
 2. Route specialized concerns to their owning guide or Task Order.
@@ -102,6 +103,19 @@ Reviewer and scoped-worker workflow quality:
 - record the rationale, acceptance evidence, and rollback or supersession path for reusable artifact changes that affect repeated agent behavior
 - do not create permanent prompt files, skills, or memory from ordinary one-off work unless reuse, auditability, or cross-review justifies them
 
+## AI Agent Trap Containment Matrix
+
+Autonomous agent architectures operating in complex environments face six systemic failure classes (Franklin et al. adversarial trap taxonomy). Model alignment alone is insufficient; safety and reliability require architectural containment and behavioral invariant enforcement:
+
+| Trap Class | Failure Mode / Vulnerability | Architectural Containment Defense | MPA Governing Boundary |
+|---|---|---|---|
+| **Perception Injection** | Sensory discrepancy exploitation via hidden HTML, zero-width Unicode, steganography, or weaponized document metadata in untrusted inputs. | **Data/Instruction Quarantine:** Treat all external, retrieved, multimodal, and tool content strictly as untrusted data, never as executable instructions, regardless of local storage or formatting. | `runtime/operative_charter.md` Art. 4.3; `practice_guides/prompt_injection_review.md` |
+| **Tool Misdirection** | Action hijacking, confused deputy invocation, or weaponized parameters embedded in tool schemas or descriptions forcing unauthorized side effects. | **Invocation Gating & Risk Stratification:** Declarative tool risk classification (`readOnly`, `consequential: true`, `untrustedContent`); deterministic parameter schema validation at invocation boundary; explicit out-of-band confirmation required for state-mutating actions. | `runtime/operative_charter.md` Art. 2 & 6.4; `practice_guides/tool_safety.md` |
+| **Memory Poisoning** | Cognitive state corruption where adversarial assertions enter persistent storage (vector DBs, state files, scratchpads), turning transient injections into cross-session compromise. | **Immutable Memory Gating & Closed Control Gates:** Strict separation of ephemeral scratchpads from durable state; schema counters; deterministic pre-commit validation; untrusted external content strictly barred from entering durable doctrine without independent verification. | `runtime/operative_charter.md` Art. 5.1; `practice_guides/source_grounded_research.md` |
+| **Semantic Goal Drift** | Reasoning manipulation via deceptive framing, pseudo-authoritative rationales, or circular logic causing the agent to subtly divert from its primary task. | **Contract Anchor Invariance:** Explicit, non-negotiable task contract with rigid success criteria, stop conditions, and continuous assertion of core deliverables at every execution turn; reject ungrounded reasoning pivots. | `runtime/operative_charter.md` Art. 1.2 & 3.1; `task_orders/task_contract.md` |
+| **Runaway Recursion** | Systemic multi-agent cascades, unconstrained fan-out, circular delegation loops, or self-reinforcing hallucination storms exhausting resources. | **Topology Bounding & Hard Step Caps:** Explicit fan-out limits, hard iteration/step caps, isolated single-folder write domains per subagent, typed handoff contracts, and deterministic coordinator arbitration. | `runtime/operative_charter.md` Art. 6.7; `task_orders/orchestrate.md` |
+| **Authority Ambiguity** | Human-overseer fatigue exploitation, deceptive summary generation, or model-hallucinated approval tokens bypassing governance gates. | **Findings-First Reporting & Deterministic Oracles:** Mandate presenting raw findings before summaries; model tokens never constitute authorization; authorization gates evaluated strictly by deterministic downstream code outside model context. | `runtime/operative_charter.md` Art. 7.2; `practice_guides/security_audit.md` |
+
 ## Output
 
 For prompt or agent workflow changes, report:
@@ -114,6 +128,7 @@ For prompt or agent workflow changes, report:
 
 ## Guardrails
 
+- Do not micromanage cosmetic code styling, syntax formatting, variable naming aesthetics, or superficial indentation in prompts. Delegate syntax and style to deterministic linters and AST formatters; restrict prompt governance to behavioral contracts, safety boundaries, and verification criteria.
 - Do not add generic prompt wrappers when the runtime already separates instructions, user input, files, and tool output.
 - Do not put "latest model" names into always-on runtime guidance unless a project has pinned that model or a migration task requires it.
 - Do not copy provider system prompts, tool lists, chat-derived behavior, private logs, or internal maintenance notes into public guidance.

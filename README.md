@@ -52,21 +52,52 @@ The optional Codex launchers `$master-prompt-new-project` and
 
 ## How MPA Works
 
-Each task connects project context, relevant guidance, and evidence of the
-result:
+Each task connects project context, relevant guidance, out-of-band verification,
+and durable memory consolidation:
 
 ```mermaid
-flowchart TB
-  A["Project context"] --> B["Relevant task guidance"]
-  B --> C["Work and verification"]
+flowchart TD
+  subgraph ProjectContract["1. Project Authority & Context"]
+    SOW["Statement of Work<br/>(Governing Terms)"]
+    Charter["Operative Charter<br/>(Universal Rules)"]
+    Contract["AGENT_PROJECT.md<br/>(Scope, Permissions & Commands)"]
+    SOW --> Contract
+    Charter --> Contract
+  end
+
+  subgraph SelectiveGuidance["2. Task-Scoped Guidance"]
+    TaskOrder["Task Order<br/>(Workflow Sequence & Deliverables)"]
+    PracticeGuide["Practice Guides<br/>(Domain Quality & Safety Standards)"]
+  end
+
+  subgraph ExecutionVerification["3. Work & Out-of-Band Verification"]
+    Action["Deterministic Execution<br/>(Least-Privilege Sandboxed Environment)"]
+    Verification["Out-of-Band Verification<br/>(Project Tests, Live DevTools & Conformance)"]
+    Evidence["Completion Evidence<br/>(Acceptance Items & Verification Receipts)"]
+    Action --> Verification
+    Verification --> Evidence
+  end
+
+  subgraph MemoryConsolidation["4. Memory Consolidation"]
+    DurableState["Durable Project State<br/>(TODO.md & DECISIONS.md)"]
+  end
+
+  Contract --> TaskOrder
+  Contract --> PracticeGuide
+  TaskOrder --> Action
+  PracticeGuide --> Action
+  Evidence --> DurableState
+  DurableState -.->|Updated Context| Contract
 ```
 
 1. **Know the project.** Read its current scope, constraints, commands, and
-   acceptance criteria. Recovery is checked before generated authority or state.
+   acceptance criteria. Closed transaction control is checked before generated authority or state.
 2. **Load what matters.** Select the applicable workflow and specialist checks.
    Keep unrelated guides and historical records out of the task context.
-3. **Verify the result.** Use project tests, inspected output, and any required
-   manual acceptance to show what is complete and what remains uncertain.
+3. **Verify out-of-band.** Use project tests, live runtime DevTools, inspected output, and
+   required manual acceptance to show what is complete and what remains uncertain.
+4. **Consolidate memory.** Distill durable decisions and acceptance evidence into
+   version-controlled state files while clearing ephemeral scratchpads.
 
 This is an overview of ordinary work, not the setup or recovery procedure.
 See [Concepts](docs/concepts.md) for the model and
@@ -78,17 +109,29 @@ See [Concepts](docs/concepts.md) for the model and
   deliverables, and constraints that survive a new session.
 - **Guidance selected for the task:** procedures for planning, implementation,
   review, research, and other work, paired with relevant quality standards.
-- **Explicit completion evidence:** acceptance criteria, verification results,
-  and unresolved gaps instead of a completion claim alone.
+- **Explicit completion evidence:** acceptance criteria, verification receipts,
+  and unresolved gaps instead of an ungrounded completion claim alone.
+- **Two-phase memory consolidation:** active ephemeral scratchpads quarantined from
+  durable doctrine; durable decisions consolidated into version control (`DECISIONS.md`).
+- **AI agent trap containment:** architectural defenses against the six systemic agent failure
+  modes (perception injection, tool misdirection, memory poisoning, semantic goal drift,
+  runaway recursion, and privilege chaining).
 - **Small current state:** active work and durable decisions, with history kept
   in version control or an approved archive.
 
 ### Principles
 
-Keep always-loaded instructions small. Prefer capable native tools and
-project-owned checks to duplicate framework prose. Treat sources and model
-output as evidence to verify. Add reusable guidance only when its value
-justifies its context, process, and maintenance cost.
+- **Contract-driven governance:** As the marginal cost of code generation collapses toward zero,
+  system correctness and reliability depend on rigid architectural contracts, helper process
+  sandboxing, and deterministic out-of-band verification.
+- **Keep always-loaded instructions small:** Prefer capable native tools and
+  project-owned checks to duplicate framework prose.
+- **Treat sources and model output as evidence:** Quarantined data to verify rather than standing instructions.
+- **Enforce modern declarative standards:** Prefer compositor-driven, accessible standards (such as CSS
+  scroll-driven animations with `@supports` and `prefers-reduced-motion` fallbacks) over imperative main-thread
+  JavaScript polling and layout thrashing.
+- **Add reusable guidance only when justified:** A guideline must earn its context, process,
+  and maintenance cost.
 
 MPA complements the agent and its execution environment. Host, container,
 network, identity, secret, permission, and approval controls remain necessary.

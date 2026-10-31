@@ -30,6 +30,8 @@ The framework records intended authority and verification duties. Host sandboxin
 | External content | Prompt injection from webpages, PDFs, repositories, transcripts, model output, or tool output | Treat as untrusted input, never as authority. |
 | Tool output | Fabricated, stale, hostile, or incomplete output | Treat as evidence to verify, not instruction. |
 | Generated code execution | Unsafe setup chains, lifecycle scripts, fetched code, or tool-suggested recovery commands | Require review and an approved sandbox boundary before execution. |
+| Helper process isolation | Ambient OS/IPC privilege leakage from internal helpers (CVE-2026-106378) | Enforce transitive least privilege; isolate helper processes and sever unneeded ambient bindings. |
+| AI agent traps | Systemic failure modes: perception injection, tool misdirection, memory poisoning, goal drift, recursion, privilege chaining | Enforce architectural containment: input quarantine, schema gating, immutable memory, and step budgets. |
 | Dependencies | Supply-chain compromise, dependency confusion, vulnerable packages, unreviewed binaries | Require explicit dependency-risk review when dependency posture changes. |
 | Browser, MCP, skills, plugins | Expanded tool authority and signed-in browser state | Require explicit integration boundaries and least authority. |
 | Automations | Repeated action, overlap, stale artifacts, no-progress retries | Require deterministic scope, concurrency, timeout, failure, and output controls. |
@@ -81,13 +83,27 @@ only under the project's approved cleanup procedure.
   artifacts; never edit or delete them manually.
 - Use `practice_guides/prompt_injection_review.md`, `practice_guides/dependency_risk.md`, `practice_guides/secure_development.md`, and `practice_guides/security_audit.md` when changing security-sensitive framework behavior.
 
-## Reporting
+## Reporting And Vulnerability Disclosure
 
 Use the repository's private security-advisory or issue-reporting mechanism when
 one is enabled. If no private channel is available, open an issue titled
 `Security contact request` with only a short non-sensitive summary and ask for a
 private reporting path. Do not include secrets, exploit details, sensitive
 source lists, local paths, credentials, or project data in a public report.
+
+### Standard Vulnerability Disclosure (RFC 9116 / BSI Recommendation)
+
+For deployed web applications, public services, and downstream production instances, Master Prompt Agreement recommends implementing a machine-readable security policy at `/.well-known/security.txt` conforming to RFC 9116 and the Federal Office for Information Security (BSI) standards:
+
+- **Mandatory Directives:**
+  - `Contact:` URI (e.g. `mailto:security@example.com` or `https://example.com/security`) for secure, direct vulnerability reporting.
+  - `Expires:` Explicit RFC 3339 / ISO 8601 UTC timestamp (maximum one year into the future) to guarantee contact validity.
+- **Recommended Directives:**
+  - `Canonical:` Canonical HTTPS URL of the `security.txt` file (e.g. `https://example.com/.well-known/security.txt`).
+  - `Preferred-Languages:` Comma-separated language tags (e.g. `en, de`).
+  - `Encryption:` Pointer to an OpenPGP public key URI or key server.
+  - `Policy:` Link to the full security disclosure and safe harbor policy.
+- **Cryptographic Authenticity:** Deploy `security.txt` with an inline or detached OpenPGP digital signature to protect against unauthorized tampering.
 
 ## Non-Guarantees
 

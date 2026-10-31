@@ -59,6 +59,7 @@ Pair it with `privacy_data_handling.md` when forms, analytics, cookies, storage,
 
 - use `visual_verification.md` for rendered layout, screenshot, interaction, and semantic HTML checks
 - use `css_quality.md` when the task changes cascade, selectors, tokens, layout, animation, support, or modern CSS feature use
+- mandate live runtime DevTools verification for frontend and web tasks: do not rely on speculative static audits or assume code correctness from source files alone. Verify rendered output in a live browser runtime using developer tools (or DevTools MCP server / browser automation protocols): capture and verify absence of runtime console errors/warnings, inspect network request status codes and failed fetches, and measure Core Web Vitals telemetry (LCP, INP, CLS) before asserting task completion
 - when using browser DevTools, browser-control MCP servers, live-browser agents, or IDE/browser integrations, record the tool source, version/update posture, telemetry or data-retention behavior, browser profile boundary, captured-data flow to the agent/model, and allowed actions before relying on the output
 - define measurable layout contracts for shared or fragile surfaces before claiming pixel accuracy
 - compare browser geometry, CSS token probes, selected image candidates, layout shift, and route-to-route positions when those are the real invariants
@@ -70,6 +71,7 @@ Pair it with `privacy_data_handling.md` when forms, analytics, cookies, storage,
 - when a site exposes structured tools to browser agents, verify the actual browser and consumer capability, permitted page/frame origins and current account state; retain usable semantic UI as the fallback. Exercise tool availability and results across navigation, login changes and intervening user edits rather than assuming the discovery snapshot remains valid
 - verify that browser-tool and UI paths apply the same business rules and produce consistent visible state. Route authorization, disclosure, consequential-action approval and interrupted or uncertain outcomes through `api_contract_security.md` and `prompt_injection_review.md`; a tool hint or successful preparation is not evidence that the protected operation was authorized or completed
 - when a synthetic stakeholder or persona walkthrough is used, derive each scenario from confirmed audience, job, constraint, and decision context; label it as a heuristic probe; separate observed interface facts from inferred reactions and unknowns; keep the exact scenarios fixed for before/after comparison; and do not present the result as user interviews, analytics, conversion forecasts, or statistical evidence
+- formally deprecate imperative JavaScript scroll event listeners (`window.addEventListener('scroll', ...)`, `requestAnimationFrame` polling, and `getBoundingClientRect()` layout-thrashing loops) for scroll-linked visual effects, parallax, and reveals. Mandate declarative CSS Scroll-driven animations (`scroll-timeline`, `view-timeline`) evaluated off the main thread directly on the browser compositor thread. Declarative scroll timelines must strictly be paired with `@supports (animation-timeline: scroll())` or `@supports (animation-timeline: view())` progressive enhancement fallbacks and strictly disabled or neutralized under `@media (prefers-reduced-motion: reduce)` to protect vestibular accessibility
 - verify motion and interaction feedback support comprehension, affordance, or pacing without distracting from the primary task
 - for authored pointer gestures that trigger application actions, verify cancellation or recovery and applicable keyboard and single-pointer alternatives without dragging; exercise interrupted and accidental gestures, distinguish unmodified browser scrolling, and record any essential-interaction exception
 
@@ -112,8 +114,8 @@ Provide:
 5. commands, pages, viewports, DPR cases, validators, and auxiliary tools used
 6. classified findings, accepted exceptions, and residual risk
 
-## Guardrails
-
+- Do not use imperative JavaScript scroll event listeners or geometry polling for visual animations, parallax, or reveals; use declarative CSS scroll-driven animations with compositor execution, @supports feature detection, and reduced-motion guardrails.
+- Do not claim completion of frontend or web modifications from speculative static inspections alone; execute live runtime DevTools verification (console logs, network activity, Core Web Vitals traces).
 - Do not turn project-specific choices such as no JavaScript, no external assets, one typeface, or a particular generator into public doctrine without project evidence.
 - Do not add dependencies, scripts, tracking, external requests, third-party assets, or legal/privacy policy changes without approval.
 - Do not add a token engine, palette generator, or design-system dependency merely to improve a static site review; first ask whether plain CSS custom properties and documented relationships are sufficient.

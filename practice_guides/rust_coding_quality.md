@@ -28,6 +28,9 @@ Before making source-sensitive recommendations, use project `SOURCE_PACKS.md` an
 - use `Send`, `Sync`, ownership transfer, and synchronization primitives deliberately when values cross threads or async tasks
 - use interior mutability, `Arc<Mutex<_>>`, `Arc<RwLock<_>>`, atomics, and channels only after naming the ownership, aliasing, and blocking or ordering contract they are meant to express
 - isolate `unsafe` into the smallest module, state the safety invariant, and test the safe API around it
+- enforce the Explicit Unsafe Scope Invariance (Rust 2024 Edition): inside `unsafe fn`, operations requiring unsafe must be enclosed in explicit `unsafe { ... }` blocks (`unsafe_op_in_unsafe_fn`); declaring a function `unsafe` specifies caller proof obligations but never grants ambient unsafe permission to the function body
+- for external FFI blocks, use `unsafe extern "C" { ... }` to make foreign-function boundary trust obligations explicit; disallow direct references to mutable statics (`static mut`), mandating `SyncUnsafeCell` or atomic primitives instead; and treat process environment mutations (`std::env::set_var`, `std::env::remove_var`) as unsafe multi-threaded operations
+- for temporary drop scopes, account for Rust 2024 Edition semantics where temporaries in `if let` and tail expressions drop at statement completion rather than block exit, eliminating accidental mutex lock retention across long blocks; and use Return-Position `impl Trait` (RPIT) lifetime capture syntax `use<...>` when capturing precise lifetime bounds
 - for every unsafe construct, including unsafe blocks, unsafe operations inside `unsafe fn`, unsafe functions, unsafe traits, unsafe impls, unsafe extern declarations, unsafe external statics, and unsafe attributes, record the proof obligation and who must uphold it
 - include aliasing, provenance, lifetime, validity, layout, drop, unwind, symbol or linkage, and thread-safety assumptions when they apply
 - when ownership must leave a `Box` and later return, use a supported ownership-transfer API with an explicit reclamation contract; avoid manufacturing a leaked reference and then reclaiming its allocation as an ownership-transfer shortcut
@@ -103,3 +106,4 @@ Provide:
 - Do not treat memory safety as proof of syscall ordering, filesystem identity, byte-preservation, or compatibility correctness.
 - Do not treat nightly or beta behavior as stable project guidance.
 - Do not treat test count as test quality. A small suite can miss critical contracts, and a large suite can be justified when it preserves compatibility, security, fail-closed behavior, or diagnostics.
+- In Rust 2024 code, do not perform unsafe operations inside an `unsafe fn` without an explicit `unsafe { ... }` block, and do not create references to `static mut`.
