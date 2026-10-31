@@ -7256,80 +7256,57 @@ class ProjectContractSyncTests(unittest.TestCase):
                 result.stdout,
             )
 
-    def test_project_contract_sync_rejects_extra_common_command_row(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            outputs = project_bootstrap.render_output_files(
-                {
-                    "bootstrap_mode": "minimal",
-                    "agent": "Agent",
-                    "framework_verification_runner": TEST_FRAMEWORK_RUNNER,
-                    "project_name": "Demo",
-                    "commands": {"deploy": "none"},
-                },
-                "generic",
-                "$FRAMEWORK",
-            )
-            for name, content in outputs.items():
-                (root / name).write_text(content, encoding="utf-8")
-            contract = (root / "AGENT_PROJECT.md").read_text(encoding="utf-8")
-            contract = contract.replace("- Deploy: none", "- Deploy: none\n- Package: npm install")
-            (root / "AGENT_PROJECT.md").write_text(contract, encoding="utf-8")
+    def test_project_contract_sync_rejects_malformed_or_missing_common_command_rows(
+        self,
+    ) -> None:
+        answers: dict[str, object] = {
+            "bootstrap_mode": "minimal",
+            "agent": "Agent",
+            "framework_verification_runner": TEST_FRAMEWORK_RUNNER,
+            "project_name": "Demo",
+            "commands": {"deploy": "none"},
+        }
+        cases = (
+            (
+                "extra_common_command_row",
+                "- Deploy: none",
+                "- Deploy: none\n- Package: npm install",
+                "AGENT_PROJECT.md Common Commands contains unbacked key: Package",
+            ),
+            (
+                "invalid_common_command_row",
+                "- Deploy: none",
+                "- Deploy: none\n- Package npm install",
+                "AGENT_PROJECT.md Common Commands row must contain ':'",
+            ),
+            (
+                "missing_absent_common_command_row",
+                "- Deploy: none\n",
+                "",
+                "AGENT_PROJECT.md Common Commands missing required key: Deploy",
+            ),
+        )
+        for label, target, replacement, expected_error in cases:
+            with self.subTest(case=label):
+                def mutate(
+                    root: Path,
+                    outputs: dict[str, str],
+                    *,
+                    old: str = target,
+                    new: str = replacement,
+                ) -> None:
+                    (root / "AGENT_PROJECT.md").write_text(
+                        outputs["AGENT_PROJECT.md"].replace(old, new),
+                        encoding="utf-8",
+                    )
 
-            result = run_sync(root)
-
-            self.assertNotEqual(0, result.returncode)
-            self.assertIn("AGENT_PROJECT.md Common Commands contains unbacked key: Package", result.stdout)
-
-    def test_project_contract_sync_rejects_invalid_common_command_row(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            outputs = project_bootstrap.render_output_files(
-                {
-                    "bootstrap_mode": "minimal",
-                    "agent": "Agent",
-                    "framework_verification_runner": TEST_FRAMEWORK_RUNNER,
-                    "project_name": "Demo",
-                    "commands": {"deploy": "none"},
-                },
-                "generic",
-                "$FRAMEWORK",
-            )
-            for name, content in outputs.items():
-                (root / name).write_text(content, encoding="utf-8")
-            contract = (root / "AGENT_PROJECT.md").read_text(encoding="utf-8")
-            contract = contract.replace("- Deploy: none", "- Deploy: none\n- Package npm install")
-            (root / "AGENT_PROJECT.md").write_text(contract, encoding="utf-8")
-
-            result = run_sync(root)
-
-            self.assertNotEqual(0, result.returncode)
-            self.assertIn("AGENT_PROJECT.md Common Commands row must contain ':'", result.stdout)
-
-    def test_project_contract_sync_rejects_missing_absent_common_command_row(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            outputs = project_bootstrap.render_output_files(
-                {
-                    "bootstrap_mode": "minimal",
-                    "agent": "Agent",
-                    "framework_verification_runner": TEST_FRAMEWORK_RUNNER,
-                    "project_name": "Demo",
-                    "commands": {"deploy": "none"},
-                },
-                "generic",
-                "$FRAMEWORK",
-            )
-            for name, content in outputs.items():
-                (root / name).write_text(content, encoding="utf-8")
-            contract = (root / "AGENT_PROJECT.md").read_text(encoding="utf-8")
-            contract = contract.replace("- Deploy: none\n", "")
-            (root / "AGENT_PROJECT.md").write_text(contract, encoding="utf-8")
-
-            result = run_sync(root)
-
-            self.assertNotEqual(0, result.returncode)
-            self.assertIn("AGENT_PROJECT.md Common Commands missing required key: Deploy", result.stdout)
+                with render_fixture(answers, mutation=mutate) as (
+                    _root,
+                    _outputs,
+                    result,
+                ):
+                    self.assertNotEqual(0, result.returncode)
+                    self.assertIn(expected_error, result.stdout)
 
     def test_project_contract_sync_rejects_modified_minimal_runtime_deferral(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -7392,71 +7369,38 @@ class ProjectContractSyncTests(unittest.TestCase):
                 result.stdout,
             )
 
-    def test_project_contract_sync_requires_common_commands_section(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            outputs = project_bootstrap.render_output_files(
-                {
-                    "bootstrap_mode": "minimal",
-                    "agent": "Agent",
-                    "project_name": "Demo",
-                    "commands": {},
-                },
-                "generic",
-                "$FRAMEWORK",
-            )
-            for name, content in outputs.items():
-                (root / name).write_text(content, encoding="utf-8")
-            contract_lines = (root / "AGENT_PROJECT.md").read_text(encoding="utf-8").splitlines()
-            filtered_lines: list[str] = []
-            skip = False
-            for line in contract_lines:
-                if line == "## Common Commands":
-                    skip = True
-                    continue
-                if skip and line.startswith("## "):
-                    skip = False
-                if not skip:
-                    filtered_lines.append(line)
-            (root / "AGENT_PROJECT.md").write_text("\n".join(filtered_lines) + "\n", encoding="utf-8")
+    def test_project_contract_sync_requires_command_and_verification_sections(
+        self,
+    ) -> None:
+        answers: dict[str, object] = {
+            "bootstrap_mode": "minimal",
+            "agent": "Agent",
+            "project_name": "Demo",
+            "commands": {},
+        }
+        for section in ("Common Commands", "Framework Verification Commands"):
+            with self.subTest(section=section):
+                def mutate(
+                    root: Path,
+                    outputs: dict[str, str],
+                    *,
+                    title: str = section,
+                ) -> None:
+                    (root / "AGENT_PROJECT.md").write_text(
+                        remove_markdown_section(outputs["AGENT_PROJECT.md"], title),
+                        encoding="utf-8",
+                    )
 
-            result = run_sync(root)
-
-            self.assertNotEqual(0, result.returncode)
-            self.assertIn("AGENT_PROJECT.md missing required section: Common Commands", result.stdout)
-
-    def test_project_contract_sync_requires_framework_verification_section(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            outputs = project_bootstrap.render_output_files(
-                {
-                    "bootstrap_mode": "minimal",
-                    "agent": "Agent",
-                    "project_name": "Demo",
-                    "commands": {},
-                },
-                "generic",
-                "$FRAMEWORK",
-            )
-            for name, content in outputs.items():
-                (root / name).write_text(content, encoding="utf-8")
-            contract_lines = (root / "AGENT_PROJECT.md").read_text(encoding="utf-8").splitlines()
-            filtered_lines: list[str] = []
-            skip = False
-            for line in contract_lines:
-                if line == "## Framework Verification Commands":
-                    skip = True
-                    continue
-                if skip and line.startswith("## "):
-                    skip = False
-                if not skip:
-                    filtered_lines.append(line)
-            (root / "AGENT_PROJECT.md").write_text("\n".join(filtered_lines) + "\n", encoding="utf-8")
-
-            result = run_sync(root)
-
-            self.assertNotEqual(0, result.returncode)
-            self.assertIn("AGENT_PROJECT.md missing required section: Framework Verification Commands", result.stdout)
+                with render_fixture(answers, mutation=mutate) as (
+                    _root,
+                    _outputs,
+                    result,
+                ):
+                    self.assertNotEqual(0, result.returncode)
+                    self.assertIn(
+                        f"AGENT_PROJECT.md missing required section: {section}",
+                        result.stdout,
+                    )
 
     def test_project_contract_sync_rejects_project_local_framework_verification_commands(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -21,7 +21,7 @@ Before making source-sensitive recommendations, use project `SOURCE_PACKS.md` an
 
 3. Make runtime data and async behavior concrete.
 
-- validate untrusted JSON, HTTP, storage, environment, message payloads, postMessage origin/source/targetOrigin, URL, and CLI input at boundaries
+- validate untrusted JSON, HTTP, storage, environment, message payloads, URL, and CLI input at boundaries. For `window.postMessage`, send sensitive data only to an exact `targetOrigin`, never `*`; on receipt, check `event.origin` against an exact allowlist and `event.source` against the expected window before acting. Never allowlist the opaque origin `"null"`; for sandboxed opaque-origin frames, transfer a `MessageChannel` port once and communicate over that port. Validate payloads against a strict schema and never route message fields into HTML, script, or URL sinks
 - make expected failure, cancellation, timeout, retry, cleanup, ordering, and idempotency behavior explicit when callers depend on it
 - distinguish persistence from concurrency control: verify atomicity of shared updates or exclusive operations, and reconcile durable markers with actual resources after interruption or restart; a read-then-write sequence is not itself a lock
 - avoid unbounded promises, swallowed rejections, ambient mutable globals, prototype mutation, and monkey patches unless the project explicitly owns the invariant
@@ -33,7 +33,7 @@ Before making source-sensitive recommendations, use project `SOURCE_PACKS.md` an
 - route DOM injection, template injection, eval-like execution, dynamic code loading, prototype pollution, deserialization, credential exposure, or cross-origin behavior through the applicable security guide
 - treat browser APIs, server APIs, worker APIs, and embedded runtimes as separate host contracts
 - for browser extensions, verify each execution context's effective permissions, target identity, activation requirements, message authority, and lifetime; exercise withheld or revoked grants, restricted targets, worker restart, UI closure, and update paths when affected
-- do not trust generated code, dependencies, remote examples, or package scripts without provenance and execution-boundary review
+- do not trust generated code, dependencies, remote examples, or package scripts without provenance and execution-boundary review; before loading third-party UI components into a privileged origin, check whether they register global `message` listeners or expose HTML, script, or URL sinks
 
 5. Verify in the actual runtime.
 

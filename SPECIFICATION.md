@@ -35,39 +35,39 @@ silently attributed to the framework change.
 
 These files define framework behavior:
 
-- `master_service_agreement.md`: canonical universal framework rules.
-- `statement_of_work_template.md`: generated human-readable project-specific scope and override blueprint.
-- `runtime/operative_charter.md`: compact universal runtime projection.
-- `runtime/load_order.md`: operative loading sequence.
-- `runtime/standards_of_care.md`: risk-level duties.
-- `runtime/project_template.md`: runtime project-contract template.
-- `task_orders/`: reusable workflow procedures, including
-  `task_orders/framework_refresh.md` as the canonical existing-instance
+- [`master_service_agreement.md`](master_service_agreement.md): canonical universal framework rules.
+- [`statement_of_work_template.md`](statement_of_work_template.md): generated human-readable project-specific scope and override blueprint.
+- [`runtime/operative_charter.md`](runtime/operative_charter.md): compact universal runtime projection.
+- [`runtime/load_order.md`](runtime/load_order.md): operative loading sequence.
+- [`runtime/standards_of_care.md`](runtime/standards_of_care.md): risk-level duties.
+- [`runtime/project_template.md`](runtime/project_template.md): runtime project-contract template.
+- [`task_orders/`](task_orders/README.md): reusable workflow procedures, including
+  [`task_orders/framework_refresh.md`](task_orders/framework_refresh.md) as the canonical existing-instance
   lifecycle procedure.
-- `practice_guides/`: on-demand domain procedures.
-- `CONFORMANCE.md`: conformance process and profile interpretation.
-- `SECURITY.md`: framework security policy and threat model.
-- `GOVERNANCE.md`: versioning, compatibility, and change-governance rules.
+- [`practice_guides/`](practice_guides/risk_routing.md): on-demand domain procedures.
+- [`CONFORMANCE.md`](CONFORMANCE.md): conformance process and profile interpretation.
+- [`SECURITY.md`](SECURITY.md): framework security policy and threat model.
+- [`GOVERNANCE.md`](GOVERNANCE.md): versioning, compatibility, and change-governance rules.
 
 ## Normative Machine Metadata
 
 These files are normative for the machine contract they declare, while remaining constrained by the human-readable doctrine above:
 
-- `conformance/profiles.json`: canonical profile membership and required checks.
-- `conformance/profile.schema.json`: canonical schema for that profile metadata.
-- `scripts/project_contract_model.py`: canonical closed bootstrap-answer shape, project-contract projections, definitions, optional-state declarations, and shared generated clauses.
-- `examples/project_bootstrap_answers.schema.json`: generated JSON Schema projection of that model.
-- `scripts/project_input.py`: canonical closed retained-project-input shape and
+- [`conformance/profiles.json`](conformance/profiles.json): canonical profile membership and required checks.
+- [`conformance/profile.schema.json`](conformance/profile.schema.json): canonical schema for that profile metadata.
+- [`scripts/project_contract_model.py`](scripts/project_contract_model.py): canonical closed bootstrap-answer shape, project-contract projections, definitions, optional-state declarations, and shared generated clauses.
+- [`examples/project_bootstrap_answers.schema.json`](examples/project_bootstrap_answers.schema.json): generated JSON Schema projection of that model.
+- [`scripts/project_input.py`](scripts/project_input.py): canonical closed retained-project-input shape and
   schema version.
-- `scripts/project_bootstrap.py`: canonical current-instance receipt shape and
+- [`scripts/project_bootstrap.py`](scripts/project_bootstrap.py): canonical current-instance receipt shape and
   schema version.
-- `scripts/project_state_identity.py`: canonical closed Markdown and JSON
+- [`scripts/project_state_identity.py`](scripts/project_state_identity.py): canonical closed Markdown and JSON
   origin markers for receipt-declared generated mutable state.
-- `scripts/project_refresh.py`: canonical current-format refresh-plan and
+- [`scripts/project_refresh.py`](scripts/project_refresh.py): canonical current-format refresh-plan and
   exact-preimage-bundle machine contracts.
-- `scripts/bootstrap_transaction.py`: canonical interrupted-transaction recovery
+- [`scripts/bootstrap_transaction.py`](scripts/bootstrap_transaction.py): canonical interrupted-transaction recovery
   journal contract used by bootstrap, refresh apply, and restore.
-- `runtime/msa_clause_map.json`: complete MSA clause-projection inventory and
+- [`runtime/msa_clause_map.json`](runtime/msa_clause_map.json): complete MSA clause-projection inventory and
   canonical MSA digest binding.
 
 They do not create independent behavioral doctrine beyond their declared conformance contract.
@@ -130,13 +130,13 @@ implementation MUST:
 
 These files explain or orient; they do not override normative surfaces:
 
-- `README.md`
-- `GETTING_STARTED.md`
-- `UPDATING.md`
-- `ARCHITECTURE.md`
-- `docs/`
-- `annexes/`
-- `examples/`
+- [`README.md`](README.md)
+- [`GETTING_STARTED.md`](GETTING_STARTED.md)
+- [`UPDATING.md`](UPDATING.md)
+- [`ARCHITECTURE.md`](ARCHITECTURE.md)
+- [`docs/`](docs/README.md)
+- `annexes/` ([`authority.md`](annexes/authority.md), [`capabilities.md`](annexes/capabilities.md), [`security.md`](annexes/security.md), [`soul.md`](annexes/soul.md))
+- [`examples/`](examples/project_bootstrap_answers.schema.json)
 
 ## Machine-Readable Support
 
@@ -145,14 +145,14 @@ files support deterministic checks and generated outputs. They MUST follow the
 normative surfaces rather than create independent doctrine:
 
 - `runtime/*.json`
-- `.agents/skills/master-prompt-new-project/agents/openai.yaml`
-- `.agents/skills/master-prompt-refresh-project/agents/openai.yaml`
-- `integrations/registry.json`
-- `pyrightconfig.json`
-- `project_state_templates/`
-- `integrations/templates/`
-- `scripts/`
-- `tests/`
+- [`.agents/skills/master-prompt-new-project/agents/openai.yaml`](.agents/skills/master-prompt-new-project/agents/openai.yaml)
+- [`.agents/skills/master-prompt-refresh-project/agents/openai.yaml`](.agents/skills/master-prompt-refresh-project/agents/openai.yaml)
+- [`integrations/registry.json`](integrations/registry.json)
+- [`pyrightconfig.json`](pyrightconfig.json)
+- [`project_state_templates/`](project_state_templates/TODO.md)
+- [`integrations/templates/`](integrations/README.md)
+- [`scripts/`](scripts/README.md)
+- [`tests/`](tests/test_validation_scripts.py)
 
 `statement_of_work_template.md` and `runtime/project_template.md` are generated
 human-readable projections of `scripts/project_contract_model.py`. The

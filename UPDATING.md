@@ -73,12 +73,12 @@ ordering.
 
 | Surface | Role |
 |---|---|
-| `STATEMENT_OF_WORK.md` | governing project authority |
-| `AGENT_PROJECT.md` | generated governing terms plus a contract-model-owned, non-authoritative framework-reference binding; the SOW governs term conflicts |
+| `STATEMENT_OF_WORK.md` | governing project authority ([template](statement_of_work_template.md)) |
+| `AGENT_PROJECT.md` | generated governing terms ([template](runtime/project_template.md)) plus a contract-model-owned, non-authoritative framework-reference binding; the SOW governs term conflicts |
 | `PROJECT_INPUT.json` | retained, fully materialized regeneration input; data, not authority |
 | project-root `PROJECT_INSTANCE.json` | single replaceable lifecycle receipt; its `contract_root` locates nested input and authority; not history |
-| `TODO.md`, `DECISIONS.md`, and other mutable state | retained state is preserved byte for byte; only a candidate-disabled optional mutable surface may be retired through its explicit plan-bound removal |
-| optional generated immutable brief such as `SOURCE_MONITOR_RESEARCHER.md` | regenerated from retained configuration and current framework procedure; project-specific additions use separate declared owners |
+| `TODO.md`, `DECISIONS.md`, and other mutable state | retained state ([`TODO.md` template](project_state_templates/TODO.md), [`DECISIONS.md` template](project_state_templates/DECISIONS.md)) is preserved byte for byte; only a candidate-disabled optional mutable surface may be retired through its explicit plan-bound removal |
+| optional generated immutable brief such as `SOURCE_MONITOR_RESEARCHER.md` | regenerated from retained configuration and current framework procedure ([template](project_state_templates/SOURCE_MONITOR_RESEARCHER.md)); project-specific additions use separate declared owners |
 
 The retained input may contain project paths, commands, and other private facts.
 Keep secrets out, minimize unnecessary sensitive material while preserving
@@ -98,32 +98,32 @@ approved archive.
 ```mermaid
 flowchart TB
     A{"Closed transaction control present?"}
-    A -->|yes| B["Inspect bounded recovery status without generated authority"]
+    A -->|"yes"| B["Inspect bounded recovery status without generated authority"]
     B --> C{"Permitted exact-ID action?"}
-    C -->|no| D["Stop: recovery blocker"]
-    C -->|yes| E["Rollback or finalize the exact transaction"]
+    C -->|"no"| D["Stop: recovery blocker"]
+    C -->|"yes"| E["Rollback or finalize the exact transaction"]
     E --> A
-    A -->|no| F["Classify the existing generated instance"]
+    A -->|"no"| F["Classify the existing generated instance"]
     F --> U{"Only intentional authority-module byte drift in an otherwise canonical current receipt?"}
-    U -->|yes| V["Create and preview the receipt-only authority rebind plan"]
+    U -->|"yes"| V["Create and preview the receipt-only authority rebind plan"]
     V --> R
-    U -->|no| G{"Verified complete current-format pair with intact recorded preimage?"}
-    G -->|no| H["Stop for reviewed manual update or a supporting checkout"]
-    G -->|framework refresh| I["Keep current PROJECT_INPUT unchanged"]
-    G -->|contract, runtime, or optional-surface revision| J["Review a complete candidate PROJECT_INPUT"]
+    U -->|"no"| G{"Verified complete current-format pair with intact recorded preimage?"}
+    G -->|"no"| H["Stop for reviewed manual update or a supporting checkout"]
+    G -->|"framework refresh"| I["Keep current PROJECT_INPUT unchanged"]
+    G -->|"contract, runtime, or optional-surface revision"| J["Review a complete candidate PROJECT_INPUT"]
     I --> K["Create and preview one canonical plan"]
     J --> K
     K --> P{"Plan backout basis?"}
-    P -->|normal or mutable-state retirement| Q["Create and verify the exact-preimage bundle"]
-    P -->|explicit exception where permitted| R["Require ACCEPT-NO-POST-APPLY-BACKOUT"]
+    P -->|"normal or mutable-state retirement"| Q["Create and verify the exact-preimage bundle"]
+    P -->|"explicit exception where permitted"| R["Require ACCEPT-NO-POST-APPLY-BACKOUT"]
     Q --> L["Approve exact digest, actions, and warnings"]
     R --> L
     L --> M["Apply once and verify every active profile"]
-    M -->|interrupted| A
+    M -->|"interrupted"| A
     M --> N["Inspect exact-current input and root receipt"]
     N --> S{"Verified-bundle branch and approved reversal window?"}
-    S -->|yes, matching postimage| O["Restore the plan-bound exact preimage"]
-    S -->|no| T["No post-success restore"]
+    S -->|"yes, matching postimage"| O["Restore the plan-bound exact preimage"]
+    S -->|"no"| T["No post-success restore"]
     O --> A
 ```
 

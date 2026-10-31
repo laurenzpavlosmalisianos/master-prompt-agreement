@@ -891,19 +891,25 @@ class ProjectRefreshLifecycleTests(unittest.TestCase):
             )
             def render_with(
                 runtime_wrappers: tuple[str, ...] | None,
+                *,
+                contract_root_ref: str = ".",
             ) -> tuple[dict[str, object] | None, list[str]]:
                 return project_refresh.render_candidate_input(
                     answers_path=answers_path,
                     project_root=project_root,
                     project_kind="downstream",
-                    contract_root_ref=".",
+                    contract_root_ref=contract_root_ref,
                     runtime="generic",
                     runtime_wrappers=runtime_wrappers,
                     framework_reference=os.path.relpath(REPO_ROOT, project_root),
                     framework_revision_policy="live",
                 )
 
-            results = [render_with(None), render_with(())]
+            results = [
+                render_with(None),
+                render_with(()),
+                render_with((), contract_root_ref="contracts"),
+            ]
 
         for candidate, errors in results:
             self.assertIsNone(candidate)
@@ -2361,47 +2367,6 @@ class ProjectRefreshLifecycleTests(unittest.TestCase):
                 "clean",
                 bootstrap_transaction.transaction_recovery_status(project_root).state,
             )
-
-    def test_explicit_contract_root_cannot_bypass_a_missing_current_receipt(
-        self,
-    ) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            project_root = root / "project"
-            project_root.mkdir()
-            answers_path = root / "answers.json"
-            answers_path.write_text(
-                json.dumps(
-                    {
-                        "bootstrap_mode": "minimal",
-                        "agent": "Agent",
-                        "project_name": "Current-only update",
-                        "date": "2026-07-14",
-                        "framework_verification_runner": TEST_FRAMEWORK_RUNNER,
-                    }
-                )
-                + "\n",
-                encoding="utf-8",
-            )
-
-            candidate, errors = project_refresh.render_candidate_input(
-                answers_path=answers_path,
-                project_root=project_root,
-                project_kind="downstream",
-                contract_root_ref=".",
-                runtime="generic",
-                framework_reference=os.path.relpath(REPO_ROOT, project_root),
-                framework_revision_policy="live",
-                runtime_wrappers=(),
-            )
-
-        self.assertIsNone(candidate)
-        self.assertEqual(1, len(errors), errors)
-        self.assertTrue(
-            errors[0].startswith(project_refresh.CURRENT_ONLY_MANUAL_UPDATE_PREFIX),
-            errors,
-        )
-        self.assertIn("manual update", errors[0])
 
     def test_cli_reports_invalid_filesystem_paths_without_a_traceback(self) -> None:
         cases = (

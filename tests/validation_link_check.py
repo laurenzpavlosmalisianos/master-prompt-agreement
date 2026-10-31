@@ -120,6 +120,59 @@ class LinkCheckTests(unittest.TestCase):
 
             self.assertIn((1, "https://example.com/feed.xml"), link_check.links_in_file(doc))
 
+    def test_link_check_rejects_empty_targets_and_ignores_inline_code_link_examples(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            doc = root / "doc.md"
+            doc.write_text(
+                "\n".join(
+                    (
+                        "[empty]()",
+                        "[blank](   )",
+                        "Use `[example](missing-example.md)` in prose.",
+                        "[`doc.md`](doc.md)",
+                        "[`missing.md`](missing.md)",
+                        "[![badge](missing-badge.svg)](doc.md)",
+                    )
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            report = link_check.check_links(root, [doc], False, True, 1.0)
+            self.assertEqual(4, report["local_links"])
+            self.assertEqual(
+                [
+                    {
+                        "file": "doc.md",
+                        "line": 1,
+                        "message": "empty link target",
+                        "target": "",
+                    },
+                    {
+                        "file": "doc.md",
+                        "line": 2,
+                        "message": "empty link target",
+                        "target": "",
+                    },
+                    {
+                        "file": "doc.md",
+                        "line": 5,
+                        "message": "local target does not exist: missing.md",
+                        "target": "missing.md",
+                    },
+                    {
+                        "file": "doc.md",
+                        "line": 6,
+                        "message": "local target does not exist: missing-badge.svg",
+                        "target": "missing-badge.svg",
+                    },
+                ],
+                report["errors"],
+            )
+
     def test_link_check_rejects_local_targets_outside_root(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)

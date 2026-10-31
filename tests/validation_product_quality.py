@@ -12,6 +12,7 @@ import unittest
 from tests.validation_test_support import REPO_ROOT, run_bounded
 
 import context_manifest
+import integration_registry
 import product_manifest
 import project_refresh
 import recommend_stack
@@ -99,6 +100,7 @@ class ProductQualityTests(unittest.TestCase):
                 "durable-generator-snapshot-only",
                 "exact-url-monitor-root",
                 "lower-tier-source-adoption",
+                "mermaid-diagram-syntax",
                 "private-path-leak",
                 "prose-derived-research-state",
                 "prose-derived-source-control",
@@ -136,10 +138,33 @@ class ProductQualityTests(unittest.TestCase):
         self.assertIn("product input and state validators", path_leak["guard"])
 
     def test_product_entrypoint_loads_charter_and_setup_route(self) -> None:
-        text = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
-        self.assertIn("runtime/operative_charter.md", text)
-        self.assertIn("GETTING_STARTED.md", text)
-        self.assertIn("task_orders/init.md", text)
+        agents_text = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
+        claude_raw = (REPO_ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+        claude_lines = [
+            line.strip()
+            for line in claude_raw.splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+        self.assertEqual(["@AGENTS.md"], claude_lines)
+        claude_effective = claude_raw.replace("@AGENTS.md", agents_text)
+
+        for name, text in (("AGENTS.md", agents_text), ("CLAUDE.md", claude_effective)):
+            with self.subTest(entrypoint=name):
+                self.assertIn("runtime/operative_charter.md", text)
+                self.assertIn("GETTING_STARTED.md", text)
+                self.assertIn("task_orders/init.md", text)
+                self.assertEqual(
+                    1,
+                    text.count(integration_registry.RECOVERY_GUARD_MARKER),
+                )
+                self.assertIn("Before loading a target project's `AGENT_PROJECT.md`", text)
+                charter_pos = text.index(
+                    "Read `runtime/operative_charter.md` before using the framework."
+                )
+                guard_pos = text.index(integration_registry.RECOVERY_GUARD_MARKER)
+                recovery_tmp_pos = text.index(".mpa-bootstrap-recovery.tmp")
+                self.assertLess(charter_pos, guard_pos)
+                self.assertLess(guard_pos, recovery_tmp_pos)
 
     def test_script_reference_covers_every_product_python_module(self) -> None:
         text = (REPO_ROOT / "scripts" / "README.md").read_text(encoding="utf-8")

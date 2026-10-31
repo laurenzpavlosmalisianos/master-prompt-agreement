@@ -235,20 +235,6 @@ reset as an update path. If any of
 generated project authority and follow the inspection-gated exact-ID recovery
 route.
 
-For a structurally valid current schema-6 instance whose only recorded-preimage
-failure is an intentional authority-module digest change, review the new module
-bytes and use refresh `plan --rebind-authority-modules` with
-`--accept-no-post-apply-backout`, then complete the normal exact plan digest,
-`REBIND-AUTHORITY-MODULES` action, warning, and apply approvals. Authority
-modules are external to managed outputs, so this narrow route cannot offer an
-exact-preimage semantic backout. Missing, extra, duplicate, redirected, or
-otherwise malformed authority records—and every noncurrent receipt—still route
-to a separately reviewed project-specific manual update; never hand-edit the
-receipt. This is a receipt-only recovery route: restore the previously recorded
-authority bytes and complete any other input, generated-output, retirement, or
-framework refresh separately before reviewing and rebinding the intentional
-module-byte change.
-
 Framework-rendered mutable and optional project-state files carry a closed
 origin marker. Current-instance validation requires that marker, and bounded
 bootstrap discovery uses it to reject state-only residue outside the newly
