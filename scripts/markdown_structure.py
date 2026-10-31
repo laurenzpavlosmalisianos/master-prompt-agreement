@@ -236,3 +236,273 @@ def markdown_sections(
 
     finish_current()
     return tuple(sections)
+
+
+def mask_inline_code_spans(text: str) -> str:
+    """Return ``text`` with same-line backtick code spans replaced by spaces."""
+
+    chars = list(text)
+    cursor = 0
+    while cursor < len(text):
+        tick_start = text.find("`", cursor)
+        if tick_start < 0:
+            break
+        if _is_backslash_escaped(text, tick_start):
+            cursor = tick_start + 1
+            continue
+        span_end = _matching_backtick_run_end(text, tick_start)
+        if span_end is None:
+            cursor = tick_start + 1
+            continue
+        chars[tick_start:span_end] = " " * (span_end - tick_start)
+        cursor = span_end
+    return "".join(chars)
+
+
+@dataclass(frozen=True, slots=True)
+class FencedCodeBlock:
+    """One fenced Markdown code block with 1-based line numbers."""
+
+    info_string: str
+    language: str
+    opening_line: int
+    closing_line: int | None
+    lines: tuple[tuple[int, str], ...]
+
+
+def fenced_code_blocks(
+    text: str,
+    *,
+    language: str | None = None,
+) -> tuple[FencedCodeBlock, ...]:
+    """Return fenced code blocks outside HTML comments in source order."""
+
+    target_language = language.casefold() if language is not None else None
+    visibility = MarkdownVisibilityState()
+    blocks: list[FencedCodeBlock] = []
+    current_info = ""
+    current_lang = ""
+    current_open_line = 0
+    current_lines: list[tuple[int, str]] = []
+
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        was_in_fence = visibility.fence.character is not None
+        fence_event, _visible = visibility.consume(line)
+        if fence_event == "open" and not was_in_fence:
+            opening = _FENCE_OPEN_RE.match(line)
+            suffix = opening.group("suffix").strip() if opening is not None else ""
+            current_info = suffix
+            current_lang = suffix.split(None, 1)[0].casefold() if suffix else ""
+            current_open_line = line_number
+            current_lines = []
+        elif fence_event == "content":
+            current_lines.append((line_number, line))
+        elif fence_event == "close":
+            if target_language is None or current_lang == target_language:
+                blocks.append(
+                    FencedCodeBlock(
+                        info_string=current_info,
+                        language=current_lang,
+                        opening_line=current_open_line,
+                        closing_line=line_number,
+                        lines=tuple(current_lines),
+                    )
+                )
+
+    if visibility.fence.character is not None:
+        if target_language is None or current_lang == target_language:
+            blocks.append(
+                FencedCodeBlock(
+                    info_string=current_info,
+                    language=current_lang,
+                    opening_line=current_open_line,
+                    closing_line=None,
+                    lines=tuple(current_lines),
+                )
+            )
+    return tuple(blocks)
+
+
+_MERMAID_HEADER_RE = re.compile(
+    r"^(?:(?:flowchart|graph)\s+(?:TB|TD|BT|RL|LR)|sequenceDiagram|stateDiagram(?:-v2)?|classDiagram|erDiagram|xychart-beta)\s*$"
+)
+_MERMAID_FLOWCHART_HEADER_RE = re.compile(r"^(?:flowchart|graph)\s+(?:TB|TD|BT|RL|LR)\s*$")
+_MERMAID_HTML_TAG_RE = re.compile(r"(?<!<)</?[A-Za-z][A-Za-z0-9:-]*(?:\s[^<>]*)?/?>(?!>)")
+_MERMAID_EDGE_OPERATOR_PATTERN = (
+    r"(?:<--+>|<-\.+->|<==+>|--+>|-\.+->|==+>|---+>|-\.+-|===+|~~~+|--+[ox]|-\.+-[ox]|==+[ox]|---)"
+)
+_MERMAID_PIPE_LABEL_RE = re.compile(
+    rf"{_MERMAID_EDGE_OPERATOR_PATTERN}\s*\|(?P<label>[^|]*)\|"
+)
+_MERMAID_EDGE_OP_RE = re.compile(_MERMAID_EDGE_OPERATOR_PATTERN)
+_MERMAID_SUBGRAPH_RE = re.compile(r"^subgraph\s+(?P<rest>.+?)\s*$")
+_MERMAID_END_RE = re.compile(r"^end\s*$")
+_MERMAID_NODE_ID_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]*")
+
+
+def _strip_mermaid_node_shapes(text: str) -> str:
+    """Strip node shape payloads (`[...]`, `(...)`, `{...}`) after pipe removal."""
+
+    result: list[str] = []
+    depth = 0
+    in_quotes = False
+    for index, char in enumerate(text):
+        if char == '"' and not _is_backslash_escaped(text, index):
+            in_quotes = not in_quotes
+            continue
+        if in_quotes:
+            continue
+        if char in "([{":
+            depth += 1
+            continue
+        if char in ")]}" and depth > 0:
+            depth -= 1
+            continue
+        if depth == 0:
+            result.append(char)
+    return "".join(result)
+
+
+def _parse_subgraph_id(rest: str) -> str:
+    match = _MERMAID_NODE_ID_RE.match(rest)
+    if match is not None:
+        return match.group(0)
+    return rest.strip()
+
+
+def mermaid_diagram_errors(text: str, *, source: str = "<markdown>") -> list[str]:
+    """Validate Mermaid fenced code blocks for lexer and subgraph invariants."""
+
+    errors: list[str] = []
+    for block in fenced_code_blocks(text, language="mermaid"):
+        if block.closing_line is None:
+            errors.append(
+                f"{source}:{block.opening_line}: unclosed mermaid fenced code block"
+            )
+            continue
+
+        statement_lines = [
+            (line_no, raw.strip())
+            for line_no, raw in block.lines
+            if raw.strip() and not raw.strip().startswith("%%")
+        ]
+        if not statement_lines:
+            errors.append(
+                f"{source}:{block.opening_line}: empty mermaid fenced code block"
+            )
+            continue
+
+        header_line_no, header_text = statement_lines[0]
+        if _MERMAID_HEADER_RE.match(header_text) is None:
+            errors.append(
+                f"{source}:{header_line_no}: mermaid block must start with a supported diagram header"
+            )
+        is_flowchart = _MERMAID_FLOWCHART_HEADER_RE.match(header_text) is not None
+
+        for line_no, raw in block.lines:
+            stripped = raw.strip()
+            if not stripped or stripped.startswith("%%"):
+                continue
+            html_match = _MERMAID_HTML_TAG_RE.search(stripped)
+            if html_match is not None:
+                errors.append(
+                    f"{source}:{line_no}: mermaid block must not contain raw HTML tag {html_match.group(0)!r}"
+                )
+            for label_match in _MERMAID_PIPE_LABEL_RE.finditer(stripped):
+                raw_label = label_match.group("label")
+                inner = raw_label.strip()
+                is_quoted = (
+                    len(inner) >= 2
+                    and inner.startswith('"')
+                    and inner.endswith('"')
+                    and '"' not in inner[1:-1].replace('\\"', "")
+                )
+                if not is_quoted and any(ch in inner for ch in "()[]{}"):
+                    errors.append(
+                        f"{source}:{line_no}: mermaid edge label |{raw_label}| contains unquoted shape delimiter"
+                    )
+
+        if not is_flowchart:
+            continue
+
+        subgraph_stack: list[tuple[str, int]] = []
+        subgraph_ids: set[str] = set()
+        subgraph_ancestry: dict[str, tuple[str, ...]] = {}
+        explicit_node_owner: dict[str, str | None] = {}
+        implicit_node_owner: dict[str, str | None] = {}
+        edge_records: list[tuple[int, str, str | None, tuple[str, ...]]] = []
+
+        for line_no, stripped in statement_lines[1:]:
+            subgraph_match = _MERMAID_SUBGRAPH_RE.match(stripped)
+            if subgraph_match is not None:
+                sg_id = _parse_subgraph_id(subgraph_match.group("rest"))
+                subgraph_ids.add(sg_id)
+                subgraph_ancestry[sg_id] = tuple(s for s, _ in subgraph_stack) + (sg_id,)
+                subgraph_stack.append((sg_id, line_no))
+                continue
+            if _MERMAID_END_RE.match(stripped) is not None:
+                if not subgraph_stack:
+                    errors.append(
+                        f"{source}:{line_no}: unmatched 'end' in mermaid block"
+                    )
+                else:
+                    subgraph_stack.pop()
+                continue
+
+            current_sg = subgraph_stack[-1][0] if subgraph_stack else None
+            without_pipes = _MERMAID_PIPE_LABEL_RE.sub(
+                lambda m: m.group(0).split("|", 1)[0] + " ",
+                stripped,
+            )
+            bare_statement = _strip_mermaid_node_shapes(without_pipes)
+            if _MERMAID_EDGE_OP_RE.search(bare_statement) is not None:
+                endpoints: list[str] = []
+                raw_segments = _MERMAID_EDGE_OP_RE.split(without_pipes)
+                bare_segments = _MERMAID_EDGE_OP_RE.split(bare_statement)
+                for raw_seg, bare_seg in zip(raw_segments, bare_segments):
+                    for raw_part, bare_part in zip(raw_seg.split("&"), bare_seg.split("&")):
+                        node_match = _MERMAID_NODE_ID_RE.match(bare_part.strip())
+                        if node_match is not None:
+                            node_id = node_match.group(0)
+                            endpoints.append(node_id)
+                            has_shape = any(ch in raw_part for ch in "([{")
+                            if current_sg is not None:
+                                if has_shape:
+                                    explicit_node_owner.setdefault(node_id, current_sg)
+                                else:
+                                    implicit_node_owner.setdefault(node_id, current_sg)
+                edge_records.append((line_no, stripped, current_sg, tuple(endpoints)))
+            else:
+                node_match = _MERMAID_NODE_ID_RE.match(bare_statement.strip())
+                if node_match is not None:
+                    node_id = node_match.group(0)
+                    if node_id not in {"style", "classDef", "class", "click", "linkStyle", "direction"}:
+                        if current_sg is not None:
+                            explicit_node_owner.setdefault(node_id, current_sg)
+                        else:
+                            implicit_node_owner.setdefault(node_id, None)
+
+        for sg_id, open_line in subgraph_stack:
+            errors.append(
+                f"{source}:{open_line}: unclosed 'subgraph {sg_id}' in mermaid block"
+            )
+
+        for line_no, raw_edge, edge_sg, edge_endpoints in edge_records:
+            if edge_sg is None:
+                continue
+            for endpoint in edge_endpoints:
+                if endpoint in subgraph_ids:
+                    if edge_sg not in subgraph_ancestry.get(endpoint, ()):
+                        errors.append(
+                            f"{source}:{line_no}: cross-subgraph edge {raw_edge!r} declared inside subgraph {edge_sg!r}"
+                        )
+                        break
+                    continue
+                owner = explicit_node_owner.get(endpoint, implicit_node_owner.get(endpoint))
+                if owner is not None and edge_sg not in subgraph_ancestry.get(owner, ()):
+                    errors.append(
+                        f"{source}:{line_no}: cross-subgraph edge {raw_edge!r} declared inside subgraph {edge_sg!r}"
+                    )
+                    break
+
+    return errors

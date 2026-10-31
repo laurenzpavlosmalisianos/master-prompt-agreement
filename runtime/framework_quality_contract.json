@@ -61,6 +61,12 @@
       "failure": "A durable generated system proves a fresh render but has no declared inspect, current-format refresh, recovery, or retirement contract, or silently assumes predecessor-format support.",
       "guard_kind": "semantic_review",
       "guard": "Framework semantic audit and testing strategy require objective evidence for every intentionally supported lifecycle transition; predecessor-to-current evidence is required only when that transition is intentionally supported, while unsupported formats require deterministic fail-closed evidence."
+    },
+    {
+      "id": "mermaid-diagram-syntax",
+      "failure": "A Markdown Mermaid diagram uses an unsupported header, unclosed fence or subgraph, raw HTML tags, cross-subgraph edge inside a subgraph, or unquoted shape delimiters inside a pipe-delimited edge label.",
+      "guard_kind": "deterministic",
+      "guard": "Framework quality lint validates every Mermaid fenced block across product Markdown files for supported diagram headers, balanced subgraph/end blocks, top-level placement of cross-subgraph edges, absence of raw HTML tags, and absence of unquoted ()[]{} shape delimiters inside pipe-delimited edge labels."
     }
   ],
   "required_task_orders": [

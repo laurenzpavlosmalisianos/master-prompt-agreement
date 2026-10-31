@@ -87,7 +87,7 @@ flowchart TD
   TaskOrder --> Action
   PracticeGuide --> Action
   Evidence --> DurableState
-  DurableState -.->|Informs Next Task (Read-Only)| TaskOrder
+  DurableState -.->|"Informs Next Task"| TaskOrder
 ```
 
 1. **Know the project.** Read its current scope, constraints, commands, and
@@ -131,8 +131,8 @@ network, identity, secret, permission, and approval controls remain necessary.
 | Layer | Purpose |
 |---|---|
 | [Agreement](master_service_agreement.md) and [operative charter](runtime/operative_charter.md) | Universal rules, with a compact always-loaded layer |
-| Project Statement of Work | Governing project terms within the Agreement's delegated scope |
-| Project runtime contract | Checked projection of those terms for everyday work |
+| [Project Statement of Work](statement_of_work_template.md) | Governing project terms within the Agreement's delegated scope |
+| [Project runtime contract](runtime/project_template.md) | Checked projection of those terms for everyday work |
 | [Task Orders](task_orders/README.md) | Workflow sequence and expected outputs |
 | [Practice Guides](practice_guides/risk_routing.md) | Specialist standards selected for the task |
 
@@ -183,6 +183,7 @@ and deeper reference material.
 |---|---|
 | [Architecture](ARCHITECTURE.md) | Authority, loading, lifecycle, and integrations |
 | [Specification](SPECIFICATION.md) | Normative and informative surfaces |
+| [Conformance](CONFORMANCE.md) | Deterministic verification profiles and acceptance gates |
 | [Governance](GOVERNANCE.md) | Change acceptance and versioning |
 | [Security](SECURITY.md) | Threat model, security boundaries, and reporting |
 

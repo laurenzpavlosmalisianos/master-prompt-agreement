@@ -7,18 +7,18 @@ role rather than by where a similar filename already exists.
 
 | Surface | Owns |
 |---|---|
-| `master_service_agreement.md` | canonical universal doctrine |
-| `scripts/project_contract_model.py` | normative machine-readable project-contract semantics and generated-asset ownership |
-| `statement_of_work_template.md` | generated human-readable downstream project-contract blueprint |
-| `runtime/` | compact runtime projections, routing, schemas, and consistency contracts |
-| `task_orders/` | reusable workflow procedures |
-| `practice_guides/` | specialist quality standards |
-| `project_state_templates/` | downstream project state-file templates |
-| `integrations/templates/` | runtime-specific entrypoint, skill, agent, or wrapper templates |
-| `scripts/` | deterministic setup, refresh, lint, routing, and verification support |
-| `docs/` | human and agent orientation chapters |
-| `examples/` | product examples and schema references |
-| `tests/` | product behavior, security, and conformance verification |
+| [`master_service_agreement.md`](../master_service_agreement.md) | canonical universal doctrine |
+| [`scripts/project_contract_model.py`](../scripts/project_contract_model.py) | normative machine-readable project-contract semantics and generated-asset ownership |
+| [`statement_of_work_template.md`](../statement_of_work_template.md) | generated human-readable downstream project-contract blueprint |
+| [`runtime/`](../runtime/load_order.md) | compact runtime projections, routing, schemas, and consistency contracts |
+| [`task_orders/`](../task_orders/README.md) | reusable workflow procedures |
+| [`practice_guides/`](../practice_guides/risk_routing.md) | specialist quality standards |
+| [`project_state_templates/`](../project_state_templates/TODO.md) | downstream project state-file templates |
+| [`integrations/templates/`](../integrations/README.md) | runtime-specific entrypoint, skill, agent, or wrapper templates |
+| [`scripts/`](../scripts/README.md) | deterministic setup, refresh, lint, routing, and verification support |
+| [`docs/`](README.md) | human and agent orientation chapters |
+| [`examples/`](../examples/project_bootstrap_answers.schema.json) | product examples and schema references |
+| [`tests/`](../tests/test_validation_scripts.py) | product behavior, security, and conformance verification |
 
 ## Template Boundaries
 

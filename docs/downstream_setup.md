@@ -85,10 +85,10 @@ rollback retains a transaction control; it is not a successful setup.
 
 | File | Role |
 |---|---|
-| `STATEMENT_OF_WORK.md` | Governing project scope, commands, constraints, and acceptance criteria |
-| `AGENT_PROJECT.md` | Checked runtime projection of the governing terms |
-| `AGENTS.md`, `CLAUDE.md`, or another selected entrypoint | Runtime-specific loading and routing |
-| `TODO.md` and `DECISIONS.md` | Active work and durable decisions |
+| `STATEMENT_OF_WORK.md` | Governing project scope, commands, constraints, and acceptance criteria ([template](../statement_of_work_template.md)) |
+| `AGENT_PROJECT.md` | Checked runtime projection of the governing terms ([template](../runtime/project_template.md)) |
+| `AGENTS.md`, `CLAUDE.md`, or another selected entrypoint | Runtime-specific loading and routing ([integration guide](../integrations/README.md)) |
+| `TODO.md` and `DECISIONS.md` | Active work and durable decisions ([`TODO.md`](../project_state_templates/TODO.md) and [`DECISIONS.md`](../project_state_templates/DECISIONS.md)) |
 | `PROJECT_INPUT.json` | Retained, fully materialized regeneration input |
 | Project-root `PROJECT_INSTANCE.json` | Current instance receipt and location of the contract root |
 

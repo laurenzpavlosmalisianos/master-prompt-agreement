@@ -29,6 +29,7 @@ Before source-sensitive recommendations, use project `SOURCE_PACKS.md` and `SOUR
 - Define required authentication and authorization mechanisms per API and per operation, including token, cookie/session, mTLS, API key, OAuth authorization, OIDC authentication, service identity, or signed webhook behavior.
 - Map each operation to the required actor, role, claim, scope, tenant, owner, resource, object, property, and business-flow authorization rule.
 - Treat client-supplied object IDs, tenant IDs, owner IDs, usernames, account IDs, project IDs, and relationship IDs as attacker-controlled selectors.
+- Treat identity asserted in certificate signing requests or token requests (subject, subject alternative names, principal names, email, `sub`, roles, scopes) as untrusted. Issuers must derive each value from the authenticated principal's authoritative identity record or verify proof of control for it, allow on-behalf-of issuance only through separately authorized enrollment-agent flows, and keep low-assurance enrollment apart from authentication-capable key usages and privileged scopes. Relying parties must map certificates to accounts through strong, non-reassignable identifiers rather than mutable name fields alone.
 - Require object-level, function-level, and property-level authorization where the operation reads, mutates, filters, selects, or returns protected resources.
 - Do not rely on ID randomness, route naming, generated client types, frontend checks, or hidden fields as authorization controls.
 

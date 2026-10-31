@@ -15,7 +15,7 @@ import markdown_structure
 from url_safety import blocked_external_url_reason, safe_urlopen, safe_urlsplit
 
 
-INLINE_LINK_RE = re.compile(r"!?\[[^\]\n]*\]\(([^)\n]+)\)")
+INLINE_LINK_RE = re.compile(r"!?\[(?P<label>(?:[^\[\]\n]|\[[^\]\n]*\])*)\]\((?P<target>[^)\n]*)\)")
 REFERENCE_LINK_RE = re.compile(r"^\s*\[[^\]]+\]:\s*(\S+)")
 BARE_URL_RE = re.compile(r"https?://[^\s<>)]+")
 HEADER_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*#*\s*$")
@@ -203,6 +203,8 @@ def markdown_files(
 
 def normalize_target(raw: str) -> str:
     target = raw.strip()
+    if not target:
+        return ""
     if target.startswith("<"):
         end = target.find(">")
         if end != -1:
@@ -214,13 +216,23 @@ def links_in_file(path: Path) -> list[tuple[int, str]]:
     links: list[tuple[int, str]] = []
     text = path.read_text(encoding="utf-8")
     for line_number, line in markdown_structure.operative_lines(text):
+        masked_line = markdown_structure.mask_inline_code_spans(line)
         target_spans: list[tuple[int, int]] = []
-        for match in INLINE_LINK_RE.finditer(line):
-            target = normalize_target(match.group(1))
+        for match in INLINE_LINK_RE.finditer(masked_line):
+            label_offset = match.start("label")
+            for nested in INLINE_LINK_RE.finditer(match.group("label")):
+                nested_target = normalize_target(nested.group("target"))
+                if not nested_target.startswith("["):
+                    nested_start, nested_end = nested.span("target")
+                    target_spans.append(
+                        (label_offset + nested_start, label_offset + nested_end)
+                    )
+                    links.append((line_number, nested_target))
+            target = normalize_target(match.group("target"))
             if not target.startswith("["):
-                target_spans.append(match.span(1))
+                target_spans.append(match.span("target"))
                 links.append((line_number, target))
-        reference_match = REFERENCE_LINK_RE.match(line)
+        reference_match = REFERENCE_LINK_RE.match(masked_line)
         if reference_match:
             target = normalize_target(reference_match.group(1))
             if not target.startswith("["):

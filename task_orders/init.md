@@ -80,8 +80,7 @@ dry run and write.
 
 2. Use the compact setup sources: this Task Order, the minimal
 `examples/project_bootstrap_answers.example.json`, and
-`<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/project_bootstrap.py"
---help`.
+`<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/project_bootstrap.py" --help`.
 The machine-readable `examples/project_bootstrap_answers.schema.json` remains
 the closed answer-field contract, but it is compiler input rather than a
 mandatory prompt import: inspect only the definitions for fields and optional
@@ -92,9 +91,8 @@ contract, entrypoint, state, and receipt in the dry-run plan instead. Load a
 template or broader schema section only for a specific ambiguity, rendering
 failure, framework change, or semantic audit.
 
-Use `<runner> --
-"<framework-checkout-as-visible-to-runner>/scripts/project_contract_sync.py"
---help` for focused diagnostic invocation details. Inspect framework script
+Use `<runner> -- "<framework-checkout-as-visible-to-runner>/scripts/project_contract_sync.py" --help`
+for focused diagnostic invocation details. Inspect framework script
 source only when debugging a script failure, changing the framework, or
 validating behavior not documented by `--help`. Consult
 `master_service_agreement.md` only when canonical MSA text, ambiguity, or

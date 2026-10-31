@@ -1,6 +1,6 @@
 # Framework Architecture
 
-Last reviewed: 2026-07-21
+Last reviewed: 2026-10-31
 
 This note describes the framework architecture and runtime assembly model.
 
@@ -435,37 +435,13 @@ Task modules carry procedure and output shape. They do not repeat universal rule
 
 Load only for recurring specialized work that benefits from procedure plus references.
 
-Examples:
+The specialist catalog is routed through [`practice_guides/risk_routing.md`](practice_guides/risk_routing.md) and [`runtime/operative_schedule.json`](runtime/operative_schedule.json) across five recurring domains:
 
-- `task_contract`
-- `implementation_planning`
-- `root_cause_investigation`
-- `change_impact_review`
-- `source_grounded_research`
-- `source_freshness_review`
-- `logical_spec_review`
-- `data_systems_review`
-- `backend_database_security`
-- `kubernetes_workload_review`
-- `apple_container_workflow`
-- `prompt_agent_quality`
-- `source_originality_review`
-- `html_quality`
-- `python_coding_quality`
-- `go_coding_quality`
-- `shell_cli_coding_quality`
-- `sql_query_quality`
-- `swift_coding_quality`
-- `rust_coding_quality`
-- `typescript_coding_quality`
-- `dependency_risk`
-- `migration_safety`
-- `release_readiness`
-- `prompt_injection_review`
-- `incident_response`
-- `secure_development`
-- `security_audit`
-- `seo`
+- **Scoping, planning, and specification:** task contracts, implementation planning, root-cause investigation, change-impact review, logical specification review, and prompt/agent quality
+- **Source research, provenance, and privacy:** source-grounded research, source freshness review, source originality review, and privacy/data handling
+- **Language, markup, and query quality:** Python, Rust, TypeScript, Go, Swift, Shell/CLI, SQL, HTML, and CSS coding standards
+- **Frontend, visual, and search quality:** website frontend architecture, visual verification, and search/discovery quality
+- **Security, supply chain, infrastructure, and operations:** secure development, security audits, API/session/cryptographic security, prompt-injection defense, dependency risk, build pipeline integrity, backend/data-systems review, container/Kubernetes workloads, migration safety, release readiness, incident response, and scheduled automation
 
 Practice Guides are the main specialization layer. They are canonical markdown, not vendor-owned skill packages.
 

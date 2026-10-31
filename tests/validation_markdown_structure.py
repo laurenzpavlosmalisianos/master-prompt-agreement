@@ -287,5 +287,209 @@ None.
             gap_errors,
         )
 
+    def test_mask_inline_code_spans_blanks_code_spans_and_keeps_escaped_backticks(
+        self,
+    ) -> None:
+        raw = r"keep `[masked](x.md)` and ``two ` ticks`` plus \`literal\` and `unclosed"
+        masked = markdown_structure.mask_inline_code_spans(raw)
+
+        self.assertEqual(len(raw), len(masked))
+        self.assertNotIn("[masked]", masked)
+        self.assertNotIn("two ` ticks", masked)
+        self.assertIn(r"\`literal\`", masked)
+        self.assertTrue(masked.endswith("`unclosed"))
+
+    def test_fenced_code_blocks_extracts_closed_unclosed_and_ignores_html_comments(
+        self,
+    ) -> None:
+        text = "\n".join(
+            (
+                "<!--",
+                "```mermaid",
+                "flowchart TD",
+                "  Hidden --- Node",
+                "```",
+                "-->",
+                "```Mermaid title",
+                "flowchart TD",
+                "  A --> B",
+                "```",
+                "~~~python",
+                "print('ok')",
+                "~~~",
+                "```mermaid",
+                "flowchart TB",
+                "  Open --> Tail",
+            )
+        )
+
+        all_blocks = markdown_structure.fenced_code_blocks(text)
+        mermaid_blocks = markdown_structure.fenced_code_blocks(text, language="mermaid")
+
+        self.assertEqual(3, len(all_blocks))
+        self.assertEqual(2, len(mermaid_blocks))
+        self.assertEqual("Mermaid title", mermaid_blocks[0].info_string)
+        self.assertEqual("mermaid", mermaid_blocks[0].language)
+        self.assertEqual(7, mermaid_blocks[0].opening_line)
+        self.assertEqual(10, mermaid_blocks[0].closing_line)
+        self.assertEqual(
+            ((8, "flowchart TD"), (9, "  A --> B")),
+            mermaid_blocks[0].lines,
+        )
+        self.assertEqual(14, mermaid_blocks[1].opening_line)
+        self.assertIsNone(mermaid_blocks[1].closing_line)
+        self.assertEqual(
+            ((15, "flowchart TB"), (16, "  Open --> Tail")),
+            mermaid_blocks[1].lines,
+        )
+
+    def test_mermaid_diagram_errors_accepts_valid_flowcharts_and_rejects_invalid_constructs(
+        self,
+    ) -> None:
+        valid_markdown = "\n".join(
+            (
+                "```mermaid",
+                "flowchart TD",
+                "  subgraph alpha[\"Alpha Group\"]",
+                "    A[\"Start (1)\"] -->|\"Yes (fast)\"| B[\"Step [2]\"]",
+                "  end",
+                "  subgraph beta[\"Beta Group\"]",
+                "    C[\"Check {3}\"] --> D[\"Done\"]",
+                "  end",
+                "  B --> C",
+                "```",
+                "```mermaid",
+                "flowchart TB",
+                "  X --> Y",
+                "```",
+                "```mermaid",
+                "classDiagram",
+                "  class Validator {",
+                "    <<interface>>",
+                "  }",
+                "```",
+                "```mermaid",
+                "sequenceDiagram",
+                "  loop Every minute",
+                "    A->>B: ping",
+                "  end",
+                "```",
+                "```mermaid",
+                "flowchart TD",
+                "  subgraph outer[\"Outer\"]",
+                "    subgraph inner[\"Inner\"]",
+                "      A --> B",
+                "    end",
+                "    inner --> C",
+                "  end",
+                "```",
+            )
+        )
+        self.assertEqual(
+            [],
+            markdown_structure.mermaid_diagram_errors(valid_markdown, source="valid.md"),
+        )
+
+        invalid_cases: tuple[tuple[str, str, str], ...] = (
+            (
+                "unclosed block",
+                "```mermaid\nflowchart TD\n  A --> B\n",
+                "doc.md:1: unclosed mermaid fenced code block",
+            ),
+            (
+                "empty block",
+                "```mermaid\n  %% comment only\n```\n",
+                "doc.md:1: empty mermaid fenced code block",
+            ),
+            (
+                "unsupported header",
+                "```mermaid\npie title Pets\n  \"Dogs\" : 1\n```\n",
+                "doc.md:2: mermaid block must start with a supported diagram header",
+            ),
+            (
+                "html br tag",
+                "```mermaid\nflowchart TD\n  A[\"Line 1<br/>Line 2\"] --> B\n```\n",
+                "doc.md:3: mermaid block must not contain raw HTML tag '<br/>'",
+            ),
+            (
+                "html bold tag",
+                "```mermaid\nflowchart TD\n  A[\"<b>text</b>\"] --> B\n```\n",
+                "doc.md:3: mermaid block must not contain raw HTML tag '<b>'",
+            ),
+            (
+                "unquoted parens in pipe label",
+                "```mermaid\nflowchart TD\n  A -->|Yes (fast)| B\n```\n",
+                "doc.md:3: mermaid edge label |Yes (fast)| contains unquoted shape delimiter",
+            ),
+            (
+                "unquoted brackets in pipe label",
+                "```mermaid\nflowchart TD\n  A -->|step [1]| B\n```\n",
+                "doc.md:3: mermaid edge label |step [1]| contains unquoted shape delimiter",
+            ),
+            (
+                "unquoted braces in pipe label",
+                "```mermaid\nflowchart TD\n  A -->|{branch}| B\n```\n",
+                "doc.md:3: mermaid edge label |{branch}| contains unquoted shape delimiter",
+            ),
+            (
+                "partially quoted pipe label with parens",
+                "```mermaid\nflowchart TD\n  A -..->|\"a\" (b) \"c\"| B\n```\n",
+                "doc.md:3: mermaid edge label |\"a\" (b) \"c\"| contains unquoted shape delimiter",
+            ),
+            (
+                "missing subgraph end",
+                "```mermaid\nflowchart TD\n  subgraph sg1[\"One\"]\n    A --> B\n```\n",
+                "doc.md:3: unclosed 'subgraph sg1' in mermaid block",
+            ),
+            (
+                "unmatched end",
+                "```mermaid\nflowchart TD\n  A --> B\n  end\n```\n",
+                "doc.md:4: unmatched 'end' in mermaid block",
+            ),
+            (
+                "cross-subgraph edge inside subgraph",
+                "\n".join(
+                    (
+                        "```mermaid",
+                        "flowchart TD",
+                        "  subgraph first[\"First\"]",
+                        "    A --> B",
+                        "  end",
+                        "  subgraph second[\"Second\"]",
+                        "    C --> A",
+                        "  end",
+                        "```",
+                    )
+                ),
+                "doc.md:7: cross-subgraph edge 'C --> A' declared inside subgraph 'second'",
+            ),
+            (
+                "cross-subgraph edge referencing later declared node",
+                "\n".join(
+                    (
+                        "```mermaid",
+                        "flowchart TD",
+                        "  subgraph first[\"First\"]",
+                        "    A --> B",
+                        "  end",
+                        "  subgraph second[\"Second\"]",
+                        "    B[\"Bee\"]",
+                        "  end",
+                        "```",
+                    )
+                ),
+                "doc.md:4: cross-subgraph edge 'A --> B' declared inside subgraph 'first'",
+            ),
+        )
+
+        for label, snippet, expected_error in invalid_cases:
+            with self.subTest(label=label):
+                errors = markdown_structure.mermaid_diagram_errors(
+                    snippet,
+                    source="doc.md",
+                )
+                self.assertIn(expected_error, errors)
+
+
 if __name__ == "__main__":
     unittest.main()

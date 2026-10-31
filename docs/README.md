@@ -29,7 +29,7 @@ source rather than running it.
 | Chapter | Use When |
 |---|---|
 | [Concepts](concepts.md) | You need the operating model: authority, runtime packets, Task Orders, Practice Guides, state, source discipline, and feedback. |
-| [Downstream Setup](downstream_setup.md) | You want the setup flow before following the full setup procedure in `GETTING_STARTED.md` and `task_orders/init.md`. |
+| [Downstream Setup](downstream_setup.md) | You want the setup flow before following the full setup procedure in [`GETTING_STARTED.md`](../GETTING_STARTED.md) and [`task_orders/init.md`](../task_orders/init.md). |
 | [Repository Taxonomy](repository_taxonomy.md) | You need to know where a file belongs, which surfaces are product files, and which generated files are templates. |
 | [Source And Feedback](source_and_feedback.md) | You are reviewing external sources, source-monitor packets, or downstream project feedback. |
 | [Source-Chain Artifacts](source_chain_artifacts.md) | You need the complete, version-bound monitor, review, apply, and assurance artifact contract used by the product source-chain helpers. |
@@ -50,10 +50,10 @@ create agent instructions. If an explanation conflicts with an owning file,
 follow that file and correct the explanation. Exact command interfaces belong
 to executable help.
 
-- `master_service_agreement.md` is the universal doctrine.
-- `scripts/project_contract_model.py` owns the machine-readable downstream project-contract semantics and generates the answer schema and Markdown blueprints.
-- `statement_of_work_template.md` is the generated human-readable downstream project-contract blueprint.
-- `runtime/operative_charter.md` is the compact always-on runtime rule layer.
-- `task_orders/` owns workflow sequence and output shape.
-- `practice_guides/` owns specialist quality standards.
-- `scripts/` verifies objective framework invariants where useful.
+- [`master_service_agreement.md`](../master_service_agreement.md) is the universal doctrine.
+- [`scripts/project_contract_model.py`](../scripts/project_contract_model.py) owns the machine-readable downstream project-contract semantics and generates the answer schema and Markdown blueprints.
+- [`statement_of_work_template.md`](../statement_of_work_template.md) is the generated human-readable downstream project-contract blueprint.
+- [`runtime/operative_charter.md`](../runtime/operative_charter.md) is the compact always-on runtime rule layer.
+- [`task_orders/`](../task_orders/README.md) owns workflow sequence and output shape.
+- [`practice_guides/`](../practice_guides/risk_routing.md) owns specialist quality standards.
+- [`scripts/`](../scripts/README.md) verifies objective framework invariants where useful.
