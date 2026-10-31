@@ -38,7 +38,8 @@ Before source-sensitive recommendations, use project `SOURCE_PACKS.md` and `SOUR
 
 5. Handle logs, traces, prompts, and memory.
 
-- Do not include credentials, session values, access tokens, request bodies with secrets, sensitive personal data, production identifiers, raw prompts, raw traces, or raw screenshots in distributed logs or reports.
+- Do not include credentials, session values, access tokens, request bodies with secrets, sensitive personal data, production identifiers, raw prompts, raw agent decision traces, or raw screenshots in distributed logs, support/billing tickets, or third-party analytics/telemetry payloads (for database query-history redaction, see `backend_database_security.md`; for sensitive-route client script isolation, see `website_frontend_quality.md`).
+- Pass only pseudonymous internal identifiers (rather than raw contact PII) to approved product-analytics or monitoring SDKs, and minimize, truncate, or key-hash retained network identifiers such as client IP addresses under explicit retention TTLs.
 - Prefer fingerprints, stable redacted IDs, approved correlation IDs, event type, outcome, actor class, tenant class, timestamp, and source digest.
 - Store full-fidelity evidence only in approved protected storage and reference it by stable ID or digest.
 - Do not write protected data, untrusted content, or sensitive inferred profile facts into persistent agent memory unless the SOW or accountable owner authorizes that exact write class.

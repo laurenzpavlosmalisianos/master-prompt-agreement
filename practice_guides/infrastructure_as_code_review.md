@@ -50,7 +50,7 @@ Before source-sensitive recommendations, use project `SOURCE_PACKS.md` and `SOUR
 - Map changed identities, roles, policies, service accounts, trust relationships, network paths, public endpoints, encryption settings, logging, data retention, backups, and destructive privileges.
 - Run configured format, validate, lint, policy-as-code, cost, security, and cloud-specific checks; classify their findings before using them as gates.
 - Verify least privilege for the deployment identity and for resources created by the IaC; do not accept broad admin permissions because the tool can create them.
-- Check blast radius for shared modules, cross-stack references, remote state data sources, exported values, global names, DNS, certificates, IAM resources, databases, queues, buckets, and multi-account or multi-region stacks.
+- Check blast radius for shared modules, cross-stack references, remote state data sources, exported values, global names, DNS, certificates, IAM resources, databases, queues, buckets, and multi-account or multi-region stacks; for stateful data stores, verify backup and immutable-retention posture (see data_systems_review.md).
 - Identify rollback, remediation, import, or manual repair path before approving destructive or replacement operations.
 
 6. Verify apply/deploy readiness.

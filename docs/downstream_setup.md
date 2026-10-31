@@ -10,29 +10,31 @@ Use this chapter for orientation, then follow
 ```mermaid
 flowchart TD
   subgraph Discovery["1. Discovery & Closed Control Gate"]
-    CheckGate{"Closed Control Present?<br/>(.mpa-bootstrap-recovery.*)"}
-    CheckPaths["Inspect Target Directory<br/>(Ensure Free Managed Output Graph)"]
-    CheckGate -->|Clean| CheckPaths
-    CheckGate -->|Blocked| RecoveryRoute["Stop: Follow Recovery Route in UPDATING.md"]
+    CheckGate{"Closed Control Present? (.mpa-bootstrap-recovery.*)"}
+    CheckPaths["Inspect Target Directory (Ensure Free Managed Output Graph)"]
+    RecoveryRoute["Stop: Follow Recovery Route in UPDATING.md"]
+    CheckGate -->|No| CheckPaths
+    CheckGate -->|Yes| RecoveryRoute
   end
 
   subgraph InputPlanning["2. Input Preparation & Dry-Run Preview"]
-    CollectAnswers["Complete Temporary Answers JSON<br/>(Scope, Permissions, Stack & Commands)"]
-    DryRunPlan["Render Dry-Run Plan in Memory<br/>(Preview Rendered Files, Digests & Warnings)"]
-    CheckPaths --> CollectAnswers
+    CollectAnswers["Complete Temporary Answers JSON (Scope, Permissions, Stack & Commands)"]
+    DryRunPlan["Render Dry-Run Plan in Memory (Preview Rendered Files, Digests & Warnings)"]
     CollectAnswers --> DryRunPlan
   end
 
   subgraph TransactionalWrite["3. Transactional Write & Verification"]
-    UserApproval["Approve Exact Plan SHA-256<br/>(--approve-write-plan-sha256)"]
-    WriteTransaction["Atomic Materialization<br/>(Protected by Recovery Guard)"]
-    VerifyUnion["Verify All Active Conformance Profiles<br/>(Fail Closed on Any Error or Warning)"]
-    PostReview["Post-Write Manual Review & Cleanup<br/>(Purge Temporary Answers; Retain SOW/State)"]
-    DryRunPlan --> UserApproval
+    UserApproval["Approve Exact Plan SHA-256 (--approve-write-plan-sha256)"]
+    WriteTransaction["Atomic Materialization (Protected by Recovery Guard)"]
+    VerifyUnion["Verify Active Conformance Profiles (--strict-warnings; Roll Back on Failure)"]
+    PostReview["Post-Write Manual Review & Cleanup (Purge Temporary Answers; Retain SOW/State)"]
     UserApproval --> WriteTransaction
     WriteTransaction --> VerifyUnion
     VerifyUnion --> PostReview
   end
+
+  CheckPaths --> CollectAnswers
+  DryRunPlan --> UserApproval
 ```
 
 1. **Inspect.** Give the agent read access to the framework and write access to

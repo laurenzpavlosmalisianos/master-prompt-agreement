@@ -68,42 +68,6 @@ Give the agent explicit read access to this framework checkout and explicit writ
 | Claude Code | `claude-code` | `CLAUDE.md` |
 | Other filesystem-capable agent | `generic` | `AGENTS.md` |
 
-## Lifecycle Flow
-
-The bootstrap procedure executes in three distinct, verifiable phases:
-
-```mermaid
-flowchart TD
-  subgraph Discovery["Phase 1: Environment & Eligibility Discovery"]
-    Prereq["Run scripts/check_prereqs.py<br/>(Verify Python 3.14+ & POSIX Primitives)"]
-    RecoveryCheck{"Closed Control Gate Present?<br/>(.mpa-bootstrap-recovery.*)"}
-    TargetCheck["Inspect Target Root & Managed Paths<br/>(Ensure Free Managed Output Graph)"]
-    Prereq --> RecoveryCheck
-    RecoveryCheck -->|Clean| TargetCheck
-    RecoveryCheck -->|Artifact Found| RecoveryPath["Stop: Follow Recovery Route in UPDATING.md"]
-  end
-
-  subgraph Planning["Phase 2: Answers & Dry-Run Planning"]
-    Answers["Prepare Temporary Answers JSON<br/>(Project Scope, Commands, Stack & Identity)"]
-    DryRun["Run project_bootstrap.py --dry-run<br/>(Render Outputs In-Memory Without Writing)"]
-    Preview["Inspect Plan Preview & Warnings<br/>(Verify Rendered Files, Modes & Plan SHA-256)"]
-    TargetCheck --> Answers
-    Answers --> DryRun
-    DryRun --> Preview
-  end
-
-  subgraph Execution["Phase 3: Approved Write & Verification"]
-    Approval["User Approves Exact Plan SHA-256<br/>(--approve-write-plan-sha256)"]
-    TransactionalWrite["Transactional Materialization<br/>(Atomic Write Protected by Recovery Guard)"]
-    ConformanceCheck["Strict Conformance Verification<br/>(Union of Receipt-Listed Profiles)"]
-    Cleanup["Post-Write Review & Cleanup<br/>(Clean Temporary Answers; Retain SOW/State)"]
-    Preview --> Approval
-    Approval --> TransactionalWrite
-    TransactionalWrite --> ConformanceCheck
-    ConformanceCheck --> Cleanup
-  end
-```
-
 ## Fast Path
 
 Open this repository and an existing target-project root in a

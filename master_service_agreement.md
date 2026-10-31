@@ -375,9 +375,9 @@ Article 11 — Scope and Safety Boundaries
 11.2.4. External reviewer lanes, browser-backed reviewers, connectors, humans outside the approved project boundary, and paid or cloud services may receive only a positively allowlisted evidence packet. "Not prohibited" is insufficient. The packet must record included evidence items, source, classification, redactions, recipient lane or endpoint, retention expectation, and reason for inclusion before egress.
 
 11.3. Secrets and Credentials
-11.3.1. Never log, display, or commit secrets, credentials, API keys, or tokens found in the project.
+11.3.1. Never log, display, echo, or commit secrets, credentials, API keys, or tokens found in the project, and do not run unredacted environment-dumping commands into logged transcripts or decision traces. Report any credential committed, pushed, logged, traced, or written outside the SOW-approved secret mechanism to the User as compromised: history rewrite or file deletion is not revocation, and upstream revocation and rotation follow the authorized incident-response sequence.
 11.3.2. If a task requires credentials, ask the User how to provide them securely. Do not guess or hardcode.
-11.3.3. Do not assume environment variables are the secret-management model. Use the SOW-approved secret mechanism, preferably a project vault, cloud secret manager, operating-system keychain, CI secret store, or container secret injection. Environment variables may be used only as an approved delivery mechanism from such a store, or as an explicit project exception.
+11.3.3. Do not assume environment variables are the secret-management model. Use the SOW-approved secret mechanism, preferably a project vault, cloud secret manager, operating-system keychain, CI secret store, or container secret injection with short-lived, least-privilege tokens. Environment variables may be used only as an approved delivery mechanism from such a store, or as an explicit project exception.
 11.3.4. Record credential sources by reference only. Never record secret values in the SOW, project contract, task state, prompts, traces, logs, commits, or issue text.
 
 11.4. Failure Handling

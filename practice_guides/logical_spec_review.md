@@ -36,14 +36,14 @@ Use this Practice Guide when requirements, acceptance criteria, policies, state 
 - Partition the input or state space into cases.
 - Identify missing cases, overlapping cases, and ties with no precedence rule.
 - Check boundary values, null or unknown states, empty sets, and invalid inputs.
-- For state machines, every allowed transition should have a source, target, trigger, guard, and failure behavior.
+- For state machines, every allowed transition should have a source, target, trigger, guard, and failure behavior. For cross-service workflows, authentication, billing, or workspace boundaries, verify permission and state invariants across at least two distinct role and tenant contexts to expose horizontal or vertical privilege contradictions.
 
 5. Check implication direction.
 
 - Verify `if A then B` has not been reversed into `if B then A`.
 - Distinguish necessary conditions from sufficient conditions.
 - Check quantifiers: all, any, exactly one, at least one, at most one, none.
-- Check temporal claims: before, after, until, unless, eventually, and never.
+- Check temporal claims: before, after, until, unless, eventually, and never. For assertions, tokens, leases, and scheduled permissions, explicitly specify and verify both bounds of every temporal validity window—activation/start time (such as `NotBefore` / `nbf`) and expiration time (such as `NotOnOrAfter` / `exp`), plus clock-skew and replay rules—so start and expiry variables cannot be conflated.
 
 6. Translate logic into verification.
 

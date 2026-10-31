@@ -30,27 +30,25 @@ When a durable operation is authorized to update the workspace, record it in the
 
 Run health checks on durable research workspaces when their output will influence maintained guidance: orphaned sources, broken links, stale claims, unsupported synthesis, unresolved contradictions, missing source metadata, and open questions that block adoption.
 
-### Two-Phase Operational Lifecycle & Context Eviction
+### Two-Phase Operational Lifecycle
 
-To prevent catastrophic forgetting, cognitive drift, and proactive interference—where accumulating stale, contradictory, or superseded tokens degrade agent reasoning accuracy and inflate context entropy—durable research workspaces enforce a biologically inspired two-phase operational lifecycle:
+To reduce context drift and proactive interference—where stale, contradictory, or superseded notes degrade reasoning accuracy—durable research workspaces separate active exploration from memory consolidation:
 
-1. **Phase 1: Online Active Exploration (Wake Phase)**
-   - High-throughput inquiry, information foraging, web discovery, source ingestion, and candidate extraction.
-   - Working context is dynamic and volatile; intermediate reasoning traces, scratchpad observations, and exploratory hypotheses are maintained in ephemeral task storage.
-   - Strictly bounded by budget, recursion limits, and active-turn scope; raw exploratory outputs must not directly overwrite durable synthesis records during this phase.
+1. **Phase 1: Online Active Exploration**
+   - Perform inquiry, source discovery, ingestion, and candidate extraction in ephemeral task storage.
+   - Keep working hypotheses and intermediate traces bounded by task scope; do not directly overwrite durable synthesis records with unverified exploratory notes during active exploration.
 
-2. **Phase 2: Offline Memory Consolidation (Sleep Phase)**
-   - Structured post-exploration distillation and consolidation pass executed prior to session closeout or multi-session handoff.
-   - Distills verified empirical findings from ephemeral traces into modular, structured artifacts (catalog entries, 6-field Evidence Records, and synthesis entities) without modifying frozen baseline doctrine.
-   - **Independent Verification Oracle Gate:** Before unverified scratchpad observations or exploratory candidates are promoted into durable Evidence Records or synthesis layers, validate them through an Independent Verification Oracle (such as an out-of-band deterministic validator or an isolated multi-agent cross-check inspecting raw canonical locators). An exploring agent must never unilaterally self-consolidate its own unverified active perceptions into durable memory without independent validation, preventing Perception Injection (Franklin Trap 1) from self-consolidating into permanent Memory Poisoning (Franklin Trap 3).
-   - Resolves contradictions against existing durable knowledge; updates confidence levels and records explicit invalidation triggers.
+2. **Phase 2: Offline Memory Consolidation**
+   - Before session closeout or handoff, distill verified findings from ephemeral notes into structured catalog entries, Evidence Records, and synthesis updates without modifying governing doctrine.
+   - **Independent Verification Gate:** Before exploratory candidates are promoted into durable Evidence Records or synthesis layers, verify them against raw canonical locators or deterministic checks rather than allowing an exploring agent to self-promote unverified observations into durable state.
+   - Resolve contradictions against existing durable knowledge, update confidence levels, and record explicit invalidation triggers.
 
-3. **Explicit Context Eviction Rules (Anti-Proactive Interference)**
-   - **Hypothesis Supersession Eviction:** When a verified primary source refutes or supersedes an early working hypothesis, immediately evict the invalidated hypothesis and its intermediate rationale from working context to prevent subsequent cognitive bias.
-   - **Reversible Tombstoning (Anti-Context Amnesia):** Evicted hypotheses, superseded interpretations, and pruned scratchpads must never be permanently discarded without an auditable trace. Preserve evicted items in a structured contradiction or tombstone log (e.g., archival briefing state or contradiction records) accompanied by explicit invalidation rationales and triggering sources. This maintains rollback capability and forensic auditability if the superseding source is later discredited or exposed as deceptive, preventing irreversible context amnesia.
-   - **Scratchpad Pruning:** Once an observation is distilled into a validated Evidence Record, evict the verbose raw scratchpad or browser digest from active context, retaining only the canonical locator and decisive excerpt.
-   - **Contradiction Gating:** When new evidence contradicts prior workspace records, quarantine the conflicting claim in an explicit contradiction log rather than allowing competing claims to coexist silently in active context.
-   - **Session Boundary Evacuation:** Cross-session handoffs must transfer only consolidated synthesis artifacts and explicit open questions; unpruned conversational history, raw tool outputs, and unverified traces must be discarded to prevent cross-session memory poisoning.
+### Context Eviction Rules
+
+- **Hypothesis Supersession:** When a verified primary source refutes or supersedes an early working hypothesis, remove the invalidated hypothesis from active context and record only a compact contradiction or tombstone entry (locator, invalidation reason, and triggering source) for auditability.
+- **Scratchpad Pruning:** Once an observation is distilled into a validated Evidence Record, remove verbose raw scratchpads from active context, retaining only the canonical locator and decisive excerpt.
+- **Contradiction Quarantine:** When new evidence conflicts with prior workspace records, record the conflict in an explicit contradiction log rather than leaving competing claims unlabeled in active context.
+- **Session Boundary Handoff:** Cross-session handoffs transfer consolidated synthesis artifacts, contradiction/tombstone records, and explicit open questions rather than unpruned conversational history or unverified scratchpads.
 
 ## Browser Research Digests
 
@@ -79,7 +77,7 @@ Use this pattern when a research task spans a large source, tool, or data univer
 - identify which part is stable, version-sensitive, or volatile
 
 2. Choose evidence by claim type.
-- standards and official docs for normative or API behavior; for security reviews, threat evaluations, periodic source updates, and architectural research, enforce Canonical Security Baseline Synchronization: systematically consult authoritative threat catalogs and standards baselines—specifically the **OWASP Top 10 for Web Applications** and the **OWASP Top 10 for LLM & Generative AI Applications**—alongside individual software release notes and vendor advisory feeds to avoid localized patch myopia and ensure comprehensive architectural coverage
+- standards and official docs for normative or API behavior (for security threat-catalog baselines, see `security_audit.md`)
 - version-matched source code, tests, and release notes for implementation behavior
 - independent or replicated empirical evidence for performance, security, or benchmark claims
 - vendor claims for vendor surfaces only, not as cross-provider doctrine
@@ -148,7 +146,3 @@ Provide:
 - Do not synthesize first and hunt for support later.
 - Do not copy external wording or product-specific workflow shape into reusable guidance when the approved outcome is only a pattern abstraction.
 - Do not retain or reproduce full public articles, posts, documentation pages, repository docs, transcripts, screenshots, or source dumps; keep locators, decisive facts, and minimal permitted excerpts.
-- Do not allow unpruned conversational history, verbose scratchpads, or superseded hypotheses to linger across sessions; apply explicit context eviction to prevent proactive interference.
-- Do not promote unverified active exploration outputs into durable synthesis without an offline consolidation pass and Independent Verification Oracle validation.
-- Do not discard invalidated hypotheses or pruned scratchpads without logging reversible tombstones and explicit invalidation rationales to prevent context amnesia.
-- Do not evaluate security, ecosystem, or agentic updates solely against reactive point-in-time advisories without synchronizing against canonical threat baselines (the OWASP Top 10 for Web Applications and the OWASP Top 10 for LLM & Generative AI Applications).
