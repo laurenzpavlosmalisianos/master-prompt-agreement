@@ -52,21 +52,52 @@ The optional Codex launchers `$master-prompt-new-project` and
 
 ## How MPA Works
 
-Each task connects project context, relevant guidance, and evidence of the
-result:
+Each task connects project context, relevant guidance, independent verification,
+and durable memory consolidation:
 
 ```mermaid
-flowchart TB
-  A["Project context"] --> B["Relevant task guidance"]
-  B --> C["Work and verification"]
+flowchart TD
+  subgraph ProjectContract["1. Project Authority & Context"]
+    SOW["Statement of Work (Governing Terms)"]
+    Charter["Operative Charter (Universal Rules)"]
+    Contract["AGENT_PROJECT.md (Scope, Permissions & Commands)"]
+    SOW --> Contract
+    Charter --> Contract
+  end
+
+  subgraph SelectiveGuidance["2. Task-Scoped Guidance"]
+    TaskOrder["Task Order (Workflow Sequence & Deliverables)"]
+    PracticeGuide["Practice Guides (Domain Quality & Safety Standards)"]
+  end
+
+  subgraph ExecutionVerification["3. Work & Independent Verification"]
+    Action["Scoped Execution (Least-Privilege Project Boundary)"]
+    Verification["Independent Verification (Project Tests, Runtime Checks & Conformance)"]
+    Evidence["Completion Evidence (Acceptance Items & Verification Receipts)"]
+    Action --> Verification
+    Verification --> Evidence
+  end
+
+  subgraph MemoryConsolidation["4. Memory Consolidation"]
+    DurableState["Durable Project State (TODO.md & DECISIONS.md)"]
+  end
+
+  Contract --> TaskOrder
+  Contract --> PracticeGuide
+  TaskOrder --> Action
+  PracticeGuide --> Action
+  Evidence --> DurableState
+  DurableState -.->|Informs Next Task (Read-Only)| TaskOrder
 ```
 
 1. **Know the project.** Read its current scope, constraints, commands, and
-   acceptance criteria. Recovery is checked before generated authority or state.
+   acceptance criteria. Closed transaction control is checked before generated authority or state.
 2. **Load what matters.** Select the applicable workflow and specialist checks.
    Keep unrelated guides and historical records out of the task context.
-3. **Verify the result.** Use project tests, inspected output, and any required
-   manual acceptance to show what is complete and what remains uncertain.
+3. **Verify the result.** Use project tests, runtime checks, inspected output, and
+   required manual acceptance to show what is complete and what remains uncertain.
+4. **Consolidate memory.** Distill durable decisions and acceptance evidence into
+   version-controlled state files while removing ephemeral scratch state from active context.
 
 This is an overview of ordinary work, not the setup or recovery procedure.
 See [Concepts](docs/concepts.md) for the model and
@@ -78,17 +109,19 @@ See [Concepts](docs/concepts.md) for the model and
   deliverables, and constraints that survive a new session.
 - **Guidance selected for the task:** procedures for planning, implementation,
   review, research, and other work, paired with relevant quality standards.
-- **Explicit completion evidence:** acceptance criteria, verification results,
-  and unresolved gaps instead of a completion claim alone.
+- **Explicit completion evidence:** acceptance criteria, verification receipts,
+  and unresolved gaps instead of an ungrounded completion claim alone.
 - **Small current state:** active work and durable decisions, with history kept
   in version control or an approved archive.
 
 ### Principles
 
-Keep always-loaded instructions small. Prefer capable native tools and
-project-owned checks to duplicate framework prose. Treat sources and model
-output as evidence to verify. Add reusable guidance only when its value
-justifies its context, process, and maintenance cost.
+- **Contract-driven governance:** Reliability depends on explicit project contracts, scoped execution boundaries, gated state updates, and independent verification.
+- **Keep always-loaded instructions small:** Prefer capable native tools and
+  project-owned checks to duplicate framework prose.
+- **Treat sources and model output as evidence:** Quarantined data to verify rather than standing instructions.
+- **Add reusable guidance only when justified:** A guideline must earn its context, process,
+  and maintenance cost.
 
 MPA complements the agent and its execution environment. Host, container,
 network, identity, secret, permission, and approval controls remain necessary.

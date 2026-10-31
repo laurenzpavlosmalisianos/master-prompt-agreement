@@ -8,11 +8,33 @@ Use this chapter for orientation, then follow
 ## Setup Shape
 
 ```mermaid
-flowchart TB
-  A["Inspect the project"] --> B["Fill missing project facts"]
-  B --> C["Review and approve the exact plan"]
-  C --> D["Write and verify transactionally"]
-  D --> E["Review the installed result"]
+flowchart TD
+  subgraph Discovery["1. Discovery & Closed Control Gate"]
+    CheckGate{"Closed Control Present? (.mpa-bootstrap-recovery.*)"}
+    CheckPaths["Inspect Target Directory (Ensure Free Managed Output Graph)"]
+    RecoveryRoute["Stop: Follow Recovery Route in UPDATING.md"]
+    CheckGate -->|No| CheckPaths
+    CheckGate -->|Yes| RecoveryRoute
+  end
+
+  subgraph InputPlanning["2. Input Preparation & Dry-Run Preview"]
+    CollectAnswers["Complete Temporary Answers JSON (Scope, Permissions, Stack & Commands)"]
+    DryRunPlan["Render Dry-Run Plan in Memory (Preview Rendered Files, Digests & Warnings)"]
+    CollectAnswers --> DryRunPlan
+  end
+
+  subgraph TransactionalWrite["3. Transactional Write & Verification"]
+    UserApproval["Approve Exact Plan SHA-256 (--approve-write-plan-sha256)"]
+    WriteTransaction["Atomic Materialization (Protected by Recovery Guard)"]
+    VerifyUnion["Verify Active Conformance Profiles (--strict-warnings; Roll Back on Failure)"]
+    PostReview["Post-Write Manual Review & Cleanup (Purge Temporary Answers; Retain SOW/State)"]
+    UserApproval --> WriteTransaction
+    WriteTransaction --> VerifyUnion
+    VerifyUnion --> PostReview
+  end
+
+  CheckPaths --> CollectAnswers
+  DryRunPlan --> UserApproval
 ```
 
 1. **Inspect.** Give the agent read access to the framework and write access to

@@ -30,6 +30,26 @@ When a durable operation is authorized to update the workspace, record it in the
 
 Run health checks on durable research workspaces when their output will influence maintained guidance: orphaned sources, broken links, stale claims, unsupported synthesis, unresolved contradictions, missing source metadata, and open questions that block adoption.
 
+### Two-Phase Operational Lifecycle
+
+To reduce context drift and proactive interference—where stale, contradictory, or superseded notes degrade reasoning accuracy—durable research workspaces separate active exploration from memory consolidation:
+
+1. **Phase 1: Online Active Exploration**
+   - Perform inquiry, source discovery, ingestion, and candidate extraction in ephemeral task storage.
+   - Keep working hypotheses and intermediate traces bounded by task scope; do not directly overwrite durable synthesis records with unverified exploratory notes during active exploration.
+
+2. **Phase 2: Offline Memory Consolidation**
+   - Before session closeout or handoff, distill verified findings from ephemeral notes into structured catalog entries, Evidence Records, and synthesis updates without modifying governing doctrine.
+   - **Independent Verification Gate:** Before exploratory candidates are promoted into durable Evidence Records or synthesis layers, verify them against raw canonical locators or deterministic checks rather than allowing an exploring agent to self-promote unverified observations into durable state.
+   - Resolve contradictions against existing durable knowledge, update confidence levels, and record explicit invalidation triggers.
+
+### Context Eviction Rules
+
+- **Hypothesis Supersession:** When a verified primary source refutes or supersedes an early working hypothesis, remove the invalidated hypothesis from active context and record only a compact contradiction or tombstone entry (locator, invalidation reason, and triggering source) for auditability.
+- **Scratchpad Pruning:** Once an observation is distilled into a validated Evidence Record, remove verbose raw scratchpads from active context, retaining only the canonical locator and decisive excerpt.
+- **Contradiction Quarantine:** When new evidence conflicts with prior workspace records, record the conflict in an explicit contradiction log rather than leaving competing claims unlabeled in active context.
+- **Session Boundary Handoff:** Cross-session handoffs transfer consolidated synthesis artifacts, contradiction/tombstone records, and explicit open questions rather than unpruned conversational history or unverified scratchpads.
+
 ## Browser Research Digests
 
 When an authorized task retains a completed browser research report, copy
@@ -57,7 +77,7 @@ Use this pattern when a research task spans a large source, tool, or data univer
 - identify which part is stable, version-sensitive, or volatile
 
 2. Choose evidence by claim type.
-- standards and official docs for normative or API behavior
+- standards and official docs for normative or API behavior (for security threat-catalog baselines, see `security_audit.md`)
 - version-matched source code, tests, and release notes for implementation behavior
 - independent or replicated empirical evidence for performance, security, or benchmark claims
 - vendor claims for vendor surfaces only, not as cross-provider doctrine

@@ -24,11 +24,12 @@ Before making provider-specific claims, verify current official documentation fo
 
 3. Review permissions, identity, and secrets.
 
-- set workflow and job permissions to the least privilege needed for each job
-- remember that third-party workflow steps and job steps can access available tokens and environment data unless constrained by the platform
-- prefer short-lived OIDC federation over long-lived cloud, registry, or package-publishing secrets when the platform and target service support it
+- set workflow and job permissions to the least privilege needed for each job (defaulting top-level workflow tokens to read-only repository-content scope, such as `contents: read`, where supported)
+- remember that third-party workflow steps and job steps can access available tokens and environment data unless constrained by the platform; restrict workflow-file write permissions through code owners or protected paths, and audit organization- and repository-level secret exposure so unauthorized workflow changes cannot exfiltrate broad secret sets
+- prefer short-lived OIDC federation over long-lived cloud, registry, or package-publishing secrets when the platform and target service support it; regularly audit and revoke stale or unscoped CLI OAuth tokens, personal access tokens, and historical automation keys
 - review each independently matching publishing identity or trust configuration; distinguish staging, direct publication, release-pointer changes, and other package mutations, and do not assume that multiple configurations narrow one another's permissions
 - scope secrets to environments, repositories, organizations, or jobs deliberately; keep approvals for protected environments explicit
+- enforce separation of duties for production releases: prohibit the same identity or token from both triggering a build and approving a protected release gate, verify canonical repository-owner and source-URL bindings on release pipelines to block lookalike-organization redirects, and forbid CI or release-automation tokens from deleting workflow run logs or audit history
 - prevent CI from approving, merging, or changing protected branches unless the project has a specific owner-approved automation policy
 
 4. Review runner and dependency execution risk.

@@ -53,7 +53,7 @@ This file is the always-on runtime layer. It carries only universal rules that s
 
 6.1. Do not take destructive or irreversible actions without approval.
 6.2. Do not delete, commit, push, change VCS metadata, or affect external systems without current authorization or an explicit scoped standing grant covering the exact action.
-6.3. Do not expose or commit secrets.
+6.3. Do not expose, echo, or commit secrets, or dump unredacted environments into logs or transcripts. Report any credential committed, pushed, logged, traced, or written outside an approved secret mechanism as compromised; history rewrite or file deletion is not revocation.
 6.4. Prefer tool-enforced restrictions over repeated prompt prose when the runtime supports them.
 6.5. Do not copy external code or assets into project work without approval. Before approved use, verify usage rights, license, attribution, and notice obligations.
 6.6. If the project requires AI-assisted authorship disclosure or other attribution, follow that requirement.

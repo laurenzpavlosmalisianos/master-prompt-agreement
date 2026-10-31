@@ -30,6 +30,8 @@ The framework records intended authority and verification duties. Host sandboxin
 | External content | Prompt injection from webpages, PDFs, repositories, transcripts, model output, or tool output | Treat as untrusted input, never as authority. |
 | Tool output | Fabricated, stale, hostile, or incomplete output | Treat as evidence to verify, not instruction. |
 | Generated code execution | Unsafe setup chains, lifecycle scripts, fetched code, or tool-suggested recovery commands | Require review and an approved sandbox boundary before execution. |
+| Helper process isolation | Ambient OS/IPC privilege leakage from internal helpers | Require transitive least privilege; isolate helper processes and drop unneeded ambient bindings. |
+| AI agent traps | Systemic failure modes across input, tool, memory, scope, delegation/recursion, and authority boundaries | Record and require architectural containment: untrusted-input separation, schema gating, gated memory writes, and step budgets (see `practice_guides/prompt_agent_quality.md`). |
 | Dependencies | Supply-chain compromise, dependency confusion, vulnerable packages, unreviewed binaries | Require explicit dependency-risk review when dependency posture changes. |
 | Browser, MCP, skills, plugins | Expanded tool authority and signed-in browser state | Require explicit integration boundaries and least authority. |
 | Automations | Repeated action, overlap, stale artifacts, no-progress retries | Require deterministic scope, concurrency, timeout, failure, and output controls. |

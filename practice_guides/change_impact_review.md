@@ -18,7 +18,7 @@ For generated or agent-assisted changes, excessive diff size is a reviewability 
 - Begin with the patch or touched files.
 - Widen only when a changed invariant propagates outward.
 - If a generated diff exceeds the project's reviewability threshold, decompose it into atomic, incremental tasks before detailed review.
-- For agent-generated changes, use the diff as a comprehension and feedback surface; request focused changes or split work when the reviewer cannot explain the changed behavior.
+- For agent-generated changes, use the diff as a comprehension and feedback surface; request focused changes or split work when the reviewer cannot explain the changed behavior. For high-consequence, multi-file, or security-sensitive changes authored by an agent or worker team, use a fresh-context adversarial spot check before closeout (see prompt_agent_quality.md).
 
 2. Identify the changed invariants.
 
@@ -40,7 +40,7 @@ For generated or agent-assisted changes, excessive diff size is a reviewability 
 4. Trace the blast radius.
 
 - Follow the invariant until it stops propagating.
-- Escalate to feature-slice or trust-boundary review when the path crosses modules, services, or privilege boundaries.
+- Escalate to feature-slice or trust-boundary review when the path crosses modules, services, or privilege boundaries. In addition to normal review, require explicit human review for changes that cross trust boundaries, alter authentication or permission transitions, touch cryptographic or signing paths, expand external egress, or introduce irreversible state or schema mutations.
 - When the project spans multiple supported operating systems, architectures, hardware classes, browsers, clusters, runtimes, or deployment targets, state which targets the change affects, which targets were verified, and which remain compatible but unverified or unsupported.
 
 5. Hunt for silent break modes.
