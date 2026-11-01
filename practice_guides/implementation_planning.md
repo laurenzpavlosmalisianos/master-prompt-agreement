@@ -45,7 +45,7 @@ Bad:
 
 ## Rules
 
-- Use `task_contract` when scope or acceptance is still unclear.
+- Use `practice_guides/task_contract.md` when scope or acceptance is still unclear.
 - Use `task_orders/ideate.md` when the approach itself is not settled yet.
 - Prefer exact files, surfaces, and commands when known. If not known, say what must be discovered first.
 - Each slice should have one clear objective and one clear proof step.

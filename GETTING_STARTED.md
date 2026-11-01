@@ -143,14 +143,21 @@ Choose the framework reference deliberately and require
 write command. If generated files may be committed, shared, or published, also
 require `--framework-ref <stable-framework-reference>`.
 
-If you maintain a reusable bootstrap profile, pass it only after reviewing it as
-setup input. The profile fills absent reusable fields; confirmed project answers
-replace profile fields atomically. Keep identity, scope, stack, architecture,
-commands, deliverables, and project paths in the project answers. Use the same
-`--setup-profile <profile-json>` in the dry run and approved write command, and review
-each reported applied or overridden value and its source provenance before writing.
-Start from `examples/project_bootstrap_profile.example.json` when you need the
-neutral profile shape. Do not add project facts to that reusable profile.
+If you maintain a reusable bootstrap profile or additive domain/tool packs, pass
+them only after reviewing them as setup input. `--setup-profile` may be repeated
+(for example, `--setup-profile <base-profile.json> --setup-profile <pack-profile.json>`)
+to compose a base operator profile with additive domain or tool-pack overlays:
+line-list defaults merge in declaration order with deduplication; `auxiliary_tools`,
+`workflows`, and `command_restrictions` union by normalized identity; and
+conflicting scalar defaults or conflicting structured entries fail closed. The
+composed profile fills absent reusable fields; confirmed project answers replace
+profile fields atomically. Keep identity, scope, stack, architecture, commands,
+deliverables, and project paths in the project answers. Use the exact same
+`--setup-profile <profile-json>` sequence in the dry run and approved write
+command, and review each reported applied or overridden value, its source
+provenance, and any overlay widening warnings before writing. Start from
+`examples/project_bootstrap_profile.example.json` when you need the neutral
+profile shape. Do not add project facts to a reusable profile.
 
 Resolve every framework script through
 `<framework-checkout-as-visible-to-runner>` inside the retained execution

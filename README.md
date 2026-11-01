@@ -187,9 +187,7 @@ and deeper reference material.
 | [Governance](GOVERNANCE.md) | Change acceptance and versioning |
 | [Security](SECURITY.md) | Threat model, security boundaries, and reporting |
 
-For a visual walkthrough, download or clone the framework and open the
-[local interactive guide](docs/interactive/index.html). GitHub displays that
-HTML file's source; the guide runs locally and remains explanatory.
+For an architectural overview and task flow diagrams, inspect [Framework Movement](docs/concepts.md#framework-movement) in Concepts.
 
 ## License
 

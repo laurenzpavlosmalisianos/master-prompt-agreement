@@ -57,3 +57,4 @@ Use for incidents, suspected compromise, data loss, secret exposure, corrupted s
 - Move up a Risk Level when the task reveals wider blast radius than expected.
 - Move up a Risk Level when the work touches a project Critical Surface, unreviewed generated code, or a boundary the agent cannot fully inspect.
 - Do not move down a Risk Level just to reduce effort.
+- Choosing a lower Risk Level never relaxes any duty under the Operative Charter (`runtime/operative_charter.md`).

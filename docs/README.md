@@ -8,9 +8,8 @@ Choose the path that matches what you want to do:
 | [Update an existing instance](../UPDATING.md) | Inspect, refresh, revise, recover, or restore generated project files. |
 | [Understand the framework](concepts.md) | Learn how project authority, task guidance, state, and evidence fit together. |
 
-For a visual walkthrough, download or clone the framework and open the
-[local interactive guide](interactive/index.html). GitHub displays its HTML
-source rather than running it.
+For a visual walkthrough of the framework movement and architecture, see the
+[lifecycle and task loop flowchart](concepts.md#framework-movement) in Concepts.
 
 ## Root Guides
 
@@ -37,15 +36,9 @@ source rather than running it.
 | [Verification And Quality](verification_and_quality.md) | You need to understand deterministic checks, semantic review, reviewer lanes, and product-quality gates. |
 | [Integration Packaging](../integrations/README.md) | You need the generated Codex, Claude Code, or generic-agent entrypoint and optional integration surfaces. |
 
-## Human-Facing Interactive View
-
-The guide illustrates the same architecture as these chapters. Its
-[source layout and verification notes](interactive/README.md) explain how the
-TypeScript source and checked-in JavaScript stay aligned.
-
 ## Canonical References
 
-These chapters and the interactive view explain the framework; they do not
+These chapters explain the framework; they do not
 create agent instructions. If an explanation conflicts with an owning file,
 follow that file and correct the explanation. Exact command interfaces belong
 to executable help.

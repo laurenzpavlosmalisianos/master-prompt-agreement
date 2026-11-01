@@ -1,4 +1,4 @@
-"""Product-only documentation, conformance, and interactive-guide checks."""
+"""Product-only documentation and conformance checks."""
 
 from __future__ import annotations
 
@@ -310,6 +310,7 @@ class ProductQualityTests(unittest.TestCase):
     def test_product_documented_python_commands_quote_script_paths(self) -> None:
         for relative in product_manifest.PRODUCT_REQUIRED_FILES:
             path = REPO_ROOT / relative
+            self.assertTrue(path.is_file(), f"missing required product file: {relative}")
             if path.suffix not in COMMAND_DOCUMENT_SUFFIXES:
                 continue
             text = path.read_text(encoding="utf-8")
@@ -347,88 +348,6 @@ class ProductQualityTests(unittest.TestCase):
                 if record["subject"] == "framework"
             },
         )
-
-    def test_interactive_guide_has_one_source_and_one_generated_script(self) -> None:
-        interactive = REPO_ROOT / "docs" / "interactive"
-        expected = {
-            "README.md",
-            "generated/app.js",
-            "index.html",
-            "src/app.ts",
-            "styles.css",
-            "tsconfig.json",
-        }
-        observed = {
-            path.relative_to(interactive).as_posix()
-            for path in interactive.rglob("*")
-            if path.is_file() or path.is_symlink()
-        }
-        self.assertEqual(expected, observed)
-
-        html = (interactive / "index.html").read_text(encoding="utf-8")
-        self.assertIn('src="generated/app.js"', html)
-        self.assertIn("Content-Security-Policy", html)
-        self.assertNotIn("createElement", html)
-        for match in re.finditer(r"<svg\b([^>]*)>", html):
-            attributes = match.group(1)
-            self.assertRegex(attributes, r"\bviewBox=")
-            self.assertRegex(attributes, r"\bwidth=")
-            self.assertRegex(attributes, r"\bheight=")
-
-        generated = (interactive / "generated" / "app.js").read_text(
-            encoding="utf-8"
-        )
-        self.assertNotIn("innerHTML", generated)
-        self.assertNotIn("insertAdjacentHTML", generated)
-        self.assertNotIn("createElement", generated)
-
-    def test_interactive_diagram_static_and_enhanced_states_agree(self) -> None:
-        interactive = REPO_ROOT / "docs" / "interactive"
-        html = (interactive / "index.html").read_text(encoding="utf-8")
-        stylesheet = (interactive / "styles.css").read_text(encoding="utf-8")
-        source = (interactive / "src" / "app.ts").read_text(encoding="utf-8")
-
-        active_edges = {
-            (match.group("from"), match.group("to"))
-            for match in re.finditer(
-                r'<path\s+class="diagram-edge active"\s+'
-                r'data-from="(?P<from>[^"]+)"\s+'
-                r'data-to="(?P<to>[^"]+)"',
-                html,
-            )
-        }
-        self.assertEqual(
-            {("context", "recovery"), ("learning", "context")},
-            active_edges,
-        )
-        self.assertIn('id="arrowhead-active"', html)
-        self.assertIn('marker-end: url("#arrowhead-active")', stylesheet)
-        self.assertEqual(1, stylesheet.count("min-width: 47rem"))
-        self.assertNotIn("@media (min-width: 40rem)", stylesheet)
-        controls_match = re.search(r"\.diagram-controls\s*\{(?P<body>[^}]*)\}", stylesheet)
-        self.assertIsNotNone(controls_match)
-        controls_body = controls_match.group("body") if controls_match is not None else ""
-        self.assertRegex(controls_body, r"display:\s*grid;")
-        self.assertRegex(controls_body, r"visibility:\s*hidden;")
-        self.assertRegex(
-            stylesheet,
-            r"\.diagram-controls\.is-enhanced\s*\{[^}]*visibility:\s*visible;",
-        )
-        self.assertIn(
-            "@media (scripting: none) {\n  .diagram-controls {\n    display: none;",
-            stylesheet,
-        )
-        controls_markup = html.split('id="diagram-controls"', 1)[1].split("</div>", 1)[0]
-        self.assertIn('aria-hidden="true"', controls_markup)
-        buttons = re.findall(r"<button\b.*?</button>", controls_markup, re.DOTALL)
-        self.assertEqual(7, len(buttons))
-        for button in buttons:
-            self.assertRegex(button, r"\bdisabled(?:\s|>)")
-        self.assertIn("Diagram controls must cover every node exactly once", source)
-        self.assertIn("setActive(initialButton);", source)
-        self.assertIn("button.disabled = false;", source)
-        self.assertIn('controls.removeAttribute("aria-hidden");', source)
-        self.assertIn('classList.add("is-enhanced")', source)
 
     def test_pyright_targets_product_code_roots(self) -> None:
         config = json.loads((REPO_ROOT / "pyrightconfig.json").read_text(encoding="utf-8"))

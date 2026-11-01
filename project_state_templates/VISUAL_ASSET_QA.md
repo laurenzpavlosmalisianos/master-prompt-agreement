@@ -1,6 +1,6 @@
 # Visual Asset QA
 
-Use this task-local evidence template when a visual deliverable needs durable proof that it rendered correctly. It applies to SVG diagrams, README visuals, charts, screenshots, generated images, HTML pages, PDFs, slide decks, and bounded UI surfaces. Do not load it by default.
+Use this task-local evidence template when a visual deliverable needs durable proof that it rendered correctly. It applies to SVG diagrams, Mermaid diagrams, README visuals, charts, screenshots, generated images, HTML pages, PDFs, slide decks, and bounded UI surfaces. Do not load it by default.
 
 Store a filled copy only in an approved evidence artifact path for the project. Do not store raw account screenshots, personal data, secrets, local absolute paths, browser profile names, transcript dumps, or private account details in this file.
 
@@ -40,7 +40,8 @@ Do not use this record for pure prose edits or trivial unchanged assets.
 - [ ] Arrows, lines, and connectors do not obscure labels or critical content.
 - [ ] Panels, cards, callouts, legends, and axes do not overlap.
 - [ ] Material visual text, chart labels, legends, callouts, OCR text, and transcribed content match the source or rendered artifact.
-- [ ] Contrast meets the task's stated target.
+- [ ] Contrast meets the task's stated target (at minimum WCAG 2.2 Level AA: 4.5:1 for normal text, 3:1 for large text and UI components, unless the task states another target; WCAG 2.2 Level AAA text contrast 7:1 where required).
+- [ ] Meaning does not rely on color alone (non-color cues, labels, symbols, or patterns accompany status and comparisons per WCAG 1.4.1).
 - [ ] Images are non-empty and loaded at non-zero natural dimensions.
 - [ ] Mobile and desktop viewports are checked when the surface is responsive.
 - [ ] Generated bitmap output is inspected for crop, blur, compression, and unreadable-detail defects.
@@ -60,7 +61,8 @@ Use deterministic checks only when they validate a declared contract.
 
 Suitable checks:
 
-- SVG parseability, viewBox presence, and rendered output size
+- SVG and Mermaid syntax validation, parseability, viewBox presence, and rendered output size
+- light and dark theme syntax declarations and asset definitions without hardcoded color conflicts
 - output artifact exists and is non-empty
 - browser image `complete` state and non-zero natural dimensions
 - horizontal overflow at declared responsive widths

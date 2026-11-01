@@ -108,3 +108,42 @@ semantic review, proportional evaluation, and applicable deterministic checks.
 Project names, local paths, logs, transcripts, identities, secrets, proprietary
 details, and one-off local context must not be copied into framework product
 guidance.
+
+## Framework Movement
+
+The ordinary task lifecycle and existing-instance maintenance routes coordinate authority,
+task scoping, verification, and learning:
+
+```mermaid
+flowchart TD
+  subgraph OrdinaryRoute["Ordinary Task Route"]
+    Context["Stage 1: Root Context: Platform Limits & Project Root"]
+    Recovery["Stage 2: Recovery Gate: Transaction Lock & Journal Check"]
+    Contract["Stage 3: Project Contract: AGENT_PROJECT.md & SOW when routed"]
+    Packet["Stage 4: Runtime Packet: Task-Relevant State & Decisions"]
+    Guidance["Stage 5: Specialist Guidance: Task Orders & Practice Guides"]
+    Execution["Stage 6: Evidence & Verification: Deterministic Tests & Checks"]
+    Learning["Stage 7: Learning & Closeout: Semantic Audit & Improvement Candidate"]
+
+    Context --> Recovery
+    Recovery --> Contract
+    Contract --> Packet
+    Packet --> Guidance
+    Guidance --> Execution
+    Execution --> Learning
+    Learning -.->|"Reusable Candidate"| Context
+  end
+
+  subgraph LifecycleRoute["Existing-Instance Lifecycle Routes"]
+    Plan["Plan & Backout Basis: Preimage Verification"]
+    Apply["Approval & Apply: Single-Pass Update"]
+    Acceptance["Acceptance: Exact-Current Verification"]
+    RecoveryGate["Recovery Gate: Exact-ID Action"]
+    Restore["Bounded Restore: Recorded Preimage"]
+
+    Plan --> Apply
+    Apply --> Acceptance
+    Apply -.->|"Interrupted"| RecoveryGate
+    Acceptance -.->|"Postimage Intact"| Restore
+  end
+```
