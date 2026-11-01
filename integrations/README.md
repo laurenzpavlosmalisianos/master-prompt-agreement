@@ -58,7 +58,7 @@ Templates live under `integrations/templates/`.
 
 Directories such as `integrations/templates/codex/skills/project-init/`, `integrations/templates/codex/skills/project-refresh/`, and `integrations/templates/codex/skills/seo/` are template packaging surfaces for optional runtime-native wrappers. They are not generated artifacts and they are not additional source-of-truth content. The canonical methodology remains in `task_orders/` or `practice_guides/`.
 
-The current `SKILL.md` wrappers use the shared Agent Skills package shape, but they remain registered under the Codex family because this repository declares and tests their discovery/rendering behavior only for that family. The package shape is portable; cross-runtime support is claimed only after the corresponding runtime family, discovery path, and verification are added. No workflow doctrine is Codex-owned.
+The current `SKILL.md` wrappers use the portable Agent Skills package shape (`.agents/skills/<name>/SKILL.md`, with relative framework and project-file links rebased from each `.agents/skills/<name>/` skill directory) and are registered under both the `codex` and `generic` families for runtimes that discover `.agents/skills/<name>/SKILL.md` and resolve relative paths from the skill directory without requiring Codex-specific `<codex-goals>` entrypoint markup. No workflow doctrine is Codex-owned.
 
 The integration families, entrypoints, and optional native wrapper paths are registered in `integrations/registry.json` so template updates do not require chasing hardcoded wrapper maps across multiple scripts. Product validation remains executable policy rather than registry data, so the registry stays declarative.
 
@@ -91,7 +91,7 @@ Options:
 - `--contract-root <directory relative to the downstream project root; default .>`
 - `--force`
 
-`--framework-root` is the framework root used for resolving template files and as the default project-root-based framework reference. The renderer writes concrete files to the output directory. Use `--framework-ref` when rendered files will be committed to a shared or public repository, and supply it exactly as the downstream project root resolves it. Root entrypoints retain that reference; nested Codex `SKILL.md` outputs rebase relative framework and project-file references from each skill directory. Do not pre-rebase them. Absolute, home-relative, and environment-based framework references remain anchored. Use `--contract-root` when the project contract and optional surfaces live in a nested project directory; it is always specified relative to the downstream project root.
+`--framework-root` is the framework root used for resolving template files and as the default project-root-based framework reference. The renderer writes concrete files to the output directory. Use `--framework-ref` when rendered files will be committed to a shared or public repository, and supply it exactly as the downstream project root resolves it. Root entrypoints retain that reference; nested Codex and generic `SKILL.md` outputs rebase relative framework and project-file references from each skill directory. Do not pre-rebase them. Absolute, home-relative, and environment-based framework references remain anchored. Use `--contract-root` when the project contract and optional surfaces live in a nested project directory; it is always specified relative to the downstream project root.
 
 ## Using Rendered Outputs
 
@@ -125,8 +125,8 @@ Claude Code:
 Generic filesystem-capable agents:
 
 - Generated entrypoint: `generic/AGENTS.md`
-- Bootstrap installs the generic entrypoint when the runtime reads a repository
-  instruction file but has no dedicated integration family.
+- Generated optional skills: `generic/.agents/skills/<name>/SKILL.md`
+- Bootstrap installs the generic entrypoint (and any selected `.agents/skills/<name>/SKILL.md` Agent Skills wrappers, whose relative links resolve from each `.agents/skills/<name>/` skill directory) when the runtime reads a repository `AGENTS.md` instruction file or discovers portable `.agents/skills/` packages without using the Codex-specific `<codex-goals>` block.
 - For agents that do not auto-load repository instruction files, use this manual load card: read `<framework-ref>/runtime/operative_charter.md`; check the project root for `.mpa-bootstrap-recovery.json`, `.mpa-bootstrap.lock`, and `.mpa-bootstrap-recovery.tmp`; only when all three are absent, read the downstream `AGENT_PROJECT.md` and any configured Scope of Authority, load the selected Task Order, inspect the target project, run `<framework-ref>/scripts/check_prereqs.py` with an already-available stdlib-capable Python command, and use its reported runner for framework scripts. When any control exists, do not read generated project authority or state; use an externally supplied runner for bounded status inspection and exact-ID recovery only when inspection identifies a permitted action, or stop and request direction.
   From the project root, run `<runner> -- "<framework-ref>/scripts/conformance_check.py" --profile core-project --root <project-root> --project-kind downstream --contract-root <contract-root> --strict-warnings` as the routine verification gate. Root `PROJECT_INSTANCE.json` is the single lifecycle receipt; its `project_kind` must be `downstream`, and its `contract_root` identifies the contract root. Do not treat a nested contract as a second lifecycle instance. `<contract-root>` is `.` for an ordinary downstream layout.
   Use `<runner> -- "<framework-ref>/scripts/project_contract_sync.py" <project-root> --project-kind downstream --contract-root <contract-root>` only for focused diagnosis.

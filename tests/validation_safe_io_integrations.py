@@ -1434,6 +1434,18 @@ class SafeIoIntegrationTests(unittest.TestCase):
                 ("codex", "seo"): (
                     integration_registry.WRAPPER_AUTHORITY_CONSUMER_LIFECYCLE
                 ),
+                ("generic", "project_init"): (
+                    integration_registry.WRAPPER_PROJECT_INIT_LIFECYCLE
+                ),
+                ("generic", "project_refresh"): (
+                    integration_registry.WRAPPER_PROJECT_REFRESH_LIFECYCLE
+                ),
+                ("generic", "security_audit"): (
+                    integration_registry.WRAPPER_AUTHORITY_CONSUMER_LIFECYCLE
+                ),
+                ("generic", "seo"): (
+                    integration_registry.WRAPPER_AUTHORITY_CONSUMER_LIFECYCLE
+                ),
             },
             lifecycles,
         )
@@ -1621,6 +1633,88 @@ class SafeIoIntegrationTests(unittest.TestCase):
                     expected_error,
                 ):
                     integration_registry.validate_registry(registry, REPO_ROOT)
+
+    def test_shared_agent_skills_wrappers_enforce_order_independence_and_equivalence(
+        self,
+    ) -> None:
+        source = json.loads(
+            (REPO_ROOT / "integrations" / "registry.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        reversed_registry = {
+            "families": dict(reversed(list(source["families"].items())))
+        }
+        self.assertIs(
+            reversed_registry,
+            integration_registry.validate_registry(reversed_registry, REPO_ROOT),
+        )
+
+        wrapper_ids = integration_registry.wrapper_names("codex", REPO_ROOT)
+        self.assertEqual(
+            wrapper_ids,
+            integration_registry.wrapper_names("generic", REPO_ROOT),
+        )
+        codex_rendered = integration_registry.render_wrapper_outputs(
+            "codex",
+            wrapper_ids,
+            "../framework",
+            "contracts",
+            REPO_ROOT,
+        )
+        generic_rendered = integration_registry.render_wrapper_outputs(
+            "generic",
+            wrapper_ids,
+            "../framework",
+            "contracts",
+            REPO_ROOT,
+        )
+        self.assertEqual(codex_rendered, generic_rendered)
+        for output, text in generic_rendered.items():
+            with self.subTest(output=output):
+                self.assertNotIn("<codex-goals>", text)
+                self.assertNotIn("agents/openai.yaml", text)
+
+        mismatched_id = json.loads(json.dumps(source))
+        mismatched_id["families"]["generic"]["wrappers"]["renamed_seo"] = (
+            mismatched_id["families"]["generic"]["wrappers"].pop("seo")
+        )
+        with self.assertRaisesRegex(
+            ValueError,
+            "duplicates the destination owned by|does not match an identical codex wrapper",
+        ):
+            integration_registry.validate_registry(mismatched_id, REPO_ROOT)
+
+        mismatched_lifecycle = json.loads(json.dumps(source))
+        mismatched_lifecycle["families"]["generic"]["wrappers"][
+            "project_init"
+        ]["lifecycle"] = integration_registry.WRAPPER_PROJECT_REFRESH_LIFECYCLE
+        with self.assertRaisesRegex(
+            ValueError,
+            "duplicates the destination owned by|does not match an identical codex wrapper|but declares lifecycle",
+        ):
+            integration_registry.validate_registry(
+                mismatched_lifecycle,
+                REPO_ROOT,
+            )
+
+        claude_into_codex = json.loads(json.dumps(source))
+        claude_into_codex["families"]["claude-code"]["wrappers"][
+            "security_audit"
+        ]["path"] = "integrations/templates/codex/skills/security-audit/SKILL.md.template"
+        with self.assertRaisesRegex(
+            ValueError,
+            "must stay inside claude-code.template_root",
+        ):
+            integration_registry.validate_registry(claude_into_codex, REPO_ROOT)
+
+        without_codex = json.loads(json.dumps(source))
+        without_codex["families"].pop("codex")
+        with self.assertRaisesRegex(
+            ValueError,
+            "must stay inside generic.template_root",
+        ):
+            integration_registry.validate_registry(without_codex, REPO_ROOT)
 
     def test_registered_renderer_matches_bootstrap_wrapper_outputs_exactly(self) -> None:
         framework_ref = "$FRAMEWORK"

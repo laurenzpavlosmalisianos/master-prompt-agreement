@@ -68,6 +68,8 @@ Give the agent explicit read access to this framework checkout and explicit writ
 | Claude Code | `claude-code` | `CLAUDE.md` |
 | Other filesystem-capable agent | `generic` | `AGENTS.md` |
 
+Use `generic` for any other filesystem-capable agent—including runtimes that auto-discover repository `AGENTS.md` instructions and portable `.agents/skills/<name>/SKILL.md` Agent Skills packages without Codex-specific `<codex-goals>` blocks, as well as runtimes that use the manual load card.
+
 ## Fast Path
 
 Open this repository and an existing target-project root in a
