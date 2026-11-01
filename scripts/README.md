@@ -113,7 +113,7 @@ Shared routing triggers:
 |---|---|
 | [`check_prereqs.py`](check_prereqs.py) | No required arguments. Emits JSON for the exact interpreter, platform capabilities, optional tools, usable runner, and safely quoted command examples. |
 | [`project_contract_model.py`](project_contract_model.py) | `--check` verifies generated schema/blueprints; `--write` regenerates them after a reviewed model change. |
-| [`project_bootstrap.py`](project_bootstrap.py) | First current-format downstream setup. Core flags: `--dry-run`, `--answers`, `--project-root`, `--runtime`, `--framework-ref`, `--framework-revision-policy`, repeatable `--runtime-wrapper`, optional `--setup-profile`, `--contract-root`, `--create-contract-root`, `--project-kind downstream`, and write-only `--approve-write-plan-sha256`. |
+| [`project_bootstrap.py`](project_bootstrap.py) | First current-format downstream setup. Core flags: `--dry-run`, `--answers`, `--project-root`, `--runtime`, `--framework-ref`, `--framework-revision-policy`, repeatable `--runtime-wrapper`, optional repeatable `--setup-profile`, `--contract-root`, `--create-contract-root`, `--project-kind downstream`, and write-only `--approve-write-plan-sha256`. |
 | [`project_refresh.py`](project_refresh.py) | Current-format lifecycle with subcommands `candidate`, `inspect`, `plan`, `preview`, `apply`, `recover`, `backout-create`, `backout-verify`, `backout-recover`, and `backout-restore`. See the command map below. |
 | [`project_contract_sync.py`](project_contract_sync.py) | Validate generated SOW/runtime projection and referenced project files. Supply positional `project_root` plus optional layout flags; `--strict-warnings` promotes warnings. |
 | [`project_instance_lint.py`](project_instance_lint.py) | Validate retained input, the root receipt, managed roots, provenance, and output digests for the selected framework checkout. |
@@ -129,7 +129,7 @@ targeted field lookup is only an orientation aid.
 | Flags | Meaning |
 |---|---|
 | `--dry-run --answers <json> --project-root <root> --project-kind downstream --runtime <id>` | Validate and render the complete plan without writing. |
-| `--setup-profile <json>` | Fill absent reusable defaults; never replace project-specific authority. |
+| `--setup-profile <json>` | Repeatable. Compose reusable defaults in declaration order (merging line lists, unioning structured collections by identity, failing closed on conflicts) and fill absent answer fields without replacing project-specific authority. |
 | `--framework-ref <path>` | Record the stable framework reference visible to the selected runner. |
 | `--framework-revision-policy live|pinned` | Record the chosen revision policy; neither choice fetches or selects a revision. |
 | `--runtime-wrapper <id>` | Repeat for the complete selected wrapper set. |

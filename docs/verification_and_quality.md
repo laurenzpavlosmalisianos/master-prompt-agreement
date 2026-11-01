@@ -296,6 +296,6 @@ Before sharing or adopting a product distribution, verify:
   handling, and acceptance ownership
 - the `framework-product` profile passes
 
-The framework is agent-first. Human-facing documentation and the interactive
-HTML and TypeScript presentation may explain and visualize the system, but they
-must remain downstream of the markdown framework files.
+The framework is agent-first. Human-facing documentation may explain and
+visualize the system, but it must remain downstream of the markdown framework
+files.

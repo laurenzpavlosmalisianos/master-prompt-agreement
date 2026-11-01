@@ -76,8 +76,9 @@ if __name__ == "__main__":
     )
 
 import argparse
-from collections.abc import Iterable, Mapping, Set as AbstractSet
-from dataclasses import dataclass
+from collections.abc import Iterable, Mapping, Sequence, Set as AbstractSet
+import copy
+from dataclasses import dataclass, field as dataclass_field
 from datetime import date
 from datetime import datetime
 from datetime import timezone
@@ -543,6 +544,161 @@ def validate_setup_profile(profile: object) -> list[str]:
         for error in validate_answers(probe)
     )
     return errors
+
+
+def compose_setup_profiles(
+    profiles: Sequence[tuple[str, str, dict]],
+    *,
+    overridden_keys: Iterable[str] = (),
+) -> tuple[
+    dict[str, object],
+    dict[str, list[tuple[str, str]]],
+    list[str],
+    list[tuple[str, str]],
+]:
+    """Compose validated setup profiles in declaration order under fail-closed rules."""
+
+    overridden_key_set = set(overridden_keys)
+    composed: dict[str, object] = {}
+    provenance: dict[str, list[tuple[str, str]]] = {}
+    errors: list[str] = []
+    widened_overlays: list[tuple[str, str]] = []
+    for index, (source, digest, profile) in enumerate(profiles):
+        defaults = profile.get("defaults")
+        if not isinstance(defaults, dict):
+            continue
+        for key, value in defaults.items():
+            if key not in composed:
+                composed[key] = copy.deepcopy(value)
+                provenance[key] = [(source, digest)]
+                if index >= 1 and key in {"acquisition_boundary", "auxiliary_tools"}:
+                    has_entries = (
+                        bool(lines_for(value))
+                        if key == "acquisition_boundary"
+                        else bool(value) if isinstance(value, list) else False
+                    )
+                    if has_entries:
+                        widened_overlays.append((source, key))
+                continue
+            prior = composed[key]
+            spec = contract_model.ANSWER_FIELDS.get(key)
+            contributed = False
+            if spec is not None and spec.kind == "lines":
+                merged = list(lines_for(prior))
+                added = [line for line in lines_for(value) if line not in merged]
+                if added:
+                    merged.extend(added)
+                    composed[key] = merged
+                    contributed = True
+                if index >= 1 and key == "acquisition_boundary" and added:
+                    widened_overlays.append((source, key))
+            elif (
+                key in contract_model.STRUCTURED_IDENTITY_FIELDS
+                and isinstance(prior, list)
+                and isinstance(value, list)
+            ):
+                ident_field = contract_model.STRUCTURED_IDENTITY_FIELDS[key]
+                seen: dict[str, dict] = {}
+                out = [copy.deepcopy(item) for item in prior]
+                for prior_item in out:
+                    if isinstance(prior_item, dict):
+                        raw_ident = prior_item.get(ident_field)
+                        if isinstance(raw_ident, str) and raw_ident.strip():
+                            seen[
+                                contract_model.normalized_contract_identity(
+                                    raw_ident.strip()
+                                )
+                            ] = prior_item
+                added_structured = False
+                for item in value:
+                    if not isinstance(item, dict):
+                        out.append(copy.deepcopy(item))
+                        continue
+                    raw_ident = item.get(ident_field)
+                    if not isinstance(raw_ident, str) or not raw_ident.strip():
+                        out.append(copy.deepcopy(item))
+                        continue
+                    ident = contract_model.normalized_contract_identity(
+                        raw_ident.strip()
+                    )
+                    if ident in seen:
+                        if seen[ident] != item and key not in overridden_key_set:
+                            errors.append(
+                                f"setup profile {source}: {key} entry "
+                                f"{item[ident_field]!r} conflicts with an earlier "
+                                "profile; resolve it in explicit answers"
+                            )
+                        continue
+                    copied_item = copy.deepcopy(item)
+                    seen[ident] = copied_item
+                    out.append(copied_item)
+                    added_structured = True
+                if added_structured:
+                    composed[key] = out
+                    contributed = True
+                if index >= 1 and key == "auxiliary_tools" and added_structured:
+                    widened_overlays.append((source, key))
+            elif prior != value:
+                if key not in overridden_key_set:
+                    errors.append(
+                        f"setup profile {source}: {key} conflicts with an earlier "
+                        "profile; set it in explicit answers"
+                    )
+                continue
+            if contributed and (source, digest) not in provenance[key]:
+                provenance[key].append((source, digest))
+    return (
+        {
+            "schema_version": SETUP_PROFILE_SCHEMA_VERSION,
+            "defaults": composed,
+        },
+        provenance,
+        errors,
+        widened_overlays,
+    )
+
+
+def setup_profile_override_drop_warnings(
+    answers: object,
+    profile: object | None,
+) -> list[str]:
+    """Warn when explicit answers wholesale-replace a setup-profile structured field."""
+
+    if (
+        not isinstance(answers, dict)
+        or not isinstance(profile, dict)
+        or not isinstance(profile.get("defaults"), dict)
+    ):
+        return []
+    defaults = profile["defaults"]
+    warnings: list[str] = []
+    for key, ident_field in sorted(contract_model.STRUCTURED_IDENTITY_FIELDS.items()):
+        if key not in answers or key not in defaults:
+            continue
+        answer_items = answers.get(key)
+        profile_items = defaults.get(key)
+        if not isinstance(answer_items, list) or not isinstance(profile_items, list):
+            continue
+        answer_idents = {
+            contract_model.normalized_contract_identity(item[ident_field].strip())
+            for item in answer_items
+            if isinstance(item, dict)
+            and isinstance(item.get(ident_field), str)
+            and item[ident_field].strip()
+        }
+        for item in profile_items:
+            if not isinstance(item, dict):
+                continue
+            raw_ident = item.get(ident_field)
+            if not isinstance(raw_ident, str) or not raw_ident.strip():
+                continue
+            ident = contract_model.normalized_contract_identity(raw_ident.strip())
+            if ident not in answer_idents:
+                warnings.append(
+                    f"explicit answers key '{key}' replaces setup-profile defaults "
+                    f"wholesale and drops profile entry: {raw_ident.strip()}"
+                )
+    return warnings
 
 
 def apply_setup_profile(
@@ -4600,7 +4756,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--setup-profile",
-        help="Optional JSON setup profile whose allowed defaults fill only answer fields that are absent.",
+        action="append",
+        default=[],
+        help=(
+            "Optional JSON setup profile whose allowed defaults fill only answer "
+            "fields that are absent. Repeat to compose multiple profiles in "
+            "declaration order."
+        ),
     )
     parser.add_argument("--runtime", choices=sorted(ENTRYPOINT_TEMPLATES), help="Target downstream runtime.")
     parser.add_argument(
@@ -4640,7 +4802,7 @@ class BootstrapOptions:
     project_root: str
     project_kind: str
     contract_root: str | None
-    setup_profile: str | None
+    setup_profile: str | Sequence[str] | None
     runtime: str | None
     framework_ref: str | None
     dry_run: bool
@@ -4650,14 +4812,34 @@ class BootstrapOptions:
     approve_write_plan_sha256: tuple[str, ...] = ()
 
 
+def normalized_setup_profile_options(
+    raw_profile: str | Sequence[str] | None,
+) -> tuple[str, ...]:
+    """Return an ordered tuple of setup-profile CLI path strings."""
+
+    if raw_profile is None:
+        return ()
+    if isinstance(raw_profile, str):
+        return (raw_profile,)
+    return tuple(raw_profile)
+
+
 def parse_options(argv: list[str] | None = None) -> BootstrapOptions:
     args = build_parser().parse_args(argv)
+    raw_profiles = tuple(args.setup_profile)
+    setup_profile_opt: str | tuple[str, ...] | None = (
+        None
+        if not raw_profiles
+        else raw_profiles[0]
+        if len(raw_profiles) == 1
+        else raw_profiles
+    )
     return BootstrapOptions(
         answers=args.answers,
         project_root=args.project_root,
         project_kind=args.project_kind,
         contract_root=args.contract_root,
-        setup_profile=args.setup_profile,
+        setup_profile=setup_profile_opt,
         runtime=args.runtime,
         runtime_wrappers=tuple(args.runtime_wrapper),
         framework_ref=args.framework_ref,
@@ -4945,6 +5127,17 @@ def bootstrap_transaction_preflight(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class LoadedSetupProfile:
+    """One loaded setup profile file and its raw content digest."""
+
+    path: Path
+    raw_bytes: bytes | None
+    payload: object | None
+    sha256: str | None
+    source_ref: str | None
+
+
 @dataclass
 class BootstrapInputs:
     options: BootstrapOptions
@@ -4970,6 +5163,12 @@ class BootstrapInputs:
     framework_reference_binding_warnings: list[str]
     input_errors: list[str]
     contract_root_errors: list[str]
+    setup_profiles: tuple[LoadedSetupProfile, ...] = ()
+    profile_provenance: dict[str, list[tuple[str, str]]] = dataclass_field(
+        default_factory=dict
+    )
+    profile_composition_errors: list[str] = dataclass_field(default_factory=list)
+    profile_warnings: list[str] = dataclass_field(default_factory=list)
 
 
 def load_bootstrap_inputs(
@@ -4990,22 +5189,113 @@ def load_bootstrap_inputs(
         options.answers,
         "bootstrap answers file",
     )
-    if options.setup_profile is not None:
+    raw_profile_paths = normalized_setup_profile_options(options.setup_profile)
+    loaded_profiles: list[LoadedSetupProfile] = []
+    seen_profile_paths: set[Path] = set()
+    seen_profile_digests: dict[str, Path] = {}
+    for raw_profile in raw_profile_paths:
         (
-            setup_profile_path,
-            setup_profile_bytes,
-            setup_profile,
-            setup_profile_input_errors,
-        ) = load_json_input(options.setup_profile, "setup profile file")
-        input_errors.extend(setup_profile_input_errors)
-    else:
+            p_path,
+            p_bytes,
+            p_payload,
+            p_errors,
+        ) = load_json_input(raw_profile, "setup profile file")
+        input_errors.extend(p_errors)
+        p_digest = None if p_bytes is None else sha256_bytes(p_bytes)
+        if p_path in seen_profile_paths:
+            input_errors.append(f"duplicate --setup-profile path: {p_path}")
+        else:
+            seen_profile_paths.add(p_path)
+            if p_digest is not None:
+                prior_path = seen_profile_digests.get(p_digest)
+                if prior_path is not None:
+                    input_errors.append(
+                        f"duplicate --setup-profile content digest: {p_path} "
+                        f"duplicates {prior_path}"
+                    )
+                else:
+                    seen_profile_digests[p_digest] = p_path
+        loaded_profiles.append(
+            LoadedSetupProfile(
+                path=p_path,
+                raw_bytes=p_bytes,
+                payload=p_payload,
+                sha256=p_digest,
+                source_ref=project_relative_input_source(p_path, project_root),
+            )
+        )
+    profile_provenance: dict[str, list[tuple[str, str]]] = {}
+    profile_composition_errors: list[str] = []
+    widened_overlays: list[tuple[str, str]] = []
+    if not loaded_profiles:
         setup_profile_path = None
         setup_profile_bytes = None
         setup_profile = None
+    elif len(loaded_profiles) == 1:
+        single = loaded_profiles[0]
+        setup_profile_path = single.path
+        setup_profile_bytes = single.raw_bytes
+        setup_profile = single.payload
+        if (
+            isinstance(single.payload, dict)
+            and isinstance(single.payload.get("defaults"), dict)
+            and single.sha256 is not None
+        ):
+            for key in single.payload["defaults"]:
+                profile_provenance[key] = [(str(single.path), single.sha256)]
+    else:
+        setup_profile_path = loaded_profiles[0].path
+        valid_tuples: list[tuple[str, str, dict]] = []
+        for item in loaded_profiles:
+            if (
+                isinstance(item.payload, dict)
+                and item.sha256 is not None
+                and not validate_setup_profile(item.payload)
+            ):
+                valid_tuples.append((str(item.path), item.sha256, item.payload))
+        if len(valid_tuples) == len(loaded_profiles):
+            overridden_keys = set(answers) if isinstance(answers, dict) else ()
+            (
+                setup_profile,
+                profile_provenance,
+                profile_composition_errors,
+                widened_overlays,
+            ) = compose_setup_profiles(
+                valid_tuples,
+                overridden_keys=overridden_keys,
+            )
+            setup_profile_bytes = json.dumps(
+                [
+                    {"source_path": str(item.path), "sha256": item.sha256}
+                    for item in loaded_profiles
+                ],
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+        else:
+            setup_profile = None
+            setup_profile_bytes = None
     effective_answers, profile_applied, profile_overridden = apply_setup_profile(
         answers,
         setup_profile,
     )
+    profile_warnings: list[str] = []
+    if len(loaded_profiles) > 1:
+        for overlay_source, widened_key in widened_overlays:
+            if widened_key in profile_applied:
+                profile_warnings.append(
+                    f"setup profile overlay {overlay_source} widens {widened_key}; "
+                    "verify the expanded capability or acquisition surface before "
+                    "approving the write plan"
+                )
+    if loaded_profiles:
+        profile_warnings.extend(
+            setup_profile_override_drop_warnings(
+                answers,
+                setup_profile,
+            )
+        )
     input_errors.extend(project_root_errors)
     contract_root, contract_root_ref, contract_root_errors = resolve_contract_root(
         project_root,
@@ -5013,8 +5303,14 @@ def load_bootstrap_inputs(
     )
     answers_source = project_relative_input_source(answers_path, project_root)
     setup_profile_source = (
-        project_relative_input_source(setup_profile_path, project_root)
-        if setup_profile_path is not None
+        None
+        if not loaded_profiles
+        else loaded_profiles[0].source_ref
+        if len(loaded_profiles) == 1
+        else ", ".join(
+            item.source_ref for item in loaded_profiles if item.source_ref is not None
+        )
+        if all(item.source_ref is not None for item in loaded_profiles)
         else None
     )
     raw_framework_ref = (
@@ -5060,6 +5356,10 @@ def load_bootstrap_inputs(
         framework_reference_binding_warnings=framework_reference_binding_warnings,
         input_errors=input_errors,
         contract_root_errors=contract_root_errors,
+        setup_profiles=tuple(loaded_profiles),
+        profile_provenance=profile_provenance,
+        profile_composition_errors=profile_composition_errors,
+        profile_warnings=profile_warnings,
     )
 
 
@@ -5069,8 +5369,19 @@ def bootstrap_validation_errors(inputs: BootstrapInputs) -> list[str]:
     effective_answers = inputs.effective_answers
     errors = list(inputs.input_errors)
     errors.extend(inputs.framework_reference_errors)
-    if inputs.setup_profile is not None:
-        errors.extend(validate_setup_profile(inputs.setup_profile))
+    if len(inputs.setup_profiles) <= 1:
+        if inputs.setup_profile is not None:
+            errors.extend(validate_setup_profile(inputs.setup_profile))
+    else:
+        for item in inputs.setup_profiles:
+            if item.payload is not None:
+                errors.extend(
+                    f"setup profile {item.path}: {error}"
+                    for error in validate_setup_profile(item.payload)
+                )
+        errors.extend(inputs.profile_composition_errors)
+        if not inputs.profile_composition_errors and inputs.setup_profile is not None:
+            errors.extend(validate_setup_profile(inputs.setup_profile))
     if inputs.answers is not None:
         errors.extend(
             validate_answers(
@@ -5222,23 +5533,71 @@ def bootstrap_setup_profile_summary(
     )
     answers = inputs.answers if isinstance(inputs.answers, dict) else {}
     default_values = defaults if isinstance(defaults, dict) else {}
-    return {
-        "applied_fields": inputs.profile_applied,
-        "overridden_fields": inputs.profile_overridden,
-        "applied_values": [
+    if len(inputs.setup_profiles) <= 1:
+        return {
+            "applied_fields": inputs.profile_applied,
+            "overridden_fields": inputs.profile_overridden,
+            "applied_values": [
+                {
+                    "field": field,
+                    "value": default_values[field],
+                    "provenance": {
+                        "kind": "setup-profile-default",
+                        "source_path": str(inputs.setup_profile_path),
+                        "source_sha256": profile_digest,
+                        "source_field": f"defaults.{field}",
+                    },
+                }
+                for field in inputs.profile_applied
+            ],
+            "overridden_values": [
+                {
+                    "field": field,
+                    "profile_value": default_values[field],
+                    "effective_value": answers[field],
+                    "provenance": {
+                        "profile": "setup-profile-default",
+                        "effective": "bootstrap-answers",
+                        "source_path": str(inputs.setup_profile_path),
+                        "source_sha256": profile_digest,
+                        "source_field": f"defaults.{field}",
+                    },
+                }
+                for field in inputs.profile_overridden
+            ],
+            "source_path": str(inputs.setup_profile_path),
+            "sha256": profile_digest,
+        }
+
+    def _multi_field_provenance(field_name: str) -> tuple[str, str, list[str], list[str]]:
+        sources = inputs.profile_provenance.get(field_name, [])
+        paths = [src_path for src_path, _ in sources]
+        digests = [src_sha for _, src_sha in sources]
+        primary_path = paths[-1] if paths else str(inputs.setup_profile_path)
+        primary_sha = digests[-1] if digests else profile_digest
+        return primary_path, primary_sha, paths, digests
+
+    applied_values: list[dict[str, object]] = []
+    for field in inputs.profile_applied:
+        src_path, src_sha, src_paths, src_shas = _multi_field_provenance(field)
+        applied_values.append(
             {
                 "field": field,
                 "value": default_values[field],
                 "provenance": {
                     "kind": "setup-profile-default",
-                    "source_path": str(inputs.setup_profile_path),
-                    "source_sha256": profile_digest,
+                    "source_path": src_path,
+                    "source_paths": src_paths,
+                    "source_sha256": src_sha,
+                    "source_sha256s": src_shas,
                     "source_field": f"defaults.{field}",
                 },
             }
-            for field in inputs.profile_applied
-        ],
-        "overridden_values": [
+        )
+    overridden_values: list[dict[str, object]] = []
+    for field in inputs.profile_overridden:
+        src_path, src_sha, src_paths, src_shas = _multi_field_provenance(field)
+        overridden_values.append(
             {
                 "field": field,
                 "profile_value": default_values[field],
@@ -5246,15 +5605,26 @@ def bootstrap_setup_profile_summary(
                 "provenance": {
                     "profile": "setup-profile-default",
                     "effective": "bootstrap-answers",
-                    "source_path": str(inputs.setup_profile_path),
-                    "source_sha256": profile_digest,
+                    "source_path": src_path,
+                    "source_paths": src_paths,
+                    "source_sha256": src_sha,
+                    "source_sha256s": src_shas,
                     "source_field": f"defaults.{field}",
                 },
             }
-            for field in inputs.profile_overridden
+        )
+    return {
+        "applied_fields": inputs.profile_applied,
+        "overridden_fields": inputs.profile_overridden,
+        "applied_values": applied_values,
+        "overridden_values": overridden_values,
+        "profiles": [
+            {"source_path": str(item.path), "sha256": item.sha256}
+            for item in inputs.setup_profiles
         ],
-        "source_path": str(inputs.setup_profile_path),
-        "sha256": profile_digest,
+        "source_path": str(inputs.setup_profiles[0].path),
+        "sha256": inputs.setup_profiles[0].sha256,
+        "composition_sha256": profile_digest,
     }
 
 
@@ -5426,6 +5796,7 @@ def build_bootstrap_write_plan(
     summary["framework_reference_status"] = inputs.framework_reference_status
     summary_warnings = summary.get("warnings")
     if isinstance(summary_warnings, list):
+        summary_warnings.extend(inputs.profile_warnings)
         summary_warnings.extend(inputs.framework_reference_binding_warnings)
     summary["warnings_sha256"] = bootstrap_warnings_sha256(summary_warnings)
     errors = planned_output_graph_errors(

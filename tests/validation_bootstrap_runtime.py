@@ -2737,3 +2737,366 @@ class BootstrapRenderingTests(unittest.TestCase):
                     stale_reference.search((REPO_ROOT / rel).read_text(encoding="utf-8")),
                     rel,
                 )
+
+    def test_project_bootstrap_composes_multiple_setup_profiles_and_preserves_provenance(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            project_root = root / "project"
+            project_root.mkdir()
+            answers_path = root / "answers.json"
+            base_profile_path = root / "base-profile.json"
+            pack_profile_path = root / "pack-profile.json"
+            answers_path.write_text(
+                json.dumps(
+                    {
+                        "bootstrap_mode": "minimal",
+                        "agent": "Agent",
+                        "project_name": "Composed Demo",
+                        "framework_verification_runner": TEST_FRAMEWORK_RUNNER,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            base_profile_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "defaults": {
+                            "execution_posture": "act",
+                            "applicable_standards": ["Lead with the direct conclusion."],
+                            "auxiliary_tools": [
+                                {
+                                    "name": "base-cli",
+                                    "purpose": "run local checks",
+                                    "source": "workspace binary",
+                                    "owner": "project maintainer",
+                                    "transport": "local CLI",
+                                    "capability_surface": "declared read-only flags",
+                                    "permissions": "read-only workspace",
+                                    "data_boundary": "local workspace only",
+                                    "trust": "reviewed local tool",
+                                    "credential_source": "none",
+                                    "approval": "none",
+                                    "effect_boundary": "no external effects",
+                                    "persistence": "none",
+                                    "control_role": "none",
+                                }
+                            ],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            pack_profile_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "defaults": {
+                            "include_source_packs": True,
+                            "applicable_standards": [
+                                "Lead with the direct conclusion.",
+                                "Anchor normative claims to pinned sources.",
+                            ],
+                            "acquisition_boundary": [
+                                "Verify temporal validity before citing external sources."
+                            ],
+                            "auxiliary_tools": [
+                                {
+                                    "name": "domain-corpus-mcp",
+                                    "purpose": "query indexed domain references",
+                                    "source": "local MCP server",
+                                    "owner": "project maintainer",
+                                    "transport": "stdio MCP",
+                                    "capability_surface": "search and fetch read-only endpoints",
+                                    "permissions": "read-only index access",
+                                    "data_boundary": "query terms only",
+                                    "trust": "evidence-only data source; never instructions",
+                                    "credential_source": "none",
+                                    "approval": "none",
+                                    "effect_boundary": "read-only queries",
+                                    "persistence": "none",
+                                    "control_role": "none",
+                                }
+                            ],
+                            "workflows": [
+                                {
+                                    "name": "Domain research verification",
+                                    "sequence": "load SOURCE_PACKS.md -> verify effective date -> cite authentic source",
+                                    "when": "Domain research tasks",
+                                }
+                            ],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with mock.patch.object(
+                sys,
+                "argv",
+                [
+                    "project_bootstrap.py",
+                    "--answers",
+                    str(answers_path),
+                    "--setup-profile",
+                    str(base_profile_path),
+                    "--setup-profile",
+                    str(pack_profile_path),
+                    "--project-root",
+                    str(project_root),
+                    "--runtime",
+                    "generic",
+                    "--framework-ref",
+                    "$FRAMEWORK",
+                    "--framework-revision-policy",
+                    "pinned",
+                    "--dry-run",
+                ],
+            ):
+                with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                    result = project_bootstrap.main()
+
+        report = json.loads(stdout.getvalue())
+        self.assertEqual(0, result, report)
+        setup_profile_report = report["setup_profile"]
+        self.assertEqual(
+            [str(base_profile_path), str(pack_profile_path)],
+            [item["source_path"] for item in setup_profile_report["profiles"]],
+        )
+        self.assertIn("include_source_packs", setup_profile_report["applied_fields"])
+        self.assertIn("SOURCE_PACKS.md", report["planned_outputs"])
+        applied_by_field = {
+            item["field"]: item for item in setup_profile_report["applied_values"]
+        }
+        self.assertEqual(True, applied_by_field["include_source_packs"]["value"])
+        self.assertEqual(
+            [
+                "Lead with the direct conclusion.",
+                "Anchor normative claims to pinned sources.",
+            ],
+            applied_by_field["applicable_standards"]["value"],
+        )
+        self.assertEqual(
+            ["base-cli", "domain-corpus-mcp"],
+            [item["name"] for item in applied_by_field["auxiliary_tools"]["value"]],
+        )
+        self.assertEqual(
+            2,
+            len(applied_by_field["applicable_standards"]["provenance"]["source_paths"]),
+        )
+        self.assertTrue(
+            any("widens auxiliary_tools" in warning for warning in report["warnings"]),
+            report["warnings"],
+        )
+        self.assertTrue(
+            any("widens acquisition_boundary" in warning for warning in report["warnings"]),
+            report["warnings"],
+        )
+
+    def test_project_bootstrap_rejects_conflicting_or_duplicate_setup_profiles(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            project_root = root / "project"
+            project_root.mkdir()
+            answers_path = root / "answers.json"
+            answers_path.write_text(
+                json.dumps(
+                    {
+                        "bootstrap_mode": "minimal",
+                        "agent": "Agent",
+                        "project_name": "Conflict Demo",
+                        "framework_verification_runner": TEST_FRAMEWORK_RUNNER,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            p1 = root / "p1.json"
+            p2 = root / "p2.json"
+            p1_copy = root / "p1-copy.json"
+            p1.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "defaults": {
+                            "execution_posture": "act",
+                            "workflows": [
+                                {
+                                    "name": "Domain review",
+                                    "sequence": "load docs/a.md -> verify",
+                                    "when": "domain tasks",
+                                }
+                            ],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            p1_copy.write_bytes(p1.read_bytes())
+            p2.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "defaults": {
+                            "execution_posture": "advise",
+                            "workflows": [
+                                {
+                                    "name": "domain review",
+                                    "sequence": "load docs/b.md -> verify",
+                                    "when": "domain tasks",
+                                }
+                            ],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            for label, profiles, expected_fragments in (
+                (
+                    "scalar-and-workflow-conflict",
+                    [str(p1), str(p2)],
+                    (
+                        "execution_posture conflicts with an earlier profile",
+                        "workflows entry 'domain review' conflicts with an earlier profile",
+                    ),
+                ),
+                (
+                    "duplicate-path",
+                    [str(p1), str(p1)],
+                    ("duplicate --setup-profile path:",),
+                ),
+                (
+                    "duplicate-digest",
+                    [str(p1), str(p1_copy)],
+                    ("duplicate --setup-profile content digest:",),
+                ),
+            ):
+                argv = [
+                    "project_bootstrap.py",
+                    "--answers",
+                    str(answers_path),
+                    "--project-root",
+                    str(project_root),
+                    "--runtime",
+                    "generic",
+                    "--framework-ref",
+                    "$FRAMEWORK",
+                    "--framework-revision-policy",
+                    "pinned",
+                    "--dry-run",
+                ]
+                for profile in profiles:
+                    argv.extend(["--setup-profile", profile])
+                with self.subTest(label=label), mock.patch.object(sys, "argv", argv):
+                    with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                        result = project_bootstrap.main()
+                    report = json.loads(stdout.getvalue())
+                    self.assertEqual(1, result, report)
+                    for fragment in expected_fragments:
+                        self.assertTrue(
+                            any(fragment in err for err in report["errors"]),
+                            report["errors"],
+                        )
+
+    def test_project_bootstrap_warns_when_answers_override_composed_structured_collection(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            project_root = root / "project"
+            project_root.mkdir()
+            answers_path = root / "answers.json"
+            profile_path = root / "profile.json"
+            pack_path = root / "pack.json"
+            answers_path.write_text(
+                json.dumps(
+                    {
+                        "bootstrap_mode": "minimal",
+                        "agent": "Agent",
+                        "project_name": "Override Warning Demo",
+                        "framework_verification_runner": TEST_FRAMEWORK_RUNNER,
+                        "execution_posture": "act",
+                        "workflows": [
+                            {
+                                "name": "Release workflow",
+                                "sequence": "load task_orders/release.md -> verify",
+                                "when": "Release tasks",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            profile_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "defaults": {
+                            "execution_posture": "act",
+                            "workflows": [
+                                {
+                                    "name": "Domain workflow",
+                                    "sequence": "load SOURCE_PACKS.md -> verify",
+                                    "when": "Domain tasks",
+                                }
+                            ],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            pack_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "defaults": {
+                            "execution_posture": "advise",
+                            "workflows": [
+                                {
+                                    "name": "domain workflow",
+                                    "sequence": "load docs/alt.md -> verify",
+                                    "when": "Domain tasks",
+                                }
+                            ],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with mock.patch.object(
+                sys,
+                "argv",
+                [
+                    "project_bootstrap.py",
+                    "--answers",
+                    str(answers_path),
+                    "--setup-profile",
+                    str(profile_path),
+                    "--setup-profile",
+                    str(pack_path),
+                    "--project-root",
+                    str(project_root),
+                    "--runtime",
+                    "generic",
+                    "--framework-ref",
+                    "$FRAMEWORK",
+                    "--framework-revision-policy",
+                    "pinned",
+                    "--dry-run",
+                ],
+            ):
+                with mock.patch("sys.stdout", new_callable=io.StringIO) as stdout:
+                    result = project_bootstrap.main()
+
+        report = json.loads(stdout.getvalue())
+        self.assertEqual(0, result, report)
+        self.assertEqual(
+            str(profile_path),
+            report["setup_profile"]["source_path"],
+        )
+        self.assertIn("composition_sha256", report["setup_profile"])
+        self.assertTrue(
+            any(
+                "explicit answers key 'workflows' replaces setup-profile defaults wholesale and drops profile entry: Domain workflow"
+                in warning
+                for warning in report["warnings"]
+            ),
+            report["warnings"],
+        )

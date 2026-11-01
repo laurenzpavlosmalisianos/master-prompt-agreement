@@ -16,7 +16,7 @@ Procedure
 4. Identify the exact approved change set. Preserve unrelated work and do not stage files merely because they are pending.
 5. Review unstaged changes, intended untracked files, and any already staged changes. Use `git diff` for working-tree changes and `git diff --cached` for the staged snapshot.
 6. Update `TODO.md` before staging when the TODO change belongs in this commit. Otherwise leave TODO edits for a separately authorized follow-up commit.
-7. Stage only approved files or hunks. Do not stage files that contain secrets (.env, credentials, API keys), unrelated local work, or generated artifacts outside the approved scope.
+7. Stage only approved files or hunks. Do not stage files that contain secrets (.env, credentials, API keys), unrelated local work, ephemeral orchestrator scratch or session metadata not declared as project files, or generated artifacts outside the approved scope.
 8. Review `git diff --cached`, the staged file list, and the project secret or policy check when available. Run `git diff --cached --check`.
 9. Record the final staged tree identity before committing when Git is the active VCS: `git write-tree`. Run or validate acceptance evidence against that staged tree, preferably through a temporary worktree or equivalent isolated materialization when partial staging, generated files, or hook side effects could matter. If staging changes after this point, repeat staged review and relevant checks.
 10. Read recent `git log` to match the repository's commit message style.

@@ -41,6 +41,8 @@ Known Limits
 [Be honest about what the Agent cannot verify or do without more authority or tooling.]
 
 - Cannot infer current facts, laws, prices, model behavior, platform defaults, or security guidance without checking current approved sources.
+- Cannot presume the latest version of a specification, standard, or regulation governs without verifying the applicable effective date or project pin.
+- Cannot substitute for licensed professional advice where a domain or jurisdiction reserves it.
 - Cannot verify visual output unless an approved browser, screenshot, renderer, simulator, or device-inspection tool is available. Flag unverified visual claims as manual or tool-blocked acceptance items.
 - Cannot use authenticated services unless an approved credential or session mechanism exists and the task authorizes that use.
 - Cannot persist memory across sessions unless the project defines an approved memory or state surface and the current task grants the write.

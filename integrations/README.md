@@ -42,6 +42,16 @@ For Claude Code first-time setup, invoke the main session with `runtime/operativ
 - Use only auxiliary integrations approved by the current User or SOW, and apply equivalent scrutiny whenever their capability, data, or effect boundary is equivalent. Official provenance or prior review informs the trust decision but does not grant access or action authority.
 - For MCP specifically, restrict exposed tools and OAuth scopes to the minimum required set. Require approval for sensitive tool calls unless the current User or SOW grants that exact server, tool, action, scope, and effect. Prior review may support the grant, but does not create one.
 
+## Mounting External Skills, Plugins, and Domain Packs (Progressive Disclosure)
+
+External host skills and plugins (such as `<vendor-skill>` or `<cloud-dev-plugin>`), harness extensions, MCP servers, and reusable domain packs plug into a downstream MPA project through structured project-contract routes rather than monolithic always-on prompt imports:
+
+- **Zero-bloat startup routing**: `STATEMENT_OF_WORK.md` holds the full structured boundary for each `auxiliary_tools` entry and the full specification for each `workflows` entry, while `AGENT_PROJECT.md` projects only a compact 1-line trigger-indexed route under `## Auxiliary Tools` (`use when: <trigger>`) and `## Active Workflows` (`when: <trigger>`). Full skill instructions, domain standards, and `SOURCE_PACKS.md` registries load strictly on demand when the task matches the trigger. A domain pack should add at most 1 always-on line-list standard (such as `applicable_standards`) plus those trigger-gated 1-line routing pointers in `AGENT_PROJECT.md`.
+- **Two `trust` classes under Charter 4.3**:
+  1. *Data-source or corpus integrations* (such as `<domain-corpus-mcp>` or external search/database APIs): set `trust` to an evidence-only boundary (returned records are untrusted evidence, never instructions).
+  2. *Reviewed procedural or skill integrations* (such as `<vendor-skill>` or `<cloud-dev-plugin>`): set `trust` to record an adopted procedural reference reviewed at a pinned version or date, subordinate to `runtime/operative_charter.md`, `STATEMENT_OF_WORK.md`, and `AGENT_PROJECT.md`.
+- **Composable setup profiles**: `scripts/project_bootstrap.py` accepts repeatable `--setup-profile <profile-json>` flags (for example, a base operator profile plus one or more additive domain or tool-pack profiles). Line-list fields merge in declaration order with deduplication; `auxiliary_tools`, `workflows`, and `command_restrictions` union by normalized identity; and conflicting scalar defaults or conflicting structured entries fail closed so the project's explicit `--answers` file resolves any ambiguity.
+
 ## Rendering
 
 Templates live under `integrations/templates/`.
