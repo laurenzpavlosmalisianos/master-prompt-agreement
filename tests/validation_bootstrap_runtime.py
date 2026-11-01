@@ -56,6 +56,68 @@ class BootstrapRenderingTests(unittest.TestCase):
         self.assertIn(
             "task_orders/init.md", outputs[".agents/skills/master-prompt-new-project/SKILL.md"],
         )
+        generic_outputs = project_bootstrap.render_output_files(
+            answers, "generic", "../framework", contract_root_ref="contracts",
+            runtime_wrappers=("project_init", "project_refresh", "security_audit", "seo"),
+        )
+        self.assertNotIn("<codex-goals>", generic_outputs["AGENTS.md"])
+        self.assertIn(
+            "../../../../framework/practice_guides/security_audit.md",
+            generic_outputs[".agents/skills/security-audit/SKILL.md"],
+        )
+        self.assertIn(
+            "../../../contracts/AGENT_PROJECT.md",
+            generic_outputs[".agents/skills/security-audit/SKILL.md"],
+        )
+        self.assertIn(
+            "../../../../framework/practice_guides/seo.md",
+            generic_outputs[".agents/skills/seo/SKILL.md"],
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            project_root = root / "project"
+            project_root.mkdir()
+            answers_path = root / "answers.json"
+            answers_path.write_text(json.dumps(answers), encoding="utf-8")
+            base_argv = [
+                "--answers",
+                str(answers_path),
+                "--project-root",
+                str(project_root),
+                "--runtime",
+                "generic",
+                "--framework-ref",
+                str(REPO_ROOT),
+                "--framework-revision-policy",
+                "live",
+                "--runtime-wrapper",
+                "security_audit",
+                "--runtime-wrapper",
+                "seo",
+            ]
+            with mock.patch("sys.stdout", new_callable=io.StringIO) as preview_out:
+                self.assertEqual(
+                    0,
+                    project_bootstrap.main(["--dry-run", *base_argv]),
+                )
+            preview_payload = json.loads(preview_out.getvalue())
+            with mock.patch("sys.stdout", new_callable=io.StringIO):
+                self.assertEqual(
+                    0,
+                    project_bootstrap.main(
+                        [
+                            *base_argv,
+                            "--approve-write-plan-sha256",
+                            str(preview_payload["write_plan_sha256"]),
+                        ]
+                    ),
+                )
+            self.assertTrue(
+                (project_root / ".agents/skills/security-audit/SKILL.md").is_file()
+            )
+            self.assertTrue(
+                (project_root / ".agents/skills/seo/SKILL.md").is_file()
+            )
 
     def test_nested_literal_payloads_retain_input_and_owned_routes(self) -> None:
         answers = {

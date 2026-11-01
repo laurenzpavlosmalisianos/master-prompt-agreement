@@ -19,11 +19,20 @@ REGISTRY_PATH = REPO_ROOT / "integrations" / "registry.json"
 INTEGRATION_REGISTRY_MAX_BYTES = safe_paths.DEFAULT_JSON_INPUT_MAX_BYTES
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 WRAPPER_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+SKILL_WRAPPER_FAMILIES = frozenset({"codex", "generic"})
+SKILL_WRAPPER_OUTPUT_RE = re.compile(
+    r"^\.agents/skills/(?!.*--)[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?/SKILL\.md$"
+)
 WRAPPER_OUTPUT_PATTERNS = {
-    "codex": re.compile(r"^\.agents/skills/[a-z0-9][a-z0-9-]*/SKILL\.md$"),
-    "claude-code": re.compile(r"^\.claude/agents/[a-z0-9][a-z0-9-]*\.md$"),
+    "codex": SKILL_WRAPPER_OUTPUT_RE,
+    "generic": SKILL_WRAPPER_OUTPUT_RE,
+    "claude-code": re.compile(
+        r"^\.claude/agents/(?!.*--)[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?\.md$"
+    ),
 }
-NATIVE_WRAPPER_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+NATIVE_WRAPPER_NAME_RE = re.compile(
+    r"^(?!.*--)[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$"
+)
 ROOT_KEYS = {"families"}
 FAMILY_KEYS = {"template_root", "entrypoint", "wrappers"}
 ENTRYPOINT_KEYS = {"path", "output", "authority_load_syntax"}
@@ -246,9 +255,9 @@ def render_wrapper_template_text(
     *,
     template_label: str,
 ) -> str:
-    """Render a wrapper from the path base declared by its native runtime."""
+    """Render a wrapper from its family's path base (.agents/skills/<name>/ for codex/generic Agent Skills wrappers; project root otherwise)."""
 
-    if family == "codex":
+    if family in SKILL_WRAPPER_FAMILIES:
         framework_ref = _rebase_project_root_reference_for_output(
             framework_ref,
             output,
@@ -351,6 +360,15 @@ def _wrapper_frontmatter_name(text: str, label: str) -> str:
         raise ValueError(
             f"{label} frontmatter must contain exactly one plain slug name"
         )
+    descriptions = [
+        line.removeprefix("description:").strip()
+        for line in lines[1:closing_index]
+        if line.startswith("description:")
+    ]
+    if len(descriptions) != 1 or not (1 <= len(descriptions[0]) <= 1024):
+        raise ValueError(
+            f"{label} frontmatter must contain exactly one non-empty description of at most 1024 characters"
+        )
     return names[0]
 
 
@@ -366,7 +384,7 @@ def _validate_wrapper_native_identity(
     output_path = Path(output)
     expected = (
         output_path.parent.name
-        if family == "codex"
+        if family in SKILL_WRAPPER_FAMILIES
         else output_path.stem
         if family == "claude-code"
         else None
@@ -623,7 +641,27 @@ def validate_registry(data: object, repo_root: Path) -> dict:
         for entrypoint in [config.get("entrypoint")]
         if isinstance(entrypoint, dict) and isinstance(entrypoint.get("output"), str)
     }
-    wrapper_destination_owners: dict[str, str] = {}
+    wrapper_destination_owners: dict[
+        str, tuple[str, str, str, Path, str, object]
+    ] = {}
+    codex_wrapper_records: dict[Path, tuple[str, str, str, object]] = {}
+    shared_skill_records: list[tuple[str, str, Path, str, str, object]] = []
+    codex_config = data["families"].get("codex")
+    shared_skill_template_root: Path | None = None
+    if isinstance(codex_config, dict) and isinstance(
+        codex_config.get("template_root"), str
+    ):
+        try:
+            shared_skill_template_root = (
+                resolve_repo_path(
+                    repo_root,
+                    codex_config.get("template_root"),
+                    "codex.template_root",
+                )
+                / "skills"
+            )
+        except ValueError:
+            shared_skill_template_root = None
     for family, config in data["families"].items():
         if not isinstance(family, str) or not SLUG_RE.fullmatch(family):
             raise ValueError(f"integration family name must be a slug: {family!r}")
@@ -707,9 +745,20 @@ def validate_registry(data: object, repo_root: Path) -> dict:
                 wrapper_config.get("path"),
                 f"{family}.wrappers.{wrapper}.path",
             )
-            if not wrapper_path.is_relative_to(template_root):
+            in_family_template_root = wrapper_path.is_relative_to(template_root)
+            in_shared_skill_template_root = (
+                family in SKILL_WRAPPER_FAMILIES
+                and shared_skill_template_root is not None
+                and wrapper_path.is_relative_to(shared_skill_template_root)
+            )
+            if not (in_family_template_root or in_shared_skill_template_root):
+                allowed_roots = (
+                    f"{family}.template_root (or codex.template_root/skills for shared Agent Skills)"
+                    if family in SKILL_WRAPPER_FAMILIES and family != "codex"
+                    else f"{family}.template_root"
+                )
                 raise ValueError(
-                    f"{family}.wrappers.{wrapper}.path must stay inside {family}.template_root"
+                    f"{family}.wrappers.{wrapper}.path must stay inside {allowed_roots}"
                 )
             _require_existing_kind(
                 wrapper_path,
@@ -728,7 +777,8 @@ def validate_registry(data: object, repo_root: Path) -> dict:
                     f"{wrapper_path}"
                 )
             wrapper_sources[wrapper_path] = wrapper
-            registered_sources[wrapper_path] = f"{family}.wrappers.{wrapper}.path"
+            if in_family_template_root:
+                registered_sources[wrapper_path] = f"{family}.wrappers.{wrapper}.path"
             wrapper_output = validate_relative_path(
                 wrapper_config.get("repo_output"),
                 f"{family}.wrappers.{wrapper}.repo_output",
@@ -756,7 +806,7 @@ def validate_registry(data: object, repo_root: Path) -> dict:
             if output_pattern is None or not output_pattern.fullmatch(wrapper_output):
                 expected = (
                     ".agents/skills/<skill>/SKILL.md"
-                    if family == "codex"
+                    if family in SKILL_WRAPPER_FAMILIES
                     else ".claude/agents/<agent>.md"
                     if family == "claude-code"
                     else "no repo-scoped wrapper output"
@@ -767,7 +817,7 @@ def validate_registry(data: object, repo_root: Path) -> dict:
                 )
             expected_source_name = (
                 "SKILL.md.template"
-                if family == "codex"
+                if family in SKILL_WRAPPER_FAMILIES
                 else f"{Path(wrapper_output).name}.template"
             )
             if wrapper_path.name != expected_source_name:
@@ -783,13 +833,6 @@ def validate_registry(data: object, repo_root: Path) -> dict:
                 )
             wrapper_outputs[wrapper_output] = wrapper
             owner = f"{family}.wrappers.{wrapper}"
-            previous_owner = wrapper_destination_owners.get(wrapper_output)
-            if previous_owner is not None:
-                raise ValueError(
-                    f"{owner}.repo_output duplicates the destination owned by "
-                    f"{previous_owner}: {wrapper_output}"
-                )
-            wrapper_destination_owners[wrapper_output] = owner
 
             raw_wrapper = safe_paths.read_regular_file_bytes(
                 wrapper_path,
@@ -822,11 +865,80 @@ def validate_registry(data: object, repo_root: Path) -> dict:
             )
             if lifecycle_errors:
                 raise ValueError(f"{owner}: " + "; ".join(lifecycle_errors))
+            if family == "codex":
+                codex_wrapper_records[wrapper_path] = (
+                    wrapper,
+                    wrapper_output,
+                    wrapper_config["lifecycle"],
+                    wrapper_config["authority_precondition"],
+                )
+            elif not in_family_template_root:
+                shared_skill_records.append(
+                    (
+                        owner,
+                        wrapper,
+                        wrapper_path,
+                        wrapper_output,
+                        wrapper_config["lifecycle"],
+                        wrapper_config["authority_precondition"],
+                    )
+                )
+            previous = wrapper_destination_owners.get(wrapper_output)
+            if previous is not None:
+                (
+                    previous_owner,
+                    previous_family,
+                    previous_wrapper_id,
+                    previous_path,
+                    previous_lifecycle,
+                    previous_precondition,
+                ) = previous
+                if not (
+                    family in SKILL_WRAPPER_FAMILIES
+                    and previous_family in SKILL_WRAPPER_FAMILIES
+                    and wrapper == previous_wrapper_id
+                    and wrapper_path == previous_path
+                    and wrapper_config["lifecycle"] == previous_lifecycle
+                    and wrapper_config["authority_precondition"]
+                    == previous_precondition
+                ):
+                    raise ValueError(
+                        f"{owner}.repo_output duplicates the destination owned by "
+                        f"{previous_owner}: {wrapper_output}"
+                    )
+            else:
+                wrapper_destination_owners[wrapper_output] = (
+                    owner,
+                    family,
+                    wrapper,
+                    wrapper_path,
+                    wrapper_config["lifecycle"],
+                    wrapper_config["authority_precondition"],
+                )
         _validate_closed_template_surface(
             template_root,
             registered_sources,
             family,
         )
+    for (
+        owner,
+        wrapper_id,
+        shared_path,
+        wrapper_output,
+        lifecycle,
+        precondition,
+    ) in shared_skill_records:
+        codex_record = codex_wrapper_records.get(shared_path)
+        if codex_record is None or codex_record != (
+            wrapper_id,
+            wrapper_output,
+            lifecycle,
+            precondition,
+        ):
+            raise ValueError(
+                f"{owner} references a shared skill template that does not match "
+                f"an identical codex wrapper registration: {shared_path}"
+            )
     return data
 
 
