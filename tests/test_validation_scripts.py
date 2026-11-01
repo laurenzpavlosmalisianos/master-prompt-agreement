@@ -16,7 +16,9 @@ from tests.validation_product_conformance import ProductConformanceTests
 from tests.validation_product_manifest import ProductManifestTests
 from tests.validation_product_quality import ProductQualityTests
 from tests.validation_project_contract_sync import ProjectContractSyncTests
+from tests.validation_project_contract_sync_deferral import ProjectContractSyncDeferralTests
 from tests.validation_project_refresh import ProjectRefreshLifecycleTests
+from tests.validation_project_refresh_recovery import ProjectRefreshRecoveryTests
 from tests.validation_project_runtime import ProjectStateInstanceContextTests
 from tests.validation_reference_freshness import ReferenceFreshnessTests
 from tests.validation_runtime_compactness import RuntimeCompactnessTests
@@ -45,7 +47,9 @@ _DOMAIN_CASES: tuple[type[unittest.TestCase], ...] = (
     BootstrapTransactionTests,
     ProjectStateInstanceContextTests,
     ProjectContractSyncTests,
+    ProjectContractSyncDeferralTests,
     ProjectRefreshLifecycleTests,
+    ProjectRefreshRecoveryTests,
     RuntimeCompactnessTests,
     SafeIoIntegrationTests,
     SourceChainTests,
