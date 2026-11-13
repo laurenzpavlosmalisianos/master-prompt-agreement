@@ -1,116 +1,27 @@
-# Operating systems
+# OS and editors
 .DS_Store
 Thumbs.db
-
-# Editors and local environment helpers
 *.swp
 *~
 /.vscode/
 /.idea/
-/.zed/
-.direnv/
-.envrc
-
-# Framework-generated root authority, state, receipts, and transaction controls
-# Reusable templates live under project_state_templates/.
-/TODO.md
-/DECISIONS.md
-/FINDINGS.md
-/FRAMEWORK_FEEDBACK.md
-/REVIEWER_LANE_FEEDBACK.md
-/PRECEDENTS.md
-/SOURCE_UPDATE.md
-/SOURCE_PACKS.md
-/SOURCE_MONITOR_RESEARCHER.md
-/SOURCE_DEEP_RESEARCH.md
-/SECURITY_VERIFICATION.md
-/STATEMENT_OF_WORK.md
-/AGENT_PROJECT.md
-/PROJECT_INPUT.json
-/PROJECT_INSTANCE.json
-/.mpa-bootstrap.lock
-/.mpa-bootstrap-recovery.json
-/.mpa-bootstrap-recovery.tmp
-/.mpa-bootstrap-recovery.previous
-**/.mpa-bootstrap-transaction-*/
-/ARBITRATION.md
-/AUTOMATION_ORDERS.json
-/SOUL.md
-/CAPABILITIES.md
-/AUTHORITY.md
-
-# Local agent and runtime state
-/.codex/
-/.claude/
-/.mcp.json
-/.cursor/
-/.continue/
-
-# Secrets and credentials
-.env
-.env.*
-!.env.example
-!.env.template
-*.pem
-*.key
-*.p12
-*.pfx
-*.jks
-*.keystore
-*.kdbx
-id_rsa*
-id_dsa*
-id_ecdsa*
-id_ed25519*
-.netrc
-.npmrc
-.pypirc
-pip.conf
-credentials.json
-token.json
-client_secret*.json
-service-account*.json
-google-credentials*.json
-/.aws/
-/.azure/
-/.gcloud/
-/.kube/
-/secrets/
-/.secrets/
-/vault/
 
 # Python
 __pycache__/
-*.py[cod]
 *.pyc
-*.pyo
-.pytest_cache/
-.ruff_cache/
-.mypy_cache/
-.pyre/
-.pytype/
-.hypothesis/
-.tox/
-.nox/
-.coverage
-.coverage.*
-htmlcov/
-dist/
-build/
-.venv/
-/.venv/
-/venv/
 
-# JavaScript and package-manager caches
-node_modules/
-.npm/
-.pnpm-store/
-.yarn/
-
-# Local working directories and temporary outputs
-/tmp/
-/scratch/
-/local/
+# Working notes and logs
+/TODO.md
 *.log
-*.tmp
-*.bak
+
+# Local agent and runtime state
+/.claude/
+/.codex/
+/.agents/
+/CLAUDE.local.md
+/AGENTS.override.md
+/.mcp.json
+
+# Secrets
+.env
+.env.*

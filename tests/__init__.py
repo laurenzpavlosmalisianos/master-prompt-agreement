@@ -1,1 +1,0 @@
-"""Framework validation test package."""

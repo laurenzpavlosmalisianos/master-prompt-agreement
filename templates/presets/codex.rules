@@ -1,0 +1,107 @@
+# Prompt rules for Codex. Each rule matches an exact command prefix; a flag that follows
+# other arguments is not matched.
+
+prefix_rule(
+    pattern = ["git", "push", ["--force", "-f", "--force-with-lease"]],
+    decision = "prompt",
+    justification = "Force-push replaces remote history.",
+    match = ["git push --force", "git push -f origin main"],
+    not_match = ["git push origin main", "git push origin main --force", "git push origin +main", "git push --force-with-lease=main origin main"],
+)
+prefix_rule(
+    pattern = ["git", "reset", "--hard"],
+    decision = "prompt",
+    justification = "Hard reset discards local changes.",
+    match = ["git reset --hard HEAD~1"],
+    not_match = ["git reset HEAD~1"],
+)
+prefix_rule(
+    pattern = ["git", "clean"],
+    decision = "prompt",
+    justification = "Clean deletes untracked files.",
+    match = ["git clean -fd"],
+)
+prefix_rule(
+    pattern = [["pnpm", "yarn", "bun"], ["add", "remove"]],
+    decision = "prompt",
+    justification = "Changes dependencies.",
+    match = ["pnpm add left-pad", "yarn remove left-pad"],
+    not_match = ["pnpm install"],
+)
+prefix_rule(
+    pattern = ["npm", "uninstall"],
+    decision = "prompt",
+    justification = "Changes dependencies.",
+    match = ["npm uninstall left-pad"],
+    not_match = ["npm install", "npm ci"],
+)
+prefix_rule(
+    pattern = [["uv", "poetry", "cargo"], ["add", "remove", "publish"]],
+    decision = "prompt",
+    justification = "Changes dependencies or publishes a package.",
+    match = ["uv add requests", "cargo publish"],
+    not_match = ["uv sync", "cargo build"],
+)
+prefix_rule(
+    pattern = ["composer", ["require", "remove"]],
+    decision = "prompt",
+    justification = "Changes dependencies.",
+    match = ["composer require vendor/package"],
+    not_match = ["composer install"],
+)
+prefix_rule(
+    pattern = ["go", "get"],
+    decision = "prompt",
+    justification = "Changes dependencies.",
+    match = ["go get example.com/m"],
+    not_match = ["go install ./..."],
+)
+prefix_rule(
+    pattern = [["npm", "pnpm", "yarn", "bun"], "publish"],
+    decision = "prompt",
+    justification = "Publishes a package.",
+    match = ["npm publish"],
+)
+prefix_rule(
+    pattern = ["twine", "upload"],
+    decision = "prompt",
+    justification = "Publishes a package.",
+    match = ["twine upload dist/pkg.whl"],
+)
+prefix_rule(
+    pattern = ["gem", "push"],
+    decision = "prompt",
+    justification = "Publishes a package.",
+    match = ["gem push pkg.gem"],
+)
+prefix_rule(
+    pattern = ["docker", "push"],
+    decision = "prompt",
+    justification = "Publishes an image.",
+    match = ["docker push repo/image"],
+)
+prefix_rule(
+    pattern = ["gh", "release", "create"],
+    decision = "prompt",
+    justification = "Publishes a release.",
+    match = ["gh release create v1"],
+)
+prefix_rule(
+    pattern = ["gh", "pr", ["merge", "comment", "review"]],
+    decision = "prompt",
+    justification = "Writes to a pull request.",
+    match = ["gh pr merge 12"],
+    not_match = ["gh pr view 12"],
+)
+prefix_rule(
+    pattern = ["gh", "issue", ["create", "comment"]],
+    decision = "prompt",
+    justification = "Writes to an issue.",
+    match = ["gh issue comment 3"],
+)
+prefix_rule(
+    pattern = ["gh", "repo", "delete"],
+    decision = "prompt",
+    justification = "Deletes a repository.",
+    match = ["gh repo delete owner/name"],
+)

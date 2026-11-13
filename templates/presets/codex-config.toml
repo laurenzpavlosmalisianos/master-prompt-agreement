@@ -1,0 +1,4 @@
+# Applies only after the project is marked trusted in Codex.
+
+[shell_environment_policy]
+ignore_default_excludes = false

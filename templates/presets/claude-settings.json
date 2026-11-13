@@ -1,0 +1,53 @@
+{
+  "permissions": {
+    "ask": [
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git push * --force*)",
+      "Bash(git push * -f*)",
+      "Bash(git push * +*)",
+      "Bash(git reset --hard*)",
+      "Bash(git clean *)",
+      "Bash(pnpm add *)",
+      "Bash(pnpm remove *)",
+      "Bash(yarn add *)",
+      "Bash(yarn remove *)",
+      "Bash(bun add *)",
+      "Bash(bun remove *)",
+      "Bash(npm uninstall *)",
+      "Bash(uv add *)",
+      "Bash(uv remove *)",
+      "Bash(poetry add *)",
+      "Bash(poetry remove *)",
+      "Bash(cargo add *)",
+      "Bash(cargo remove *)",
+      "Bash(composer require *)",
+      "Bash(composer remove *)",
+      "Bash(go get *)",
+      "Bash(npm publish *)",
+      "Bash(pnpm publish *)",
+      "Bash(yarn publish *)",
+      "Bash(bun publish *)",
+      "Bash(cargo publish *)",
+      "Bash(uv publish *)",
+      "Bash(poetry publish *)",
+      "Bash(twine upload *)",
+      "Bash(gem push *)",
+      "Bash(docker push *)",
+      "Bash(gh release create *)",
+      "Bash(gh pr merge *)",
+      "Bash(gh pr comment *)",
+      "Bash(gh pr review *)",
+      "Bash(gh issue create *)",
+      "Bash(gh issue comment *)",
+      "Bash(gh repo delete *)"
+    ],
+    "deny": [
+      "Read(.env)",
+      "Read(.env.*)",
+      "Read(!.env.example)",
+      "Read(!.env.sample)",
+      "Read(!.env.template)"
+    ]
+  }
+}
