@@ -788,7 +788,13 @@ class ShippedContentTests(unittest.TestCase):
                 match = re.match(r"---\nname: (.+)\ndescription: (.+)\n---\n", data.decode())
                 self.assertIsNotNone(match)
                 self.assertEqual(match.group(1), name)
-                self.assertLessEqual(len(match.group(2).strip("\"'")), 300)
+                description = match.group(2)
+                if description.startswith('"'):
+                    self.assertRegex(description, r'^"(?:[^"\\]|\\.)*"$')
+                else:
+                    # A YAML plain scalar ends at ": " or " #" and cannot start with an indicator.
+                    self.assertNotRegex(description, r"^[-?:,\[\]{}#&*!|>'%@`]|: | #|:$")
+                self.assertLessEqual(len(description.strip("\"'")), 300)
         self.assertLessEqual(total, SKILLS_CAP)
 
     def test_claude_preset_holds_permission_rules(self):

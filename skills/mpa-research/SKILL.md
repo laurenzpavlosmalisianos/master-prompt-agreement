@@ -1,6 +1,6 @@
 ---
 name: mpa-research
-description: Rules for looking up current external facts. Use when the repository and the installed copy cannot settle the answer: a current release, a price, a deprecation, an advisory, or the behaviour of an unpinned external service.
+description: "Rules for looking up current external facts. Use when the repository and the installed copy cannot settle the answer: a current release, a price, a deprecation, an advisory, or the behaviour of an unpinned external service."
 ---
 
 # Research
