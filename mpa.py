@@ -13,12 +13,14 @@ import tempfile
 from pathlib import Path
 from typing import NamedTuple
 
-__version__ = "7.0.0"
+__version__ = "7.1.0"
+# The version of templates/block.md. It changes only when the block text changes.
+BLOCK_VERSION = "7.1.0"
 
 FRAMEWORK_DIR = Path(__file__).resolve().parent
 TEMPLATES = FRAMEWORK_DIR / "templates"
 SKILLS = FRAMEWORK_DIR / "skills"
-VERSION = tuple(int(part) for part in __version__.split("."))
+VERSION = tuple(int(part) for part in BLOCK_VERSION.split("."))
 MAX_READ = 1 << 20
 NOTE_SIZE, MAX_SIZE = 16 << 10, 32 << 10
 MAX_WALK = 2000
@@ -34,9 +36,12 @@ GROUPS = {
     "languages": ("mpa-python", "mpa-javascript-typescript", "mpa-go", "mpa-rust", "mpa-swift",
                   "mpa-php", "mpa-shell"),
 }
+RULES = ".codex/rules/mpa.rules"
+# SHA-256 of the rules file of 7.0.0; update replaces that file without --force.
+RULES_7_0 = "8f98b1d5d1caffe49dff28abb48ab6fd404f7d631d3549a07c73d4884f3780bb"
 # Skill names that update removes from a project without --remove-skill.
 RETIRED = ()
-ADOPTED = ("Commands", "Approvals", "Constraints")
+ADOPTED = ("Commands", "Approvals", "Code latitude", "Constraints")
 BEGIN = "<!-- mpa:begin {} (replaced by mpa.py update; edit outside this block) -->"
 END = "<!-- mpa:end -->"
 BEGIN_RE = re.compile(r"^<!-- mpa:begin (\d{1,4})\.(\d{1,4})\.(\d{1,4}) [^\r\n]*-->\r?$", re.M)
@@ -45,8 +50,11 @@ MARK_RE = re.compile(r"^<!-- mpa:(?:begin|end)\b", re.M)
 H1_RE = re.compile(r"#[ \t]+\S")
 NAME_RE = re.compile(r"mpa-[a-z0-9]+(-[a-z0-9]+)*")
 TITLE_RE = re.compile(r"[A-Za-z0-9 ._-]+")
-GUIDES = ("## Guides\n\nThe `mpa-*` directories in `.agents/skills/` hold task guides. Before work that"
-          " matches a guide's `description` line, read its `SKILL.md`.")
+FENCE_RE = re.compile(r" {0,3}(`{3,}|~{3,})(.*)")
+COMMENT_RE = re.compile(r" {0,3}<!--")
+GUIDES = ("## Guides\n\nTask guides are the `SKILL.md` files in the `mpa-*` directories under `.agents/skills/`."
+          " Each has a `description` line at the top that says when it applies."
+          " Read a guide before work that its description matches.")
 IGNORE_HEAD = "# MPA working notes (local)"
 # Only rev-parse and ls-files run. They read the index and no objects, and they apply no
 # filter, diff driver, or text conversion.
@@ -84,11 +92,12 @@ def target(root, rel, is_dir=False):
     path, parts = root, Path(rel).parts
     for index, part in enumerate(parts):
         path = path / part
-        last = index == len(parts) - 1
+        folder = is_dir or index < len(parts) - 1
         if path.is_symlink():
-            raise Refuse(f"{rel}: {path.relative_to(root)} is a symbolic link")
-        if path.exists() and path.is_file() != (last and not is_dir):
-            raise Refuse(f"{rel}: {path.relative_to(root)} is not a regular {'file' if last else 'directory'}")
+            raise Refuse(f"{rel}: {path.relative_to(root).as_posix()} is a symbolic link")
+        if path.exists() and not (path.is_dir() if folder else path.is_file()):
+            kind = "a directory" if folder else "a regular file"
+            raise Refuse(f"{rel}: {path.relative_to(root).as_posix()} is not {kind}")
     if root not in path.resolve().parents:
         raise Refuse(f"{rel}: outside the project")
     return path
@@ -102,6 +111,15 @@ def read(root, rel):
     if path.stat().st_size > MAX_READ:
         raise Refuse(f"{rel}: larger than 1 MiB")
     return path.read_bytes()
+
+
+def lf(data):
+    """Return data with CRLF line endings turned into LF; None stays None."""
+    return None if data is None else data.replace(b"\r\n", b"\n")
+
+
+def preset_bytes(name):
+    return lf((TEMPLATES / "presets" / name).read_bytes())
 
 
 def decode(data, rel):
@@ -150,17 +168,18 @@ def preflight(root, steps):
 
 
 def git(root, *args):
-    """Return the output of a git command for the work tree that holds root, or None.
+    """Return the output of a git command run in root, or None when root is in no work tree
+    that git accepts.
 
-    The repository is the nearest .git entry at or above root, passed to git by path.
+    git finds the repository itself, so its ownership check, GIT_CEILING_DIRECTORIES, and
+    the filesystem boundary apply.
     """
-    top = next((folder for folder in (root, *root.parents) if (folder / ".git").exists()), None)
-    if top is None:
-        return None
-    command = [*GIT, "--git-dir", str(top / ".git"), "--work-tree", str(top), "-C", str(root), *args]
+    command = [*GIT, "-C", str(root), *args]
+    env = {key: value for key, value in os.environ.items()
+           if key not in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR")}
     try:
         done = subprocess.run(command, capture_output=True, text=True, check=False,
-                              stdin=subprocess.DEVNULL, env={**os.environ, **GIT_ENV})
+                              stdin=subprocess.DEVNULL, env={**env, **GIT_ENV})
     except OSError:
         return None
     return done.stdout if done.returncode == 0 else None
@@ -182,21 +201,36 @@ def newline(text):
     return "\r\n" if "\r\n" in text else "\n"
 
 
-def outline(text):
-    """Return the (offset, title) pairs of the H2 headings outside code fences, and whether
-    the text ends inside a code fence or an HTML comment."""
-    heads, fence, offset = [], "", 0
+def scan(text):
+    """Return the (offset, line, plain) triples of text, and whether it ends inside a code fence
+    or an HTML comment that starts a line. plain is false for the lines of a fence or such a comment."""
+    rows, fence, comment, offset = [], "", False, 0
     for row in text.splitlines(keepends=True):
-        bare = row.strip()
+        bare, plain = row.rstrip("\r\n"), False
+        opener = FENCE_RE.match(bare)
         if fence:
-            if bare.startswith(fence) and not bare.strip(fence[0]):
+            if re.fullmatch(rf" {{0,3}}{fence[0]}{{{len(fence)},}}[ \t]*", bare):
                 fence = ""
-        elif bare.startswith(("```", "~~~")):
-            fence = bare[:3]
-        elif row.startswith("## ") and bare[3:].strip():
-            heads.append((offset, bare[3:].strip()))
+        elif comment:
+            comment = "-->" not in bare
+        elif opener and not (opener[1][0] == "`" and "`" in opener[2]):
+            fence = opener[1]
+        elif COMMENT_RE.match(bare):
+            comment = "-->" not in bare.split("<!--", 1)[1]
+        else:
+            plain = True
+        rows.append((offset, bare, plain))
         offset += len(row)
-    return heads, bool(fence) or text.rfind("<!--") > text.rfind("-->")
+    return rows, bool(fence) or comment
+
+
+def outline(text):
+    """Return the (offset, title) pairs of the H2 headings outside code fences and HTML comments,
+    and whether the text ends inside either."""
+    rows, unclosed = scan(text)
+    heads = [(offset, bare[3:].strip()) for offset, bare, plain in rows
+             if plain and bare.startswith("## ") and bare[3:].strip()]
+    return heads, unclosed
 
 
 def titles(text):
@@ -215,7 +249,7 @@ def section(text, title):
 
 
 def block_text():
-    return f"{BEGIN.format(__version__)}\n{template('block.md').strip()}\n{END}"
+    return f"{BEGIN.format(BLOCK_VERSION)}\n{template('block.md').strip()}\n{END}"
 
 
 def insert_top(text, payload):
@@ -241,13 +275,8 @@ def append_end(text, payload):
 
 
 def has_import(text, line):
-    """Report whether the import line starts a line before the first code fence or HTML comment."""
-    for row in text.lstrip("﻿").splitlines():
-        if row.rstrip() == line:
-            return True
-        if row.lstrip().startswith(("```", "~~~")) or "<!--" in row:
-            return False
-    return False
+    """Report whether a line outside code fences and HTML comments is exactly the import line."""
+    return any(plain and bare.rstrip() == line for _, bare, plain in scan(text.lstrip("\ufeff"))[0])
 
 
 def find_block(text):
@@ -299,7 +328,7 @@ def shipped(name):
     path = SKILLS / name / "SKILL.md"
     if not NAME_RE.fullmatch(name) or not path.is_file():
         raise Usage(f"unknown skill or group: {name}")
-    return path.read_bytes()
+    return lf(path.read_bytes())
 
 
 def shipped_names():
@@ -418,7 +447,7 @@ def plan_agents(root, runtimes, skills):
         parts.append(guides)
     tail = "\n\n".join(parts)
     new, where = insert_top(text, block_text() + ("\n\n" + tail if tail and unclosed else ""))
-    detail = f"managed block {__version__} {where}"
+    detail = f"managed block {BLOCK_VERSION} {where}"
     if tail:
         if not unclosed:
             new = append_end(new, tail)
@@ -491,26 +520,50 @@ def merge_settings(doc, preset):
     return added, withheld
 
 
-def command_glob(rule):
-    """Return the command pattern of a Bash permission rule, or None for another rule."""
+def command_globs(rule):
+    """Return the command patterns of a Bash permission rule; none for another rule.
+
+    A trailing ":*" is the older spelling of " *". A trailing " *" that is the only
+    wildcard also matches the command without arguments.
+    """
     if rule == "Bash":
-        return "*"
-    if isinstance(rule, str) and rule.startswith("Bash(") and rule.endswith(")"):
-        return rule[5:-1].replace(":*", " *")
-    return None
+        return ["*"]
+    if not (isinstance(rule, str) and rule.startswith("Bash(") and rule.endswith(")")):
+        return []
+    glob = rule[5:-1]
+    if glob.endswith(":*"):
+        glob = glob[:-2] + " *"
+    return [glob, glob[:-2]] if glob.endswith(" *") and glob.count("*") == 1 else [glob]
+
+
+def globs_meet(one, two):
+    """Report whether some string matches both patterns; * is the only wildcard."""
+    seen, todo = set(), [(0, 0)]
+    while todo:
+        i, j = todo.pop()
+        if (i, j) in seen:
+            continue
+        seen.add((i, j))
+        if i == len(one) and j == len(two):
+            return True
+        a, b = one[i:i + 1], two[j:j + 1]
+        if a == "*":
+            todo += [(i + 1, j)] + ([(i, j + 1)] if b else [])
+        if b == "*":
+            todo += [(i, j + 1)] + ([(i + 1, j)] if a else [])
+        if a and a == b and a != "*":
+            todo.append((i + 1, j + 1))
+    return False
 
 
 def overlap(first, second):
     """Report whether two Bash permission rules can match the same command."""
-    one, two = command_glob(first), command_glob(second)
-    if one is None or two is None:
-        return False
-    return fnmatch.fnmatchcase(one.replace("*", "x"), two) or fnmatch.fnmatchcase(two.replace("*", "x"), one)
+    return any(globs_meet(one, two) for one in command_globs(first) for two in command_globs(second))
 
 
 def plan_claude_preset(root):
     rel = ".claude/settings.json"
-    preset = (TEMPLATES / "presets/claude-settings.json").read_bytes()
+    preset = preset_bytes("claude-settings.json")
     current = read(root, rel)
     if current is None:
         return [Step("create", rel, "", preset)]
@@ -546,13 +599,15 @@ def plan_claude_preset(root):
 def plan_presets(root, runtimes):
     steps = plan_claude_preset(root) if "claude" in runtimes else []
     if "codex" in runtimes:
-        for rel, name in ((".codex/config.toml", "codex-config.toml"), (".codex/rules/mpa.rules", "codex.rules")):
-            preset = (TEMPLATES / "presets" / name).read_bytes()
+        for rel, name in ((".codex/config.toml", "codex-config.toml"), (RULES, "codex.rules")):
+            preset = preset_bytes(name)
             current = read(root, rel)
             if current is None:
                 steps.append(Step("create", rel, "", preset))
-            elif current == preset:
+            elif lf(current) == preset:
                 steps.append(Step("keep", rel, "identical"))
+            elif rel == RULES:
+                steps.append(Step("keep", rel, "differs from the shipped rules; run update"))
             else:
                 steps.append(Step("keep", rel, "exists; add the content by hand", None, preset.decode()))
     return steps
@@ -593,7 +648,7 @@ def plan_init(root, runtimes, skills, preset, state):
             current = read(root, path)
             if current is None:
                 steps.append(Step("create", path, "", shipped(name)))
-            elif current == shipped(name):
+            elif lf(current) == shipped(name):
                 steps.append(Step("keep", path, "identical"))
             else:
                 conflicts.append(path)
@@ -609,7 +664,8 @@ def plan_init(root, runtimes, skills, preset, state):
         verb = "keeps its" if len(existing) == 1 else "keep their"
         steps.append(Step("note", f"{' and '.join(existing)} {verb} existing text. This script does not review it."))
     if len(agents) > NOTE_SIZE:
-        steps.append(Step("note", "AGENTS.md exceeds 16 KiB. Codex stops reading instruction files at 32 KiB by default."))
+        steps.append(Step("note", "AGENTS.md exceeds 16 KiB. Antigravity truncates a rule file at 24,000 bytes,"
+                                  " and Codex stops reading instruction files at 32 KiB by default."))
     if (root / "AGENTS.override.md").exists():
         steps.append(Step("note", "AGENTS.override.md exists. Codex reads it in place of AGENTS.md in this directory."))
     if claude and (root / "CLAUDE.local.md").exists():
@@ -626,7 +682,7 @@ def plan_block(text, force):
     old, new = text[start:end].replace("\r\n", "\n"), block_text()
     label = ".".join(map(str, version))
     if version > VERSION:
-        raise Refuse(f"block version {label} is newer than {__version__}; use a newer checkout."
+        raise Refuse(f"block version {label} is newer than {BLOCK_VERSION}; use a newer checkout."
                      f" The block in AGENTS.md reads:\n{indent(old)}")
     if old == new:
         return None
@@ -635,7 +691,7 @@ def plan_block(text, force):
         raise Refuse(f"the managed block holds headings that the shipped block lacks ({', '.join(foreign)})."
                      " update replaces everything between the markers; move that text out of the block"
                      " or pass --force")
-    detail = (f"managed block {label} -> {__version__}; {count(len(old.splitlines()), 'line')}"
+    detail = (f"managed block {label} -> {BLOCK_VERSION}; {count(len(old.splitlines()), 'line')}"
               f" replaced by {len(new.splitlines())}")
     return Step("replace", "AGENTS.md", detail, (text[:start] + new.replace("\n", newline(text)) + text[end:]).encode())
 
@@ -674,10 +730,16 @@ def plan_update(root, add, remove, runtimes, force):
                                           " mpa- prefix."))
             else:
                 current = read(root, rel + "SKILL.md")
-                if current != shipped(name):
+                if lf(current) != shipped(name):
                     verb = "create" if current is None else "replace"
                     steps.append(Step(verb, rel + "SKILL.md", "", shipped(name)))
             guided = guided or folder == SKILL_DIRS["generic"]
+    rules = lf(read(root, RULES))
+    if rules is not None and rules != preset_bytes("codex.rules"):
+        if hashlib.sha256(rules).hexdigest() != RULES_7_0 and not force and not rules.startswith(b"# Managed by mpa.py"):
+            raise Refuse(f"{RULES} holds project edits; move them to another .rules file in that directory,"
+                         " or pass --force")
+        steps.append(Step("replace", RULES, "", preset_bytes("codex.rules")))
     current = text if first is None else first.data.decode()
     if "generic" in runtimes and guided and "Guides" not in titles(current):
         new, where = add_guides(current)
@@ -710,8 +772,8 @@ def guard(root, steps):
     if loose:
         return ("git does not track these files, so it cannot restore them: " + ", ".join(loose)
                 + "; commit them or pass --force")
-    changed = [rel for rel in paths
-               if len(index[rel]) != 1 or blob_id(read(root, rel), len(index[rel][0])) != index[rel][0]]
+    changed = [rel for rel in paths if len(index[rel]) != 1 or index[rel][0] not in
+               {blob_id(data, len(index[rel][0])) for data in (read(root, rel), lf(read(root, rel)))}]
     if changed:
         return ("these files have unstaged changes: " + ", ".join(changed)
                 + "; stage or commit them or pass --force")
@@ -734,15 +796,16 @@ def check_agents(root, errors, notes):
         errors.append("AGENTS.md: text other than one H1 line precedes the managed block")
     label = ".".join(map(str, version))
     if version < VERSION:
-        errors.append(f"AGENTS.md: block version {label} is older than {__version__}; run update")
+        errors.append(f"AGENTS.md: block version {label} is older than {BLOCK_VERSION}; run update")
     elif version > VERSION:
-        errors.append(f"AGENTS.md: block version {label} is newer than {__version__}; use a newer checkout")
+        errors.append(f"AGENTS.md: block version {label} is newer than {BLOCK_VERSION}; use a newer checkout")
     elif text[start:end].replace("\r\n", "\n") != block_text():
         errors.append("AGENTS.md: managed block differs from the shipped text; run update")
     if len(data) > MAX_SIZE:
         errors.append("AGENTS.md is larger than 32 KiB; Codex stops reading instruction files at that size by default")
     elif len(data) > NOTE_SIZE:
-        notes.append("AGENTS.md is larger than 16 KiB")
+        notes.append("AGENTS.md is larger than 16 KiB; Antigravity truncates a rule file at 24,000 bytes,"
+                     " and Codex stops reading at 32 KiB by default")
     if "Approvals" not in titles(text):
         notes.append("AGENTS.md has no ## Approvals heading")
     rows = set(text.replace("\r\n", "\n").split("\n"))
@@ -757,9 +820,17 @@ def check_agents(root, errors, notes):
 
 
 def check_claude(root, errors, notes):
-    rel, line, data, _ = claude_file(root)
+    rel, line, data, linked = claude_file(root)
+    if data is None and not linked:
+        tail = "; init --runtime claude adds the import"
+        if (root / "CLAUDE.local.md").exists():
+            notes.append("CLAUDE.local.md exists and no CLAUDE.md imports AGENTS.md;"
+                         " Claude Code then does not read AGENTS.md" + tail)
+        elif installed(root, SKILL_DIRS["claude"]) or (root / ".claude/settings.json").exists():
+            notes.append("no CLAUDE.md imports AGENTS.md; Claude Code before 2.1.277, or with a CLAUDE.md"
+                         " in a directory above, does not read AGENTS.md" + tail)
     if data is not None and not has_import(decode(data, rel), line):
-        errors.append(f"{rel}: no line that is exactly {line} before the first code fence or HTML comment")
+        errors.append(f"{rel}: no line that is exactly {line} outside code fences and HTML comments")
 
 
 def check_skills(root, errors, notes):
@@ -773,17 +844,13 @@ def check_skills(root, errors, notes):
             extra = other_files(root, rel)
             if extra:
                 errors.append(f"{rel} holds files other than SKILL.md: {', '.join(extra)}")
-            if read(root, rel + "SKILL.md") != shipped(name):
+            if lf(read(root, rel + "SKILL.md")) != shipped(name):
                 errors.append(f"{rel}SKILL.md differs from the shipped text; run update")
-    agents = read(root, "AGENTS.md")
-    alone = installed(root, SKILL_DIRS["generic"]) and not installed(root, SKILL_DIRS["claude"])
-    if alone and agents is not None and "Guides" not in titles(decode(agents, "AGENTS.md")):
-        notes.append("AGENTS.md has no ## Guides heading; a tool that does not load skills needs the section to find"
-                     " the guides in .agents/skills, and init --runtime generic adds it")
 
 
 def check_settings(root, errors, notes):
-    watched = ["AGENTS.md", *(rel for rel, _ in IMPORTS)]
+    rel, _, data, linked = claude_file(root)
+    watched = ["AGENTS.md", *([rel] if data is not None or linked else [])]
     for rel in (".claude/settings.json", ".claude/settings.local.json"):
         data = read(root, rel)
         if data is None:
@@ -797,7 +864,7 @@ def check_settings(root, errors, notes):
             if not isinstance(pattern, str) or len(pattern) > 500:
                 continue
             hit = [name for name in watched
-                   if fnmatch.fnmatchcase(name, pattern) or fnmatch.fnmatchcase(str(root / name), pattern)]
+                   if fnmatch.fnmatchcase(name, pattern) or fnmatch.fnmatchcase((root / name).as_posix(), pattern)]
             if hit:
                 errors.append(f"{rel}: claudeMdExcludes entry {pattern} covers {hit[0]}")
 
@@ -824,13 +891,17 @@ def check_surfaces(root, errors, notes):
         notes.append("CLAUDE.local.md exists; Claude Code loads it together with CLAUDE.md")
     if (root / ".claude/rules").exists():
         notes.append(".claude/rules exists; Claude Code loads the rule files in it")
+    rules = read(root, RULES)
+    if rules is not None and lf(rules) != preset_bytes("codex.rules"):
+        errors.append(f"{RULES} differs from the shipped rules; run update")
     config = read(root, ".codex/config.toml")
-    if config is not None and config != (TEMPLATES / "presets/codex-config.toml").read_bytes():
+    if config is not None and lf(config) != preset_bytes("codex-config.toml"):
         notes.append(".codex/config.toml differs from the preset; Codex applies it in a trusted project")
     nested, stopped = nested_files(root)
     if nested:
         more = f" and {len(nested) - 5} more" if len(nested) > 5 else ""
-        notes.append(f"instruction files in subdirectories load there as well: {', '.join(nested[:5])}{more}")
+        notes.append("Codex reads an AGENTS.md in a subdirectory, and Claude Code reads it only through a CLAUDE.md"
+                     f" beside it: {', '.join(nested[:5])}{more}")
     if stopped:
         notes.append(f"the scan for instruction files in subdirectories stopped after {MAX_WALK} directories")
 
@@ -848,6 +919,9 @@ def cmd_init(root, args):
     runtimes = select_runtimes(args.runtime, required=True)
     steps = plan_init(root, runtimes, select_skills(args.skills), args.preset, args.state)
     preflight(root, steps)
+    for item in [item for item in steps if item.verb in ("insert", "merge", "append")]:
+        if guard(root, [item._replace(verb="replace")]):
+            steps.append(Step("note", f"{item.rel} is not committed; git cannot restore the old text"))
     show(steps)
     if not pending(steps):
         print("nothing to do")
@@ -877,7 +951,7 @@ def cmd_update(root, args):
         print("dry run: nothing changed; add --write to apply")
     else:
         print(f"applied: {count(apply(root, steps), 'change')}")
-        if git(root, "rev-parse", "--is-inside-work-tree") is not None:
+        if git(root, "rev-parse", "--is-inside-work-tree") == "true\n":
             print("review with: git status and git diff")
     if kept:
         print(f"not removed: {', '.join(kept)}; delete the files other than SKILL.md and run update again",
@@ -918,7 +992,7 @@ def main(argv=None):
     init.add_argument("--state", default="local", choices=("local", "tracked", "none"),
                       help="TODO.md: local adds it to .gitignore, tracked leaves .gitignore alone, none creates no file")
     init.add_argument("--write", action="store_true", help="apply the plan; without it the plan is printed and nothing changes")
-    update = commands.add_parser("update", help="replace the managed block and the installed mpa-* skills")
+    update = commands.add_parser("update", help="replace the managed block, the installed mpa-* skills, and .codex/rules/mpa.rules")
     update.add_argument("project", metavar="PROJECT", help="project directory")
     update.add_argument("--add-skill", action="extend", nargs="+", default=[], metavar="NAME",
                         help="install more skills, by skill name")

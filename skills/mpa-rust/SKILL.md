@@ -15,8 +15,8 @@ description: Checks for Cargo manifests, unsafe Rust, and operating-system bound
 
 - A safe API must not let any type-correct caller cause undefined behaviour. Tests and Miri support soundness but do not prove it.
 - For each `unsafe` block, function, trait, or impl, write down what must hold (aliasing, provenance, initialization, alignment, layout, drop, unwind, thread safety) and who upholds it.
-- Prefer `OnceLock`, `LazyLock`, or atomics to `static mut`. `env::set_var` and `remove_var` are unsafe while other threads run.
-- For uninitialized, packed, or foreign-owned storage, project with raw pointers (`&raw const`, `&raw mut`). Creating a reference asserts validity that the storage may not have.
+- Prefer `OnceLock`, `LazyLock` (1.80), or atomics to `static mut`. `env::set_var` and `remove_var` are unsafe while other threads run.
+- For uninitialized, packed, or foreign-owned storage, project with raw pointers (`&raw const`, `&raw mut`, 1.82). Creating a reference asserts validity that the storage may not have.
 - Run Miri when unsafe code changes, and report the paths it could not execute.
 - Report a memory-safety bug as confirmed only with a safe caller that reaches it or an executable witness. Otherwise label it a hypothesis.
 - Memory allocated by a foreign library is freed by that library's allocator.

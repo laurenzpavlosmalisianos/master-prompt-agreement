@@ -1,10 +1,13 @@
 """Tests for mpa.py and the shipped files."""
 
+import ast
 import contextlib
+import hashlib
 import io
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -20,9 +23,11 @@ import mpa
 
 PRESET = mpa.TEMPLATES / "presets/claude-settings.json"
 # Largest size in bytes of the files that load into every session, and of the skills.
-CAPS = {"templates/block.md": 1400, "templates/AGENTS.template.md": 1700}
+CAPS = {"templates/block.md": 1650, "templates/AGENTS.template.md": 1700}
 SKILL_CAP, SKILLS_CAP = 5000, 85000
 BOM = "﻿"
+# Change together with BLOCK_VERSION in mpa.py whenever templates/block.md changes.
+BLOCK_SHA256 = "c876e31ef6ccaf56afc5b6538d6de796d686dd2cd667d9b6e40a58a7fe156673"
 
 
 def run(*argv):
@@ -172,7 +177,7 @@ class InitTests(ProjectCase):
         self.assertEqual(result[:start], "# Title\n\n")
         self.assertTrue(result[end:].startswith("\n\nPreamble text.\n\n## Approvals\n\nAsk before deploys.\n\n## Style\n\nTabs.\n\n"))
         heads = [title for _, title in mpa.outline(result)[0]]
-        self.assertEqual(heads[-4:], ["Approvals", "Style", "Commands", "Constraints"])
+        self.assertEqual(heads[-5:], ["Approvals", "Style", "Commands", "Code latitude", "Constraints"])
         self.assert_clean()
 
     def test_adoption_without_title_puts_block_first(self):
@@ -183,7 +188,7 @@ class InitTests(ProjectCase):
         self.assertEqual(mpa.find_block(result)[0], 0)
         self.assertIn("\n\n" + original + "\n## Commands\n", result)
         heads = [title for _, title in mpa.outline(result)[0]]
-        self.assertEqual(heads[-4:], ["Commands", "Approvals", "Constraints", "Guides"])
+        self.assertEqual(heads[-5:], ["Commands", "Approvals", "Code latitude", "Constraints", "Guides"])
         self.assert_clean()
 
     def test_adoption_keeps_bytes_of_a_file_with_unclosed_fence(self):
@@ -223,6 +228,47 @@ class InitTests(ProjectCase):
         for text in ("    @AGENTS.md\n", "```\n@AGENTS.md\n```\n", "<!--\n@AGENTS.md\n-->\n", "see @AGENTS.md\n"):
             self.assertFalse(mpa.has_import(text, "@AGENTS.md"), text)
 
+    def test_import_is_found_after_fences_and_comments(self):
+        for text in ("# T <!-- c -->\n\n@AGENTS.md\n", "```\ncode\n```\n@AGENTS.md\n",
+                     "Use `<!--` markers\n@AGENTS.md\n", "<!-- a -->\n@AGENTS.md\n"):
+            self.assertTrue(mpa.has_import(text, "@AGENTS.md"), text)
+        for text in ("````\n```\n@AGENTS.md\n````\n", "```\n  ```py\n@AGENTS.md\n```\n",
+                     "```\n    ```\n@AGENTS.md\n```\n"):
+            self.assertFalse(mpa.has_import(text, "@AGENTS.md"), text)
+
+    def test_headings_inside_comments_are_not_sections(self):
+        heads, unclosed = mpa.outline("<!--\n## Approvals\n-->\n## Commands\n")
+        self.assertEqual([title for _, title in heads], ["Commands"])
+        self.assertFalse(unclosed)
+        self.assertTrue(mpa.outline("## A\n<!-- open\n")[1])
+
+    def test_import_after_a_title_comment_is_added_once(self):
+        self.put("CLAUDE.md", "# T <!-- c -->\n\nText.\n")
+        self.init("--runtime", "claude")
+        self.init("--runtime", "claude")
+        self.assertEqual((self.dir / "CLAUDE.md").read_text().count("@AGENTS.md"), 1)
+
+    def test_init_notes_existing_files_that_git_cannot_restore(self):
+        self.put("AGENTS.md", "# T\n")
+        text = self.init("--skills=none")[1]
+        self.assertRegex(text, r"note +AGENTS.md is not committed; git cannot restore the old text")
+
+    def test_init_does_not_note_committed_files(self):
+        self.put("AGENTS.md", "# T\n")
+        self.git("init", "-q")
+        self.git("add", ".")
+        self.git("commit", "-q", "-m", "setup")
+        self.assertNotIn("not committed", self.init("--skills=none")[1])
+
+    def test_excludes_are_checked_against_the_active_claude_file_only(self):
+        self.init("--runtime", "codex", "--skills=none")
+        self.put(".claude/settings.local.json", json.dumps({"claudeMdExcludes": ["CLAUDE.md"]}))
+        self.assertNotIn("claudeMdExcludes", self.check()[1])
+
+    def test_wrong_file_types_are_named(self):
+        self.put("AGENTS.md/x", "x\n")
+        self.assertIn("AGENTS.md is not a regular file", self.assert_refused())
+
     def test_claude_file_linked_to_agents_file_is_accepted(self):
         (self.dir / "CLAUDE.md").symlink_to("AGENTS.md")
         for runtime in ("codex", "claude"):
@@ -260,6 +306,13 @@ class InitTests(ProjectCase):
 
     def test_settings_merge_names_allow_rules_that_now_prompt(self):
         self.assertTrue(mpa.overlap("Bash(git push *)", "Bash(git push --force*)"))
+        for first, second, expected in (("Bash(git push origin *)", "Bash(git push * --force*)", True),
+                                        ("Bash(git pull *)", "Bash(git push * --force*)", False),
+                                        ("Bash(npm publish)", "Bash(npm publish *)", True),
+                                        ("Bash(git:* push)", "Bash(git push *)", False),
+                                        ("Bash(* --help *)", "Bash(npm --help)", False),
+                                        ("Bash", "Bash(gh pr create *)", True)):
+            self.assertEqual(mpa.overlap(first, second), expected, (first, second))
         self.assertTrue(mpa.overlap("Bash(npm publish --dry-run)", "Bash(npm publish *)"))
         self.assertFalse(mpa.overlap("Bash(ls *)", "Bash(npm publish *)"))
         self.assertFalse(mpa.overlap("Read(.env)", "Bash(npm publish *)"))
@@ -654,6 +707,78 @@ class GitTests(ProjectCase):
         self.assertTrue(marker.exists())
 
 
+class LineEndingTests(ProjectCase):
+    def test_crlf_files_pass_check_and_update(self):
+        self.init("--preset")
+        for rel in (".agents/skills/mpa-review/SKILL.md", ".codex/rules/mpa.rules", ".codex/config.toml"):
+            path = self.dir / rel
+            path.write_bytes(path.read_bytes().replace(b"\n", b"\r\n"))
+        self.assert_clean()
+        self.assertIn("up to date", run("update", self.dir)[1])
+
+    def test_autocrlf_checkout_passes_the_guard(self):
+        self.init("--skills=none")
+        self.git("init", "-q")
+        self.git("config", "core.autocrlf", "true")
+        self.git("add", ".")
+        self.git("commit", "-q", "-m", "setup")
+        data = self.agents.read_bytes().replace(b"\n", b"\r\n").replace(mpa.BLOCK_VERSION.encode(), b"6.9.0")
+        self.agents.write_bytes(data)
+        self.git("add", ".")
+        code, text = run("update", self.dir, "--write")
+        self.assertEqual(code, 0, text)
+        self.assertIn(b"\r\n", self.agents.read_bytes())
+
+
+class RulesTests(ProjectCase):
+    def setUp(self):
+        super().setUp()
+        self.init("--preset", "--runtime", "codex")
+        self.rules = self.dir / ".codex/rules/mpa.rules"
+
+    def test_update_replaces_an_old_shipped_rules_file(self):
+        self.rules.write_bytes(b"# Managed by mpa.py update.\nold\n")
+        self.assertIn(".codex/rules/mpa.rules differs from the shipped rules", self.check()[1])
+        self.assertIn("differs from the shipped rules; run update", run("init", self.dir, "--preset", "--runtime", "codex")[1])
+        self.git("init", "-q")
+        self.git("add", "-f", ".")
+        self.git("commit", "-q", "-m", "setup")
+        code, text = run("update", self.dir, "--write")
+        self.assertEqual(code, 0, text)
+        self.assertEqual(self.rules.read_bytes(), mpa.preset_bytes("codex.rules"))
+        self.assert_clean()
+
+    def test_update_refuses_project_edits_without_force(self):
+        self.rules.write_text("prefix_rule(pattern = ['make'], decision = 'prompt')\n")
+        self.assertIn("holds project edits", self.assert_refused("update"))
+        self.assertEqual(run("update", self.dir, "--write", "--force")[0], 0)
+
+    def test_the_rules_file_of_7_0_is_replaced_without_force(self):
+        self.rules.write_bytes(b"seven\r\n")
+        with mock.patch.object(mpa, "RULES_7_0", hashlib.sha256(b"seven\n").hexdigest()):
+            code, text = run("update", self.dir)
+        self.assertEqual(code, 0, text)
+        self.assertRegex(text, r"replace +\.codex/rules/mpa.rules")
+
+
+class GitDiscoveryTests(ProjectCase):
+    def test_git_finds_the_repository_and_respects_its_limits(self):
+        quiet = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull}
+        patch = mock.patch.dict(os.environ, quiet)
+        patch.start()
+        self.addCleanup(patch.stop)
+        self.git("init", "-q")
+        sub = self.dir / "sub"
+        sub.mkdir()
+        self.assertEqual(mpa.git(sub, "rev-parse", "--is-inside-work-tree"), "true\n")
+        with mock.patch.dict(os.environ, {"GIT_CEILING_DIRECTORIES": str(self.dir)}):
+            self.assertIsNone(mpa.git(sub, "rev-parse", "--is-inside-work-tree"))
+        with mock.patch.dict(os.environ, {"GIT_TEST_ASSUME_DIFFERENT_OWNER": "1"}):
+            self.assertIsNone(mpa.git(self.dir, "rev-parse", "--is-inside-work-tree"))
+        with mock.patch.dict(os.environ, {"GIT_DIR": str(self.tmp / "elsewhere")}):
+            self.assertEqual(mpa.git(sub, "rev-parse", "--is-inside-work-tree"), "true\n")
+
+
 class CheckTests(ProjectCase):
     def setUp(self):
         super().setUp()
@@ -701,15 +826,17 @@ class CheckTests(ProjectCase):
         self.put(".codex/config.toml", "model = 'x'\n")
         code, text = self.check()
         self.assertEqual(code, 0, text)
-        for part in ("CLAUDE.local.md", ".claude/rules", ".codex/config.toml", "well: pkg/AGENTS.md\n"):
+        for part in ("CLAUDE.local.md", ".claude/rules", ".codex/config.toml", "beside it: pkg/AGENTS.md\n"):
             self.assertIn(part, text)
 
-    def test_guides_note_needs_skills_that_only_the_generic_directory_holds(self):
-        self.assertNotIn("Guides", self.check()[1])
-        shutil.rmtree(self.dir / ".claude/skills")
-        self.assertRegex(self.check()[1], r"note +AGENTS.md has no ## Guides heading")
-        self.init("--runtime", "generic")
-        self.assertNotIn("Guides", self.check()[1])
+    def test_missing_claude_file_is_a_note_where_claude_code_is_set_up(self):
+        (self.dir / "CLAUDE.md").unlink()
+        self.assertRegex(self.check()[1], r"note +no CLAUDE.md imports AGENTS.md; Claude Code before 2.1.277")
+        self.put("CLAUDE.local.md", "x\n")
+        self.assertRegex(self.check()[1], r"note +CLAUDE.local.md exists and no CLAUDE.md imports AGENTS.md")
+        (self.dir / "CLAUDE.local.md").unlink()
+        shutil.rmtree(self.dir / ".claude")
+        self.assertNotIn("imports AGENTS.md", self.check()[1])
 
     def test_unedited_placeholder_comments_are_counted(self):
         self.assertRegex(self.check()[1], r"note +AGENTS.md: 3 placeholder comments from the template are unedited")
@@ -724,7 +851,7 @@ class CheckTests(ProjectCase):
         self.assertNotIn("stopped", self.check()[1])
         with mock.patch.object(mpa, "MAX_WALK", 2):
             text = self.check()[1]
-        self.assertIn("well: a/AGENTS.md\n", text)
+        self.assertIn("beside it: a/AGENTS.md\n", text)
         self.assertRegex(text, r"note +the scan for instruction files in subdirectories stopped after 2 directories")
 
     def test_empty_command_lines_are_counted(self):
@@ -755,12 +882,23 @@ class ShippedContentTests(unittest.TestCase):
     def test_always_loaded_files_stay_within_caps(self):
         for rel, cap in CAPS.items():
             with self.subTest(rel):
-                self.assertLessEqual((ROOT / rel).stat().st_size, cap)
+                self.assertLessEqual(len(mpa.lf((ROOT / rel).read_bytes())), cap)
 
     def test_block_is_a_short_list_without_capitalised_lines(self):
         body = mpa.template("block.md").splitlines()
         self.assertLessEqual(len([row for row in body if row.startswith("- ")]), 4)
         self.assertFalse([row for row in body if row.isupper()])
+
+    def test_block_version_changes_with_the_block(self):
+        digest = hashlib.sha256(mpa.lf((ROOT / "templates/block.md").read_bytes())).hexdigest()
+        self.assertEqual(digest, BLOCK_SHA256, "templates/block.md changed: raise BLOCK_VERSION and BLOCK_SHA256")
+
+    def test_a_tool_release_alone_leaves_the_block_current(self):
+        with tempfile.TemporaryDirectory() as empty:
+            run("init", empty, "--write", "--skills=none")
+            with mock.patch.object(mpa, "__version__", "99.0.0"):
+                code, text = run("check", empty)
+            self.assertEqual(code, 0, text)
 
     def test_readme_shows_the_block(self):
         self.assertIn(mpa.template("block.md").strip(), (ROOT / "README.md").read_text(encoding="utf-8"))
@@ -782,7 +920,7 @@ class ShippedContentTests(unittest.TestCase):
         for name in names:
             with self.subTest(name):
                 self.assertEqual([p.name for p in (mpa.SKILLS / name).iterdir()], ["SKILL.md"])
-                data = (mpa.SKILLS / name / "SKILL.md").read_bytes()
+                data = mpa.shipped(name)
                 total += len(data)
                 self.assertLessEqual(len(data), SKILL_CAP)
                 match = re.match(r"---\nname: (.+)\ndescription: (.+)\n---\n", data.decode())
@@ -815,9 +953,31 @@ class ShippedContentTests(unittest.TestCase):
                 self.assertIn(f'"{words[0]}"', patterns)
                 self.assertIn(f'"{words[1]}"', patterns)
         for command in ("pnpm add", "uv add", "cargo add", "npm uninstall", "pnpm remove", "uv remove",
-                        "npm publish", "twine upload", "docker push", "gh pr merge", "gh release create"):
+                        "npm publish", "twine upload", "docker push", "gh pr merge", "gh release create",
+                        "pip uninstall", "gh pr create", "gh gist create", "gh release delete", "gh secret set",
+                        "gh workflow run"):
             self.assertIn(f"Bash({command} *)", ask)
+        for rule in ("git push --delete*", "git push * --delete*", "git push -d*", "git push * -d*", "git push * :*"):
+            self.assertIn(f"Bash({rule})", ask)
         self.assertNotIn('"install"', patterns)
+
+    def test_codex_rule_examples_agree_with_their_patterns(self):
+        tree_ = ast.parse(PRESET.with_name("codex.rules").read_text())
+        calls = [node.value for node in tree_.body if isinstance(node, ast.Expr)]
+        self.assertTrue(calls)
+        for call in calls:
+            rule = {item.arg: ast.literal_eval(item.value) for item in call.keywords}
+            pattern = [part if isinstance(part, list) else [part] for part in rule["pattern"]]
+
+            def matches(command):
+                words = shlex.split(command)
+                return len(words) >= len(pattern) and all(word in part for word, part in zip(words, pattern))
+            with self.subTest(rule["pattern"]):
+                self.assertTrue(rule.get("match"))
+                for command in rule["match"]:
+                    self.assertTrue(matches(command), command)
+                for command in rule.get("not_match", []):
+                    self.assertFalse(matches(command), command)
 
     def test_codex_config_parses(self):
         try:

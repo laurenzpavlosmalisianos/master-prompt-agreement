@@ -1,3 +1,4 @@
+# Managed by mpa.py update. Put project rules in another .rules file in this directory.
 # Prompt rules for Codex. Each rule matches an exact command prefix; a flag that follows
 # other arguments is not matched.
 
@@ -7,6 +8,13 @@ prefix_rule(
     justification = "Force-push replaces remote history.",
     match = ["git push --force", "git push -f origin main"],
     not_match = ["git push origin main", "git push origin main --force", "git push origin +main", "git push --force-with-lease=main origin main"],
+)
+prefix_rule(
+    pattern = ["git", "push", ["--delete", "-d"]],
+    decision = "prompt",
+    justification = "Deletes a remote branch or tag.",
+    match = ["git push --delete origin topic", "git push -d origin v1"],
+    not_match = ["git push origin topic"],
 )
 prefix_rule(
     pattern = ["git", "reset", "--hard"],
@@ -34,6 +42,13 @@ prefix_rule(
     justification = "Changes dependencies.",
     match = ["npm uninstall left-pad"],
     not_match = ["npm install", "npm ci"],
+)
+prefix_rule(
+    pattern = ["pip", "uninstall"],
+    decision = "prompt",
+    justification = "Changes dependencies.",
+    match = ["pip uninstall requests"],
+    not_match = ["pip install -r requirements.txt"],
 )
 prefix_rule(
     pattern = [["uv", "poetry", "cargo"], ["add", "remove", "publish"]],
@@ -81,16 +96,17 @@ prefix_rule(
     match = ["docker push repo/image"],
 )
 prefix_rule(
-    pattern = ["gh", "release", "create"],
+    pattern = ["gh", "release", ["create", "delete"]],
     decision = "prompt",
-    justification = "Publishes a release.",
-    match = ["gh release create v1"],
+    justification = "Publishes or deletes a release.",
+    match = ["gh release create v1", "gh release delete v1"],
+    not_match = ["gh release view v1"],
 )
 prefix_rule(
-    pattern = ["gh", "pr", ["merge", "comment", "review"]],
+    pattern = ["gh", "pr", ["create", "merge", "comment", "review"]],
     decision = "prompt",
     justification = "Writes to a pull request.",
-    match = ["gh pr merge 12"],
+    match = ["gh pr create --fill", "gh pr merge 12"],
     not_match = ["gh pr view 12"],
 )
 prefix_rule(
@@ -104,4 +120,25 @@ prefix_rule(
     decision = "prompt",
     justification = "Deletes a repository.",
     match = ["gh repo delete owner/name"],
+)
+prefix_rule(
+    pattern = ["gh", "gist", "create"],
+    decision = "prompt",
+    justification = "Publishes a gist.",
+    match = ["gh gist create notes.md"],
+    not_match = ["gh gist list"],
+)
+prefix_rule(
+    pattern = ["gh", "secret", "set"],
+    decision = "prompt",
+    justification = "Changes a repository secret.",
+    match = ["gh secret set TOKEN"],
+    not_match = ["gh secret list"],
+)
+prefix_rule(
+    pattern = ["gh", "workflow", "run"],
+    decision = "prompt",
+    justification = "Starts a workflow that runs with the repository's secrets.",
+    match = ["gh workflow run release.yml"],
+    not_match = ["gh workflow list"],
 )

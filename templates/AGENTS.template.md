@@ -18,15 +18,15 @@
 ## Approvals
 
 Ask first:
-- pushing to the default branch, force-pushing, or rewriting pushed history
-- deleting files or data that this task did not create
+- pushing, or rewriting pushed history
+- deleting files or data, or discarding uncommitted changes, that this task did not create
 - adding, removing, or upgrading a dependency
-- anything that takes effect outside this repository: deploying, publishing a package or release, posting to issue trackers, pull requests, or chat on the user's behalf, changing accounts or paid services
-- changing agent instruction or permission files (`AGENTS.md`, `CLAUDE.md`, `.claude/`, `.codex/`, skills) or CI workflows
+- anything that takes effect outside this repository: deploying, publishing a package or release, posting to issue trackers, pull requests, or chat on the user's behalf, sending code or data to an external service, changing accounts or paid services
+- changing agent instruction or permission files (such as `AGENTS.md`, `CLAUDE.md`, `.claude/`, `.codex/`, `.agents/`, `.mcp.json`) or CI workflows
+- committing when the request did not ask for a commit
 
 No approval needed:
-- reading, creating, and editing other files in this repository, and running the commands listed under Commands
-- committing locally when the request asks for a commit
+- reading, creating, and editing other files in this repository, and running tests, linters, builds, and other commands that change nothing outside it except temporary and cache files
 
 ## Code latitude
 

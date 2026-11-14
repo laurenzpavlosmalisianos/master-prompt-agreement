@@ -14,9 +14,9 @@ MAX_READ = 1 << 20
 MAX_LINE = 4000
 MESSAGE = "commit message"
 HOSTS = {"code.claude.com", "platform.claude.com", "learn.chatgpt.com", "developers.openai.com",
-         "agents.md", "agentskills.io"}
+         "agents.md", "agentskills.io", "antigravity.google", "geminicli.com"}
 STATE_NAMES = ("TODO.md", "*.log", "CLAUDE.local.md", "AGENTS.override.md")
-STATE_DIRS = (".claude", ".codex", ".agents")
+STATE_DIRS = (".claude", ".codex", ".agents", ".gemini", ".agent")
 LOCAL_ADDRESSES = ("127.0.0.1", "0.0.0.0")
 LINK = re.compile(r"http(s?)://([^/\s\"'`<>)\]]*)", re.I)
 IPV4 = re.compile(r"(?<![\w.=-])(?<!version )\d{1,3}(?:\.\d{1,3}){3}(?![\w.-])", re.I)

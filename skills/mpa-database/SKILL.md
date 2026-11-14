@@ -22,7 +22,7 @@ Dialect, isolation, planner, and collation behaviour differ by engine and versio
 
 ## Queries
 
-- Parameters cannot carry identifiers. A dynamic table, column, sort direction, operator, or JSON path is chosen from a server-side allowlist and quoted with the engine's identifier quoting.
+- Parameters cannot carry identifiers or SQL keywords. A dynamic table, column, sort direction, operator, or JSON path is chosen from a server-side allowlist; quote table and column names with the engine's identifier quoting.
 - Model-generated SQL is untrusted input. Run it through a read-only, least-privilege path with an allowlist of statement types, no multi-statement input, and time and row limits. Bind any write approval to the exact statement.
 - A query that parses, plans, or executes has not been shown to be authorized or correctly scoped.
 - `EXPLAIN ANALYZE` executes the statement. Run it on mutating SQL only inside a transaction that is rolled back or on a disposable database, and confirm for the engine whether a given `EXPLAIN` form executes.

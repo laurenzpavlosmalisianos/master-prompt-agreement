@@ -7,7 +7,7 @@
 - Check the repository's own `AGENTS.md`: `uv run --no-project python -E -S -B mpa.py check .`
 - Try the tool: `uv run --no-project python -E -S -B mpa.py init <empty-dir>`
 
-Python 3.10 or newer, standard library only. Run Python with `-B`. Without `uv`, `python3 -B -m unittest discover -s tests` runs the tests too.
+Python 3.10 or newer, standard library only. Run Python with `-B`. Without `uv`, `python3 -B -m unittest discover -s tests` runs the tests too. Before a release, run the tests on Python 3.10 as well: `uv run --no-project --python 3.10 python -E -S -B -m unittest discover -s tests`.
 
 ## Hygiene
 

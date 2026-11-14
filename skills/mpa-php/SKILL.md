@@ -7,10 +7,10 @@ description: Security checks for PHP and Laravel. Use when changing code that co
 
 ## PHP
 
-- Use strict comparison at security boundaries: `===`, and `in_array($v, $allowed, true)`. Loose comparison treats `"0e1" == "0"` as true, which breaks token and allowlist checks.
+- Compare secrets (tokens, MACs, digests) with `hash_equals()`. For other checks at a security boundary use strict comparison: `===`, and `in_array($v, $allowed, true)`. Loose comparison treats `"0e1" == "0"` as true.
 - Do not pass untrusted input to `unserialize()`, even with `allowed_classes => false`; parser bugs stay reachable. Use `json_decode` with `JSON_THROW_ON_ERROR` and a depth limit.
 - Reject stream wrappers (`phar://`, `php://filter`, `data://`, `expect://`) in paths a user can influence. Before PHP 8.0 any filesystem call on a `phar://` path unserializes its metadata; from 8.0 `Phar::getMetadata()` still does.
-- Resolve with `realpath()` and check containment before use. `open_basedir` is a backstop.
+- Resolve with `realpath()`, check containment, and open the resolved path. `open_basedir` is a backstop.
 - Run processes with `proc_open` and an argument array, and keep user-influenced arguments away from `.bat` and `.cmd` files on Windows (see the `mpa-secure-coding` skill).
 - Long-lived workers (FrankenPHP, RoadRunner, Swoole, Octane) keep statics and singletons alive between requests. Reset request state and recycle workers after a bounded number of requests.
 - Keep `post_max_size` well below `memory_limit`, so that request parsing cannot exhaust memory before application code runs.
