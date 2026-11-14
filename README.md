@@ -4,7 +4,7 @@ A short working agreement for AI coding agents, a set of task guides, and option
 
 It gives a team that uses coding agents one committed place for the rules an agent cannot read from the code: which actions need a yes, which commands to run, and which checks apply to risky work such as migrations, releases, and dependency changes.
 
-It works with Claude Code, Codex, and other tools that read `AGENTS.md`.
+It works with Claude Code, Codex, Antigravity, and other tools that read `AGENTS.md`.
 
 ## What gets installed
 
@@ -22,6 +22,7 @@ All of it is plain text inside the project. A teammate's clone or a cloud sessio
 flowchart LR
     claude(["Claude Code"])
     codex(["Codex"])
+    antigravity(["Antigravity"])
     other(["Other tools"])
 
     subgraph project["Files in the project"]
@@ -36,9 +37,11 @@ flowchart LR
     claude --> claudemd
     claudemd -->|imports| agents
     codex --> agents
+    antigravity --> agents
     other --> agents
     claude -.-> claudeskills
     codex -.-> agentskills
+    antigravity -.-> agentskills
     other -.->|Guides section| agentskills
     claude -->|permission rules| settings
     codex -->|permission rules| codexdir
@@ -139,6 +142,6 @@ Delete the marked block and any `## Guides` section from `AGENTS.md`, the `mpa-*
 
 ## Names and licence
 
-"Agreement" is the name of a set of instructions, not a contract. Claude, Claude Code, Codex, and GitHub are names of their owners' products and are used only to identify compatible tools.
+"Agreement" is the name of a set of instructions, not a contract. Claude and Claude Code are products of Anthropic, Codex of OpenAI, Antigravity of Google, and GitHub of GitHub, Inc. Their names are used only to identify compatible tools; this project is not affiliated with or endorsed by any of them.
 
 Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
