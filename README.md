@@ -39,9 +39,9 @@ flowchart LR
     codex --> agents
     antigravity --> agents
     other --> agents
-    claude -.-> claudeskills
-    codex -.-> agentskills
-    antigravity -.-> agentskills
+    claude -.->|skills| claudeskills
+    codex -.->|skills| agentskills
+    antigravity -.->|skills| agentskills
     other -.->|Guides section| agentskills
     claude -->|permission rules| settings
     codex -->|permission rules| codexdir
