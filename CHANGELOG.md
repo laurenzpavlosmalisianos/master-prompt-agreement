@@ -1,5 +1,24 @@
 # Changelog
 
+## 7.2.0 - 2026-11-16
+
+The block is unchanged. Run `mpa.py update` to install the revised skills; until then `check` reports them as different from the shipped text.
+
+### Added
+
+- `mpa-agent-instructions`: check that a skill loaded before rewriting it; compare with a run without the skill or instruction and remove text that does not improve on it; measure a cost cut with task success and count helper and judge calls; enable only the tools and servers the project uses; promote a pattern from chats or traces only after it recurs across tasks; remove notes the repository no longer matches.
+- `mpa-security-audit`: hardening notes, with no severity, for a missing extra safeguard behind a control that already stops the attack.
+
+### Changed
+
+- `mpa-security-audit`: weakening a control ranks below bypassing the same boundary; permitted actions affecting only the actor are not exploitability.
+- `mpa-agent-instructions`: every grader, not only a model-based judge, is calibrated against known-good and known-bad outputs.
+- `mpa-web-frontend`: a purely additive feature may drop out unsupported, and needed behaviour gets a tested fallback; origin trials, flagged features, and relying on a single-engine feature need approval; a clean automated audit is not conformance; shorter wording elsewhere.
+
+### Removed
+
+- `mpa-web-frontend`: the unversioned claim that `target="_blank"` implies `noopener`.
+
 ## 7.1.0 - 2026-11-14
 
 The block text changes. Run `mpa.py update` once in each installed project; until then `check` reports the block as older. In a project whose Approvals section lists only pushes to the default branch, a push of another branch now needs a yes; add a line under "No approval needed" to allow it.

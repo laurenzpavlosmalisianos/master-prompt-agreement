@@ -30,6 +30,7 @@ No approval needed: reading and editing files in this repository, and running th
 
 - Python 3.10 or newer, standard library only. Run Python with `-B`.
 - Product files hold no project-specific facts, local paths, credentials, or personal data.
+- Product files hold original text only; outside sources contribute general methods and facts, not wording or structure.
 - Documentation, comments, and test names are in the present tense and describe what the software does. `CONTRIBUTING.md` covers commit messages.
 - Links appear only in `docs/runtimes.md`, and only to the official documentation of the technology the text covers.
 - Working notes, task lists, and logs stay outside the repository.

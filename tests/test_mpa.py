@@ -107,7 +107,7 @@ class InitTests(ProjectCase):
         self.assertEqual(set(files), expected)
         lines = files["AGENTS.md"].decode().split("\n")
         self.assertEqual(lines[0], "# project")
-        self.assertTrue(lines[2].startswith(f"<!-- mpa:begin {mpa.__version__} "))
+        self.assertTrue(lines[2].startswith(f"<!-- mpa:begin {mpa.BLOCK_VERSION} "))
         self.assertEqual(files["CLAUDE.md"], b"@AGENTS.md\n")
         self.assertIn("check: 0 errors", self.check()[1])
 
@@ -158,7 +158,7 @@ class InitTests(ProjectCase):
 
     def test_block_of_another_version_is_left_to_update(self):
         self.init()
-        self.agents.write_text(self.agents.read_text().replace(mpa.__version__, "6.9.0"))
+        self.agents.write_text(self.agents.read_text().replace(mpa.BLOCK_VERSION, "6.9.0"))
         self.assertIn("update", self.assert_refused())
 
     def test_unusual_directory_name_is_not_used_as_title(self):
@@ -437,8 +437,8 @@ class UpdateTests(ProjectCase):
             "two begins": text + begin + "\n",
             "no end": text.replace(mpa.END, ""),
             "end before begin": mpa.END + "\n" + text.replace(mpa.END, ""),
-            "newer version": text.replace(mpa.__version__, "99.0.0"),
-            "long version": text.replace(mpa.__version__, "7.0.00000"),
+            "newer version": text.replace(mpa.BLOCK_VERSION, "99.0.0"),
+            "long version": text.replace(mpa.BLOCK_VERSION, "7.0.00000"),
         }
         for label, content in cases.items():
             with self.subTest(label):
@@ -452,7 +452,7 @@ class UpdateTests(ProjectCase):
         self.assertIn("    unknown rule text\n", self.assert_refused("update"))
 
     def test_older_block_is_a_check_error(self):
-        self.agents.write_text(self.agents.read_text().replace(mpa.__version__, "6.9.0"))
+        self.agents.write_text(self.agents.read_text().replace(mpa.BLOCK_VERSION, "6.9.0"))
         code, text = self.check()
         self.assertEqual(code, 1)
         self.assertIn("run update", text)
@@ -525,7 +525,7 @@ class UpdateTests(ProjectCase):
         self.assert_clean()
 
     def test_update_joins_the_guides_section_and_the_block_in_one_step(self):
-        self.agents.write_text(self.agents.read_text().replace(mpa.__version__, "6.9.0"))
+        self.agents.write_text(self.agents.read_text().replace(mpa.BLOCK_VERSION, "6.9.0"))
         code, text = run("update", self.dir, "--runtime", "generic", "--write", "--force")
         self.assertEqual(code, 0)
         self.assertRegex(text, r"replace +AGENTS.md  \(managed block 6.9.0 -> .*; Guides section at the end\)")
@@ -697,7 +697,7 @@ class GitTests(ProjectCase):
         self.assert_refused("update")
         self.assertIn("TODO.md is tracked", self.check()[1])
         self.skill.write_bytes(mpa.shipped("mpa-review"))
-        self.agents.write_text(self.agents.read_text().replace(mpa.__version__, "6.9.0"))
+        self.agents.write_text(self.agents.read_text().replace(mpa.BLOCK_VERSION, "6.9.0"))
         self.git("-c", "filter.x.clean=", "add", "-f", ".")
         code, text = run("update", self.dir, "--write")
         self.assertEqual(code, 0, text)

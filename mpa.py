@@ -13,7 +13,7 @@ import tempfile
 from pathlib import Path
 from typing import NamedTuple
 
-__version__ = "7.1.0"
+__version__ = "7.2.0"
 # The version of templates/block.md. It changes only when the block text changes.
 BLOCK_VERSION = "7.1.0"
 

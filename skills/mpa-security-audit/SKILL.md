@@ -35,12 +35,13 @@ Checks that are easy to miss:
 - A finding is a demonstrated breach of a boundary: a trace from source to sink with file and line, the preconditions, impact shown on a harmless test resource or proven statically, the smallest fix, and a severity.
 - A lead blocked by an unknown runtime or deployment fact is an open question with no severity. State the blocker and how it could be checked safely. Do not probe live infrastructure to settle it.
 - Keep disproved candidates with the counter-evidence, so they are not hunted again.
-- Cap severity at the impact that was shown. Reachability from trusted configuration, tests, local tooling, or an intended extension point is not exploitability, and neither is a result against a self-built mock. Prefer no finding to a speculative one.
+- A missing extra safeguard behind a control that already stops the attack is a hardening note with no severity, not a finding.
+- Cap severity at the impact that was shown; weakening a control ranks below bypassing the same boundary. Reachability from trusted configuration, tests, local tooling, an intended extension point, or permitted actions affecting only the actor is not exploitability, and neither is a result against a self-built mock. Prefer no finding to a speculative one.
 - Classify scanner and static-analysis output as the `mpa-review` skill describes. Then check the real code path, the exact package version, and the configuration, and say what the tool could not see.
 - For a confirmed issue, look for variants in neighbouring code and supported branches, and recommend the narrowest fix that closes the whole class, with a regression test.
 - Verify a fix against the current code before calling the issue closed.
 
 ## Report
 
-- Findings, open questions, coverage and gaps, and remaining exposure.
+- Findings, open questions, hardening notes, coverage and gaps, and remaining exposure.
 - Redact secrets, personal data, and production identifiers in anything that is shared.

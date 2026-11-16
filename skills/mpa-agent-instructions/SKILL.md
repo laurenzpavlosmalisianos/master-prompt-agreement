@@ -25,23 +25,26 @@ Advice that is specific to one model changes with each model generation. Where a
 - Prefer enforcement to prose. A permission rule, hook, schema, type, or test holds where an instruction is only usually followed. Write the instruction when nothing deterministic can express the rule.
 - Keep always-loaded text short and stable. Put long reference material, examples, and task-specific guidance in files loaded on demand, such as skills.
 - A skill description says, in the third person, what the skill is for and when to use it, with the terms a matching request would contain. The agent chooses from descriptions alone.
-- Rules about one tool belong in that tool's description.
+- Rules about one tool belong in that tool's description. Enable only the tools and servers the project uses; each description competes for context.
 - Keep model names and provider parameters out of always-loaded guidance. They go stale.
 
 ## Maintenance
 
-- Remove cautions whose cause is gone. After a model or harness change, check whether old warnings, reading-order hints, and reminders still change behaviour, and delete the ones that do not.
-- Text produced from chats, traces, or optimization loops is a draft. It goes in through a reviewed diff like any other change.
+- Remove cautions whose cause is gone and notes the repository no longer matches. After a model or harness change, check whether old warnings, reading-order hints, and reminders still change behaviour, and delete the ones that do not.
+- Text produced from chats, traces, or optimization loops is a draft. Promote a pattern only after it recurs across tasks, through a reviewed diff.
 
 ## Measuring a change
 
 - To claim that a prompt change alters behaviour, compare current and candidate on the same tasks, model, harness, tools, and budget, with the metric chosen beforehand.
 - Outcomes vary between runs. Repeat enough to separate the effect from noise, and report the spread. One run is an anecdote.
 - Keep a small set of known-good and known-bad cases for each maintained prompt or skill.
+- Before rewriting a skill that shows no effect, check that the agent loaded it.
+- Include a run without the instruction or skill. Remove text that loads and does not improve on that baseline on its target cases.
 - Word counts, link counts, and successful parsing are not quality unless they are the property being claimed.
-- A grade from the authoring agent, or agreement between model judges, is a signal to inspect. Calibrate a model-based judge against cases with known outcomes.
+- A grade from the authoring agent, or agreement between model judges, is a signal to inspect. Calibrate each grader against known-good and known-bad outputs.
 - When an agent optimizes against a metric, keep the tests, fixtures, and graders outside what it can write.
 - Before making several agents, higher effort, or longer runs the default, compare with the simplest single-agent setup on quality, unrequested side effects, cost, and time.
+- Measure a cost cut together with task success, and count helper and judge calls in its cost.
 - Vendor benchmarks and demos do not show behaviour in this harness with these tools.
 
 Related skill: `mpa-agent-inputs` for untrusted content and tool protocols.
