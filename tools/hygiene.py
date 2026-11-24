@@ -8,20 +8,40 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parent.parent
 MAX_READ = 1 << 20
 MAX_LINE = 4000
 MESSAGE = "commit message"
-HOSTS = {"code.claude.com", "platform.claude.com", "learn.chatgpt.com", "developers.openai.com",
-         "agents.md", "agentskills.io", "antigravity.google", "geminicli.com"}
+DOCS_HOSTS = frozenset({
+    "code.claude.com",
+    "platform.claude.com",
+    "learn.chatgpt.com",
+    "developers.openai.com",
+    "agents.md",
+    "agentskills.io",
+    "antigravity.google",
+})
+EXACT_REPOS = frozenset({
+    ("github.com", "/GoogleChrome/modern-web-guidance-src"),
+    ("github.com", "/cloudflare/security-audit-skill"),
+})
+ALLOWED_LINKS = {
+    "LICENSE": ("any", None),
+    "docs/runtimes.md": ("hosts", DOCS_HOSTS),
+    "docs/external-skills.md": ("repos", EXACT_REPOS),
+}
 STATE_NAMES = ("TODO.md", "*.log", "CLAUDE.local.md", "AGENTS.override.md")
 STATE_DIRS = (".claude", ".codex", ".agents", ".gemini", ".agent")
 LOCAL_ADDRESSES = ("127.0.0.1", "0.0.0.0")
-LINK = re.compile(r"http(s?)://([^/\s\"'`<>)\]]*)", re.I)
-IPV4 = re.compile(r"(?<![\w.=-])(?<!version )\d{1,3}(?:\.\d{1,3}){3}(?![\w.-])", re.I)
-ENTRY = re.compile(r"^\s*(?:[-*+]|\d+\.)\s|\d{4}-\d{2}-\d{2}")
-SCISSORS = re.compile(r"^# -+ >8 -+$", re.M)
+LINK = re.compile(r"https?://\S+", re.I)
+EMBEDDED_LINK = re.compile(r"https?://", re.I)
+TRAILING_PROSE_CHARS = ".,;:!"
+TRAILING_WRAPPER_CHARS = ">'\"`"
+FORBIDDEN_URL_CHARS = frozenset("'\"`<>\\")
+IPV4 = re.compile(r"(?<![\w.-])(?<!version )\d{1,3}(?:\.\d{1,3}){3}(?![\w.-])", re.I)
+SCISSORS = re.compile(r"^# -+ >8 -+\r?$", re.M)
 RULES = (
     ("local", re.compile(r"/home/[\w.-]+|/Users/[\w.-]+|C:\\Users\\", re.I)),
     ("local", re.compile(r"(?<![\w.+\\-])[\w.+-]+@(?!example\.)(?:localhost\b|(?:[\w-]+\.)+[a-z]{2,})", re.I)),
@@ -31,11 +51,56 @@ RULES = (
 )
 
 
-def link_allowed(rel, secure, host):
-    """Report whether a link to host may appear in the file."""
-    if rel == "LICENSE":
-        return True
-    return rel == "docs/runtimes.md" and bool(secure) and host.lower() in HOSTS
+def strip_url(token):
+    """Strip trailing outer punctuation and closing wrapper characters from a matched URL run."""
+    unwrapped = False
+    while token:
+        last = token[-1]
+        if last in TRAILING_WRAPPER_CHARS:
+            token = token[:-1]
+            unwrapped = True
+        elif last == ")" and token.count(")") > token.count("("):
+            token = token[:-1]
+            unwrapped = True
+        elif last == "]" and token.count("]") > token.count("["):
+            token = token[:-1]
+            unwrapped = True
+        elif not unwrapped and last in TRAILING_PROSE_CHARS:
+            if last == "." and len(token) >= 2 and token[-2] in ("/", "."):
+                break
+            token = token[:-1]
+        else:
+            break
+    return token
+
+
+def link_allowed(rel, url):
+    """Report whether a stripped URL may appear in the file."""
+    policy = ALLOWED_LINKS.get(rel)
+    if policy is None:
+        return False
+    if any(ch in FORBIDDEN_URL_CHARS or ch.isspace() or not ch.isprintable() for ch in url):
+        return False
+    if EMBEDDED_LINK.search(url, 1):
+        return False
+    try:
+        parsed = urlsplit(url)
+    except ValueError:
+        return False
+    scheme = parsed.scheme.lower()
+    netloc = parsed.netloc.lower()
+    kind, allowed = policy
+    if kind == "any":
+        return scheme in {"http", "https"} and bool(netloc)
+    if scheme != "https":
+        return False
+    if kind == "hosts":
+        return netloc in allowed
+    if kind == "repos":
+        return ((netloc, parsed.path.rstrip("/")) in allowed
+                and not parsed.query and not parsed.fragment
+                and "?" not in url and "#" not in url)
+    return False
 
 
 def line_hits(line, rel):
@@ -44,23 +109,21 @@ def line_hits(line, rel):
         yield "size", f"line longer than {MAX_LINE} characters"
         return
     for match in LINK.finditer(line):
-        if not link_allowed(rel, match.group(1), match.group(2)):
-            yield "link", match.group()
+        url = strip_url(match.group())
+        if not link_allowed(rel, url):
+            yield "link", url
     for match in IPV4.finditer(line):
         octets = [int(part) for part in match.group().split(".")]
         if max(octets) <= 255 and match.group() not in LOCAL_ADDRESSES:
             yield "local", match.group()
     for rule, pattern in RULES:
-        match = pattern.search(line)
-        if match:
-            yield rule, (match.group()[:12] + "..." if rule == "secret" else match.group())
+        for match in pattern.finditer(line):
+            yield rule, (match.group()[:8] + "..." if rule == "secret" else match.group())
 
 
 def working_state(rel):
     """Report whether a path is one that holds notes, logs, or local agent state."""
     parts = Path(rel).parts
-    if parts[0] == "templates":
-        return False
     return (any(fnmatch.fnmatchcase(parts[-1], name) for name in STATE_NAMES)
             or any(part in STATE_DIRS for part in parts[:-1]))
 
@@ -107,8 +170,6 @@ def scan(paths, root, staged=False):
             continue
         for number, line in enumerate(lines, 1):
             found += [(rule, shown, number, text) for rule, text in line_hits(line, rel)]
-            if rel == "templates/TODO.md" and ENTRY.search(line):
-                found.append(("state", shown, number, "entry in a template"))
     return found
 
 
@@ -129,8 +190,11 @@ def repository_files(root, staged=False):
     if listed is None:
         if staged:
             raise OSError("git cannot list the staged files")
-        names = [os.path.relpath(os.path.join(folder, name), root)
-                 for folder, _, names in os.walk(root) if ".git" not in Path(folder).parts for name in names]
+        names = []
+        for folder, dirs, files in os.walk(root):
+            dirs[:] = [name for name in dirs if name != ".git"]
+            for name in files:
+                names.append(Path(os.path.relpath(os.path.join(folder, name), root)).as_posix())
     else:
         names = [name for name in listed.decode("utf-8", "surrogateescape").split("\0") if name]
     if staged:
@@ -160,9 +224,16 @@ def main(argv=None):
     parser.add_argument("--log", metavar="RANGE", help="check the commit messages in a git revision range")
     args = parser.parse_args(argv)
     try:
-        if args.commit_msg:
+        modes = sum(flag for flag in (args.commit_msg is not None, args.log is not None, args.staged))
+        if modes > 1 or ((args.commit_msg is not None or args.log is not None) and args.paths):
+            raise ValueError("--commit-msg and --log cannot be combined with each other, --staged, or PATH")
+        if args.commit_msg is not None:
+            if not args.commit_msg:
+                raise ValueError("--commit-msg requires a file path")
             found = scan_message(Path(args.commit_msg).read_text(encoding="utf-8", errors="replace"), MESSAGE)
-        elif args.log:
+        elif args.log is not None:
+            if not args.log:
+                raise ValueError("--log requires a revision range")
             log = git(ROOT, "log", "--format=%h%n%B%x00", "--end-of-options", args.log)
             if log is None:
                 raise OSError(f"git log failed for {args.log}")

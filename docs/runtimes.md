@@ -1,88 +1,105 @@
 # Runtimes
 
-How the installed files load in each tool, what the presets do, how cloud sessions differ, and what `check` reports. Tool behaviour changes between releases; the linked official pages are the reference.
+How the installed files load in each tool, how startup budgets and OS sandboxes compare across runtimes, and how cloud sessions differ. For CLI flags, file ownership, and `mpa.py check` output, see [docs/cli.md](cli.md). Tool behaviour changes between releases; the linked official pages are the reference.
 
 ## How instructions load
 
-**Claude Code** reads `CLAUDE.md`. The installed file is one line, `@AGENTS.md`, which imports `AGENTS.md` from the same directory. A project that keeps its file at `.claude/CLAUDE.md` gets `@../AGENTS.md`. From version 2.1.277 Claude Code also reads `AGENTS.md` directly, but only when no `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md` exists in the working directory or above it; the import keeps it loaded in every case. `CLAUDE.local.md` and user-level files load in addition and are the place for personal instructions. See [memory and imports](https://code.claude.com/docs/en/memory).
+**Claude Code** reads `CLAUDE.md`. When `--runtime claude` is selected, `mpa.py init` installs a one-line `CLAUDE.md` containing `@AGENTS.md` (or `@../AGENTS.md` in an existing `.claude/CLAUDE.md`) so Claude Code imports `AGENTS.md` in every case. From version 2.1.277 Claude Code also reads `AGENTS.md` directly when no `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md` exists in the working directory or above it; keeping the import avoids silent drops when a parent directory holds a `CLAUDE.md`. `CLAUDE.local.md` and user-level files load in addition and hold personal instructions. See [memory and imports](https://code.claude.com/docs/en/memory).
 
-**Codex** reads `AGENTS.md` files from the repository root down to the working directory, one file per directory, up to a combined default limit of 32 KiB. An `AGENTS.override.md` in a directory is read in place of the `AGENTS.md` there. `check` reports an `AGENTS.override.md` in the project root and an `AGENTS.md` above 32 KiB as errors, and an `AGENTS.md` above 16 KiB as a note. `check` measures the root file; the limit applies to all loaded instruction files together. See [AGENTS.md in Codex](https://learn.chatgpt.com/docs/agent-configuration/agents-md).
+**Codex** reads `AGENTS.md` files from the repository root down to the working directory, one file per directory, up to a combined default limit of 32 KiB. An `AGENTS.override.md` in a directory replaces the `AGENTS.md` in that directory. `mpa.py check` reports a root `AGENTS.override.md` and a root `AGENTS.md` above 32 KiB as errors, and notes both a root `AGENTS.md` above 16 KiB and any nested root-to-leaf ancestor chain exceeding 16 KiB or 32 KiB. See [AGENTS.md in Codex](https://learn.chatgpt.com/docs/agent-configuration/agents-md).
 
-**Other tools** that follow the [AGENTS.md convention](https://agents.md) read the file as plain Markdown. Tools that also load `.agents/skills/` themselves need only `--runtime codex`. For tools without skill support, `--runtime generic` installs the skills under `.agents/skills/` and adds a `## Guides` pointer to those `SKILL.md` files and their `description` lines; nothing lists the descriptions for them in `AGENTS.md`. `init --runtime generic` writes the section when `.agents/skills/` holds or receives an `mpa-*` skill and `AGENTS.md` lacks a `## Guides` heading, on the first run and on a later one. `update --runtime generic` adds it under the same condition.
+**Antigravity** (app, IDE, and `agy` CLI) reads `AGENTS.md` and `GEMINI.md` in the workspace folder and parent folders up to the repository root, plus nested directory rules when operating on files in subdirectories. It loads skills natively from `.agents/skills/`, so `--runtime antigravity` and `--runtime agents` map to the same single-copy layout. Antigravity truncates any single rule file above 24,000 bytes and keeps all rules within a 20,000-token budget, beyond which it replaces the largest files with pointers; `mpa.py check` notes root `GEMINI.md` and nested `AGENTS.md` or `GEMINI.md` files above 24,000 bytes. See [rules](https://antigravity.google/docs/rules), [customization discovery](https://antigravity.google/docs/customization-discovery), and [skills](https://antigravity.google/docs/skills).
 
-**Antigravity** reads `AGENTS.md` and `GEMINI.md` in the workspace folder and in each folder above it up to the repository root. It does not read one in a folder below the workspace folder. It loads skills from `.agents/skills/` itself, so `--runtime codex` covers it. It truncates a rule file above 24,000 bytes and keeps all rules within a budget of 20,000 tokens, beyond which it replaces the largest files with pointers. See [rules](https://antigravity.google/docs/rules.md), [customization discovery](https://antigravity.google/docs/customization-discovery), and [skills](https://antigravity.google/docs/skills). **Gemini CLI** reads `GEMINI.md` unless `context.fileName` in its settings names `AGENTS.md`; see [context files](https://geminicli.com/docs/cli/gemini-md/).
+**Other tools** that follow the [AGENTS.md convention](https://agents.md) read `AGENTS.md` as plain Markdown. Tools that also load `.agents/skills/` natively need only `--runtime agents`. For tools without native skill listing, `--runtime generic` installs skills under `.agents/skills/` and adds a `## Guides` pointer in `AGENTS.md`.
 
-The block is project-level text. The tool's own system instructions outrank it.
+The managed block is project-level text. The tool's own system instructions outrank it. `AGENTS.md` is committed; keep private facts out of it.
 
-`AGENTS.md` is committed. Keep private facts out of it.
+## Skills and startup budgets
 
-## Skills
+| Runtime | Skill directory | `CLAUDE.md` import |
+|---|---|---|
+| `agents` (fresh default), `codex`, `antigravity`, `generic` | `.agents/skills/mpa-*/SKILL.md` | Not written |
+| `claude` | `.claude/skills/mpa-*/SKILL.md` | Written (`@AGENTS.md` or `@../AGENTS.md`) |
 
-| Runtime | Directory |
-|---|---|
-| `claude` | `.claude/skills/mpa-*/SKILL.md` |
-| `codex`, `generic` | `.agents/skills/mpa-*/SKILL.md` |
+Tools with native skill support load each skill's `name` and `description` at session startup and read the full `SKILL.md` body on demand when a task matches. The format is the [Agent Skills](https://agentskills.io) format; see [skills in Claude Code](https://code.claude.com/docs/en/skills) and [skills in Codex](https://learn.chatgpt.com/docs/build-skills).
 
-Both tools list each skill's `name` and `description` at the start of a session and load the body when a task matches. The format is the [Agent Skills](https://agentskills.io) format; see [skills in Claude Code](https://code.claude.com/docs/en/skills) and [skills in Codex](https://learn.chatgpt.com/docs/build-skills).
+### Single vs. dual skill directories
 
-`init --skills` takes `core` (default), `all`, `none`, a group (`security`, `infra`, `web`, `languages`), or a comma list of names and groups. A name is accepted with or without the `mpa-` prefix. With both `claude` and `codex` selected the project holds two copies of each skill. Tools that read both `.claude/skills/` and `.agents/skills/` list each skill twice; select one runtime for a project that uses only such a tool.
+- **Fresh repositories** default to single-copy `.agents/skills/` (`--runtime agents`), which covers Codex, Antigravity, and compatible Agent Skills tools without duplicating skill files.
+- **Claude Code repositories** use `--runtime claude`, which installs `CLAUDE.md` and `.claude/skills/mpa-*/`. Omitting `--runtime` during `init` automatically selects `claude` when `CLAUDE.md`, `.claude/CLAUDE.md`, or `.claude/settings.json` already exists (and preserves existing `mpa-*` directories first).
+- **Dual installs (`--runtime claude,agents`)** commit identical copies into both `.claude/skills/` and `.agents/skills/`. Tools that scan both directories list every installed skill twice at startup, doubling startup metadata; `mpa.py init` and `mpa.py check` emit a note when both directories hold `mpa-*` skills.
 
-`update` changes the set later:
+### Calibrated startup listing budgets
 
-| Option | Effect |
-|---|---|
-| `--add-skill NAME...` | Installs the named skills in every skill directory that already holds an `mpa-*` skill. |
-| `--runtime LIST` | Installs the added skills in the directories of the listed runtimes instead. It is required when the project holds no `mpa-*` skill. With `generic` in the list, `update` also adds a missing `## Guides` section. |
-| `--remove-skill NAME...` | Deletes the named skills from both directories. A directory that holds a file other than `SKILL.md` is kept; `update` then prints `not removed` and exits with 1. |
+Because skill descriptions load on every turn, install only the bundles and individual `languages` / `platforms` skills the repository uses (see [docs/cli.md](cli.md#init) and the [skill catalogue](../skills/README.md)):
 
-Both skill options take skill names. A group name is refused with exit code 2; groups belong to `init --skills`.
+- **Codex** allocates roughly 2% of context (about 8 KB) for startup skill listings.
+- **Claude Code** allocates roughly 1% of the context window for startup skill descriptions (roughly 8,000 characters on a 200K-token window); when over budget, skill names remain loaded while the least-used descriptions are trimmed.
+- `mpa.py check` sums shipped `name` + `description` characters per skill directory (`.agents/skills/` and `.claude/skills/`) and emits a note above `8,000` characters. The default `core` bundle totals ~2.2 KB; all 29 shipped skills total ~8.2 KB.
+- **Non-`mpa-*` skills** (custom workspace skills or pinned [external companions](external-skills.md)) share the same startup listing budget. `mpa.py check` counts non-`mpa-*` directories (including symlinked skill directories) per skill folder without opening or parsing their files.
 
-`check` reports an installed `mpa-*` skill that differs from the shipped text.
+## Sandboxes, permission modes, and starter snippets
 
-## Presets
+MPA installs plain-text instructions and skills only; it does not generate or merge runtime permission files. Prefix-matched shell prompt rules are convenience friction rather than a security boundary—they miss alternative flags, shell redirections, and scripts that open files directly.
 
-`--preset` installs the files below. `.claude/settings.json` and `.codex/config.toml` are created once and belong to the project afterwards; `update` does not touch them. `.codex/rules/mpa.rules` is managed: `update` replaces it and `check` reports a difference. `init --preset` also runs on a project that is already set up and adds only the files that are missing. Options that are left out take their defaults, so repeat the `--runtime`, `--skills`, and `--state` values of the first run.
+For real boundaries, enable each runtime's native OS sandbox (Seatbelt on macOS, seccomp / Linux sandboxing on Linux) and configure its permission mode (such as `default`, `auto`, or `dontAsk` in Claude Code, or Codex's sandbox mode and approval policy). The short starter snippets below can be copied and adapted by hand when a team also wants prompt or deny friction on `.env` files and destructive `git` commands.
 
-### Claude Code
+### Claude Code starter snippet
 
-The Claude Code preset makes Claude Code ask before common forms of force-pushes, deleting remote branches or tags, hard resets, adding or removing a dependency, publishing, and GitHub write commands, and stops its file tools from reading `.env` files other than `.env.example`, `.env.sample`, and `.env.template`. A command that installs what the project already declares, such as `npm install` or `pip install -r requirements.txt`, does not prompt. `npm install <name>` and `pip install <name>` add a dependency, but a prefix rule cannot tell them apart from a plain install, so they do not prompt either; the Approvals section of `AGENTS.md` covers them. The preset is a prompt on usual command forms, not a security boundary: other spellings of the same command and programs that open files themselves are not covered. For a boundary, enable the Claude Code sandbox and restrict credentials there.
-
-Rules in `.claude/settings.json`:
-
-- `ask`: `git push` with a force or delete option or a `:branch` refspec, `git reset --hard`, and `git clean`; commands that add or remove a dependency, such as `pnpm add`, `uv add`, and `cargo add`; publish commands, such as `npm publish`, `twine upload`, and `docker push`; `gh` commands that write, such as `gh pr create`, `gh release create`, `gh secret set`, and `gh workflow run`. The installed file is the full list.
-- `deny`: `Read(.env)` and `Read(.env.*)` at any depth, with exceptions for `.env.example`, `.env.sample`, and `.env.template`.
-
-When `.claude/settings.json` exists and holds a JSON object, `init --preset` appends the missing rules, removes nothing, and writes the file back as formatted JSON. When the existing `deny` list is not empty, the three `.env` exceptions are printed for manual addition and not appended. When the file does not parse, it is kept and the plan prints the rules to add by hand.
-
-Claude Code evaluates `deny`, then `ask`, then `allow`. An `allow` in `.claude/settings.local.json` does not outrank an `ask` in the committed file. Personal additions go in `.claude/settings.local.json`; to drop a prompt for everyone, delete the rule from the committed file. See [permissions](https://code.claude.com/docs/en/permissions), [settings](https://code.claude.com/docs/en/settings), and [sandboxing](https://code.claude.com/docs/en/sandboxing).
-
-To prompt on every push, add this rule:
+Copy or merge into `.claude/settings.json` (committed) or `.claude/settings.local.json` (personal, git-ignored):
 
 ```json
-{ "permissions": { "ask": ["Bash(git push *)"] } }
+{
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Edit(./.env)",
+      "Edit(./.env.*)"
+    ],
+    "ask": [
+      "Bash(git push --force*)",
+      "Bash(git push * --force*)",
+      "Bash(git push -f*)",
+      "Bash(git push * -f*)",
+      "Bash(git reset --hard*)",
+      "Bash(git clean *)",
+      "Bash(git branch -D *)",
+      "Bash(git stash drop*)",
+      "Bash(git stash clear*)"
+    ]
+  }
+}
 ```
 
-In `.claude/settings.local.json` it applies on that machine only. In the committed `.claude/settings.json` it also applies to cloud sessions, which deliver work by pushing a branch and then wait at the prompt.
+Claude Code evaluates `deny`, then `ask`, then `allow`; an `allow` in `.claude/settings.local.json` does not outrank a `deny` or `ask` in the committed file, and `deny` rules do not support `!` negation exceptions. The `./` patterns above match the repository root; in a monorepo with nested `.env` files, add `Read(**/.env)`, `Read(**/.env.*)`, `Edit(**/.env)`, and `Edit(**/.env.*)`. If a repository commits a sample env file that agents need to read, either name it without a leading dot (such as `env.example`) or replace `.env.*` with explicit secret env patterns (such as `Read(./.env.local)` and `Read(./.env.production)`). `Read` and `Edit` deny rules block built-in file tools rather than arbitrary shell scripts run via `Bash`; rely on OS sandboxing and keeping production secrets out of the work tree. If you add `Bash(git push *)` to the committed file, note that Claude Code cloud sessions deliver work by pushing a branch and pause at that prompt (teams whose cloud or headless sessions push branches also allow non-default branch pushes under `## Approvals` in `AGENTS.md`).
 
-The Approvals template asks before every push. A project whose cloud or headless sessions deliver work by pushing a branch adds `- pushing a branch other than the default branch` under "No approval needed".
+For OS sandboxing, permission modes (`default`, `auto`, `dontAsk`), and hard command blocks via hooks, see [permissions](https://code.claude.com/docs/en/permissions), [settings](https://code.claude.com/docs/en/settings), [sandboxing](https://code.claude.com/docs/en/sandboxing), and [hooks](https://code.claude.com/docs/en/hooks).
 
-Deploy commands are not in the preset, because the commands and the targets differ between projects. A project adds its own, for example:
+### Codex starter snippets
 
-```json
-{ "permissions": { "ask": ["Bash(terraform apply *)"] } }
+Codex loads `.codex/` only after the project is marked trusted. To keep default secret-like environment variables (`KEY`, `SECRET`, `TOKEN`) excluded from shell commands, add to `.codex/config.toml`:
+
+```toml
+[shell_environment_policy]
+ignore_default_excludes = false
 ```
 
-### Codex
+To prompt on common destructive `git` prefixes, add a project-owned rule file such as `.codex/rules/project.rules`:
 
-The Codex preset takes effect only in a project that Codex trusts. It removes environment variables whose names contain KEY, SECRET, or TOKEN from the commands Codex runs, and adds prompt rules for the same categories as the Claude Code preset. Codex rules match command prefixes and are marked experimental in the Codex documentation; a command written in another order is not matched. A shell line that holds a redirection, a variable, a glob, or a substitution is not split into commands, so the rules do not match what runs inside it. The preset does not change the sandbox mode or the approval policy.
+```python
+prefix_rule(
+    pattern = ["git", "push", ["--force", "--force-with-lease", "-f"]],
+    decision = "prompt",
+)
 
-Each rule in `.codex/rules/mpa.rules` has the decision `prompt` and lists examples of commands it matches and does not match. The file is replaced by `update`; project rules go in another `.rules` file in the same directory. A file that is the one from 7.0.0, or that starts with the `# Managed by mpa.py` line, is replaced; any other content is refused until it is moved out or `--force` is passed.
+prefix_rule(
+    pattern = ["git", ["reset", "clean"]],
+    decision = "prompt",
+)
+```
 
-`.codex/config.toml` sets `ignore_default_excludes = false` under `[shell_environment_policy]`. When it exists, `init --preset` keeps it and prints the content to add by hand. See the [configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference) and [rules](https://learn.chatgpt.com/docs/agent-configuration/rules).
-
-### Hooks
-
-No hooks are installed. A project that wants a hard block on a command adds its own; see [hooks](https://code.claude.com/docs/en/hooks).
+Codex rules match command prefixes and are marked experimental in Codex's documentation: reordered flags, shell redirections, variables, globs, and command substitutions are not split into matched commands. Rely on Codex's OS sandbox and approval policy for enforcement. See the [configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference) and [rules](https://learn.chatgpt.com/docs/agent-configuration/rules).
 
 ## Trust
 
@@ -99,44 +116,6 @@ A Claude Code cloud session starts from a clone of the repository.
 
 See [Claude Code on the web](https://code.claude.com/docs/en/claude-code-on-the-web).
 
-## The notes file
-
-`--state` controls `TODO.md`:
-
-| Mode | Effect |
-|---|---|
-| `local` (default) | Creates `TODO.md` if absent and adds `/TODO.md` to `.gitignore`. The file stays on one machine. Teammates and cloud sessions do not see it. |
-| `tracked` | Creates `TODO.md` if absent and leaves `.gitignore` alone. The file is committed and visible to everyone with access to the repository. |
-| `none` | Creates nothing. |
-
-An existing `TODO.md` is never modified. To switch from `local` to `tracked`, delete the `/TODO.md` line from `.gitignore` and commit the file.
-
-## Ownership
-
-The marked block in `AGENTS.md`, the `mpa-*` skills that this repository ships, and `.codex/rules/mpa.rules` are managed, and `update` replaces them. Everything else belongs to the project. To customise a skill, copy it to a name without the `mpa-` prefix; that copy is never touched.
-
-- `update` replaces everything between the block markers. A block that holds a `## ` heading the shipped block lacks is refused until the text is moved out or `--force` is passed.
-- `update --write` replaces or removes a file only when git tracks it and it has no unstaged changes: the index holds the file, and the bytes of the working file hash to the blob ID in the index. A file that differs from the indexed blob only in CRLF line endings counts as unchanged; one that a clean filter alters counts as changed. The dry run makes the same test and prints the result as a `refuse` line under the plan. `--force` updates a project outside git and files that are untracked, ignored, or changed.
-- `update --write` prints `review with: git status and git diff` when the project is in a git work tree.
-- An `mpa-*` directory with a name this repository does not ship is kept; `update` prints a note and `check` reports an error until the directory is removed or renamed without the `mpa-` prefix. `--remove-skill` deletes it when it is empty or holds only `SKILL.md`.
-- An empty directory with a shipped name gets its `SKILL.md` back.
-
-## What check reports
-
-`check` changes nothing. It prints errors and notes, and exits with 1 when there is an error.
-
-| Subject | Error | Note |
-|---|---|---|
-| Block in `AGENTS.md` | Missing, malformed, or duplicated markers; text that differs from the shipped block; a version older or newer than the checkout; text other than one title line before the block | |
-| `AGENTS.md` | Larger than 32 KiB | Larger than 16 KiB; no `## Approvals` heading; empty command lines under `## Commands`; placeholder comments from the template that are unedited |
-| `CLAUDE.md` | No import line outside code fences and HTML comments | No `CLAUDE.md` while `CLAUDE.local.md`, `mpa-*` skills in `.claude/skills/`, or `.claude/settings.json` exist |
-| Skills | An `mpa-*` skill that differs from the shipped text, holds other files, or has a name this repository does not ship | |
-| Claude Code settings | A settings file that is not a JSON object; a `claudeMdExcludes` entry that covers `AGENTS.md` or `CLAUDE.md` | |
-| Other instruction files | `AGENTS.override.md` in the project root; a `.codex/rules/mpa.rules` that differs from the shipped rules | `CLAUDE.local.md`; `.claude/rules`; a `.codex/config.toml` that differs from the preset; instruction files in subdirectories; a scan for them that stops at its limit of 2,000 directories |
-| Notes file | | `TODO.md` tracked by git and also listed in `.gitignore` |
-
-An older block is updated with `update`. A newer block needs a newer checkout of this repository; `update` refuses it and prints the block. After a release that changes the block or a skill, `check` reports the project until `update` runs; pin the checkout where `check` runs in CI.
-
 ## Where the checkout lives
 
-Keep the checkout of this repository outside the project, and do not add it as a submodule. The installed files are the copy the agent reads; the checkout is needed only to run `init`, `update`, and `check`.
+Keep the checkout of this repository outside the project, and do not add it as a submodule. The installed files are the copy the agent reads; the checkout is needed only to run `init`, `update`, and `check`. See [docs/cli.md](cli.md#file-ownership-and-guard) for file ownership and the git cleanliness guard.

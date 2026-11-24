@@ -1,50 +1,42 @@
 ---
 name: mpa-agent-instructions
-description: Guidance for writing instructions that agents read. Use when writing or editing a system prompt, an AGENTS.md or CLAUDE.md file, a skill, a tool description, or an evaluation of a prompt change.
+description: "Guidance for writing instructions that agents read and evaluating prompt changes. Use when writing or editing a system prompt, AGENTS.md, CLAUDE.md, GEMINI.md, a skill, a tool description, or a prompt or skill eval. For prompt-injection or tool threats, use mpa-agent-inputs."
 ---
 
 # Instructions for agents
 
-Advice that is specific to one model changes with each model generation. Where a decision turns on it, check the vendor's current official documentation.
+Model-specific advice ages quickly; keep model names and provider parameters out of always-loaded files and check official docs when a decision turns on one.
 
 ## What to write
 
-- Write for a capable reader who lacks the project's context. Give the goal, the constraints, what done means, and the facts that cannot be read from the code. Leave out what the model does anyway.
-- Each line in an always-loaded file is one of three things: a project fact, a behaviour the model does not show unprompted, or a pointer to something that enforces a rule. Delete the rest. Every added instruction lowers attention to the others, and agents tend to act on whatever is mentioned.
-- Give the reason with a rule. A reason lets the model apply the rule to cases the text did not list.
-- State an absolute with its scope: "do not X when Y". A bare "never" or "always" is applied in places where it does not fit. Keep unscoped absolutes for true invariants.
-- Use plain wording. Capitals for emphasis, threats, and urgency make current models over-apply the emphasized rule and hold back routine work.
-- Describe the intent in preference to a step-by-step procedure, unless the order of side effects matters.
-- Be specific about approvals: name the actions that need a yes and the routine actions that need none. A broad list makes the agent ask about everything.
-- Do not add standing orders to verify everything, run the whole suite, or delegate every task. Tie extra verification to a concrete trigger.
-- Leave formatting and naming to formatters and linters.
+- Write for a capable reader who lacks project context. Each always-loaded line is a non-discoverable project fact, a non-default behaviour, or an enforcement pointer. Delete the rest: extra instructions dilute attention, and agents act on whatever is mentioned.
+- Include the reason so the rule generalizes to unlisted cases. Scope absolutes ("do not X when Y"), keeping bare absolutes for true invariants. Use plain wording; capitals, threats, and urgency make current models over-apply rules and stall routine work.
+- State the goal, constraints, and what done means rather than scripting steps, unless side-effect order matters. On models or runtimes with configurable or adaptive reasoning effort, calibrate effort instead of prompting thinking depth in prose ("think step-by-step" or "answer directly").
+- Specify required contents and audience (for example, a self-contained recap for a low-context reader) instead of generic brevity orders ("be concise") that can make responses overly terse.
+- State codebase scope latitude explicitly (task-only edits versus broader refactoring), weighing cleanup against diff size and token cost.
+- Tell agents to work through ordinary reversible obstacles to completion and stop only for genuine blockers or required approvals, not after a plan.
+- Name both actions needing approval and routine actions needing none; a broad ask list makes the agent pause on everything.
+- Curb redundant tool loops: reuse loaded context, batch independent calls, and tie extra checks or action budgets to concrete triggers rather than standing orders to verify everything.
+- Delegate to helper agents only independent, parallelizable workstreams with clear boundaries and outputs; keep approval-gated actions in the user-facing agent.
 
-## Where it goes
+## Context and structure
 
-- One home per rule. Copies in several files drift apart and cost context on every load.
-- Prefer enforcement to prose. A permission rule, hook, schema, type, or test holds where an instruction is only usually followed. Write the instruction when nothing deterministic can express the rule.
-- Keep always-loaded text short and stable. Put long reference material, examples, and task-specific guidance in files loaded on demand, such as skills.
-- A skill description says, in the third person, what the skill is for and when to use it, with the terms a matching request would contain. The agent chooses from descriptions alone.
-- Rules about one tool belong in that tool's description. Enable only the tools and servers the project uses; each description competes for context.
-- Keep model names and provider parameters out of always-loaded guidance. They go stale.
+- One home per rule; audit instruction files for contradictory directives that stall or confuse agents.
+- Prefer deterministic enforcement over prose: permission rules, hooks, linters, formatters, native tool declarations, structured-output schemas, types, and tests.
+- Keep always-loaded text short and static so prompt caches hit; keep dynamic per-turn state out of system instructions, and roll out prompt or tool-definition changes in new sessions rather than mutating an active session mid-conversation.
+- In long prompts, place bulk static context before the task and output spec, separated by headings or tags, and avoid overloading one pass with unrelated tasks.
+- Put long references, examples, and task-specific guides in on-demand skills. Write third-person descriptions stating what the skill covers and when to use it with matching request terms; agents choose from descriptions alone.
+- Put per-tool rules in that tool's description, and enable only tools and servers the project uses (`mpa-agent-inputs`).
 
 ## Maintenance
 
-- Remove cautions whose cause is gone and notes the repository no longer matches. After a model or harness change, check whether old warnings, reading-order hints, and reminders still change behaviour, and delete the ones that do not.
-- Text produced from chats, traces, or optimization loops is a draft. Promote a pattern only after it recurs across tasks, through a reviewed diff.
+- Remove obsolete cautions and notes the repository no longer matches. After a model or harness upgrade, check whether old warnings, brevity orders, deliberation scripts, and reading-order hints still change behaviour, and delete those that do not.
+- Treat text from chats, traces, optimization loops, or repo generators as drafts. Do not commit generated repo summaries into always-loaded files; promote patterns only after they recur across tasks, via reviewed diffs.
 
 ## Measuring a change
 
-- To claim that a prompt change alters behaviour, compare current and candidate on the same tasks, model, harness, tools, and budget, with the metric chosen beforehand.
-- Outcomes vary between runs. Repeat enough to separate the effect from noise, and report the spread. One run is an anecdote.
-- Keep a small set of known-good and known-bad cases for each maintained prompt or skill.
-- Before rewriting a skill that shows no effect, check that the agent loaded it.
-- Include a run without the instruction or skill. Remove text that loads and does not improve on that baseline on its target cases.
-- Word counts, link counts, and successful parsing are not quality unless they are the property being claimed.
-- A grade from the authoring agent, or agreement between model judges, is a signal to inspect. Calibrate each grader against known-good and known-bad outputs.
-- When an agent optimizes against a metric, keep the tests, fixtures, and graders outside what it can write.
-- Before making several agents, higher effort, or longer runs the default, compare with the simplest single-agent setup on quality, unrequested side effects, cost, and time.
-- Measure a cost cut together with task success, and count helper and judge calls in its cost.
-- Vendor benchmarks and demos do not show behaviour in this harness with these tools.
-
-Related skill: `mpa-agent-inputs` for untrusted content and tool protocols.
+- Compare current and candidate on the same tasks, model, harness, tools, and budget, with the metric chosen beforehand. Repeat enough to separate effect from noise and report the spread; one run is an anecdote.
+- Keep known-good and known-bad cases per maintained prompt or skill. Before rewriting a skill with no effect, check that it loaded; compare with a baseline without it and remove text that does not beat it.
+- Word counts, link counts, and clean parsing are not quality unless they are the claimed property.
+- Calibrate every grader against known-good and known-bad outputs (authoring-agent grades and model-judge agreement are signals, not proof), and keep tests, fixtures, and graders outside what an optimizing agent can write.
+- Compare multi-agent, higher-effort, or longer-run defaults against the simplest single-agent setup on quality, side effects, cost, and time. Measure cost cuts alongside task success, counting helper and judge calls. Vendor benchmarks do not show behaviour in this harness.

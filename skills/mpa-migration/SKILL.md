@@ -1,6 +1,6 @@
 ---
 name: mpa-migration
-description: Checks for changing a schema, data set, or interface so that it can be recovered, and for backing a change out. Use when writing a database migration or backfill, making a compatibility-breaking upgrade, porting code, or reverting a change.
+description: "Checks for schema or data migrations, code ports and rewrites, and backing changes out safely. Use when writing a database migration or backfill, making a compatibility-breaking upgrade, porting or rewriting code, or reverting a change."
 ---
 
 # Migration and backout
@@ -23,15 +23,15 @@ description: Checks for changing a schema, data set, or interface so that it can
 
 ## Ports and rewrites
 
-- A port that compiles and passes the inherited tests is not shown to be equivalent. Inherited tests can lock in old bugs and miss behaviour the port adds. Compare outputs, side effects, and error states at a stable external boundary over a representative input set.
+- A port that compiles and passes inherited tests is not shown to be equivalent; inherited tests can lock in old bugs and miss behaviour the port adds. Compare wire formats, serialization, exact outputs, side effects, and error states at a stable external boundary over a representative input set.
 - Generated translations often compile by weakening types, broadening catch blocks, widening permissions, or adding unsafe blocks. Treat each of those as a defect.
 - For a live service, run old and new side by side and compare before shifting traffic, and keep an immediate fallback.
 - While old and new paths coexist, label which one is active and state what retires the old one.
 
 ## Backing a change out
 
-- Separate the target change from everything else before editing. Where unrelated changes share files, restore by patch. A checkout or reset of the whole file discards the other work.
-- A forward fix is often smaller and clearer than reverting history. Compare both.
+- Separate the target change from everything else before editing. Where unrelated changes share files, restore by patch; a whole-file checkout or reset discards the other work.
+- Compare a forward fix against reverting history; a forward fix is often smaller and clearer.
 - Reverting code does not revert data, schema, caches, or anything already sent to an external system. List what stays changed and how it is reconciled.
 - Regenerate generated files with the project's generator. Hand-editing them back drifts from the source.
 

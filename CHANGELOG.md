@@ -1,5 +1,45 @@
 # Changelog
 
+## 8.0.0 - 2026-11-24
+
+The working-agreement block shrinks to three rules (`Approvals`, `Blocks`, `Evidence`), default `init` writes a single `.agents/skills/` copy unless Claude Code is selected or detected, and `--preset` and `--state` are removed. Run `mpa.py update` once in each installed project to update the managed block and installed `mpa-*` skills.
+
+### Added
+
+- Dedicated flat platform skills `mpa-hugo` and `mpa-wordpress`.
+- `--runtime agents` (fresh-project default) and `--runtime antigravity` (alias for `.agents/skills/`).
+- Separate browsing categories and installable bundles: `security` splits into `security`, `agents`, and `data`, while `languages` and `platforms` are individual-only pick-lists. `update --add-skill` and `--remove-skill` now accept installable bundle names as well as space-separated, comma-separated, and repeated flags.
+- `docs/cli.md` as the single-home CLI reference, and `docs/external-skills.md` listing vetted first-party additive companion repositories (`GoogleChrome/modern-web-guidance-src` and `cloudflare/security-audit-skill`) with pinning and vetting guidance.
+- `mpa.py check` runtime-aligned notes: root `GEMINI.md` and `.agents/rules`, missing `SKILL.md` errors, nested `AGENTS.md`/`AGENTS.override.md` ancestor-chain size notes, 24,000-byte single-file notes for `GEMINI.md` and nested `AGENTS.md`, per-directory 8,000-character `mpa-*` startup listing notes, dual-directory overlap and set-drift notes, and non-`mpa-*` skill directory counts.
+- Skill guidance updates across `mpa-agent-instructions`, `mpa-review`, `mpa-root-cause`, `mpa-swift`, `mpa-php`, `mpa-secure-coding`, `mpa-agent-inputs`, `mpa-javascript-typescript`, `mpa-go`, `mpa-kubernetes`, and `mpa-database`.
+- `CONTRIBUTING.md`: frontier-model non-redundancy bar, first-party vendor link admission rules, and a fresh-context diff-audit checklist.
+
+### Changed
+
+- `templates/block.md` (`8.0.0`): trimmed to three rules (`Approvals`, `Blocks`, `Evidence`), folding unfinished-work handoff and one-line `Constraints` proposals into `Evidence`.
+- `templates/AGENTS.template.md`: moved `## Approvals` directly beneath the managed block, narrowed external-disclosure wording to project code, secrets, or user data, grouped protected agent files by category with examples across supported harnesses, and folded scope latitude into `## Constraints`.
+- `mpa.py init`: resolves omitted `--runtime` from existing `mpa-*` skill directories, then committed Claude files (`CLAUDE.md`, `.claude/CLAUDE.md`, `.claude/settings.json`), otherwise single-copy `agents` (with a note naming `--runtime claude`); writes `CLAUDE.md` only when `claude` is selected; inserts missing adopted sections directly after `<!-- mpa:end -->`.
+- Skill catalogue and files: standardised all 29 YAML descriptions to double-quoted third-person strings up to 320 characters with directional contrast redirects, aligned workflow closing headings to `## Report`, replaced trailing `Related skill(s):` footers with inline citations, and updated `skills/README.md` to show category and install mode (`bundle` vs. `individual`).
+- `docs/runtimes.md`: replaced managed `--preset` documentation with copy-paste starter snippets and native OS sandbox / permission-mode pointers, and moved CLI tables to `docs/cli.md`.
+- Size caps: removed the repository-wide `SKILLS_CAP` total in favour of the per-skill 5,000-byte cap and per-project startup listing notes in `mpa.py check`.
+
+### Removed
+
+- `--preset` and `templates/presets/*` (`.claude/settings.json`, `.codex/rules/mpa.rules`, `.codex/config.toml`).
+- `--state`, `templates/TODO.md`, `.gitignore` mutation, the `Notes` rule in `templates/block.md`, and `## Code latitude` as a standalone heading.
+- Bulk `languages` install group, `docs/migrating-from-v6.md`, legacy v6/v7.0 compatibility checks, placeholder-comment and empty-command notes in `mpa.py check`, and deprecated Gemini CLI references.
+
+### Fixed
+
+- `mpa.py`: breadth-first nested instruction discovery (finding shallow files before the 2,000-directory limit), consistent dual `CLAUDE.md` and `.claude/CLAUDE.md` inspection, separate nested `GEMINI.md` reporting, skipping symlinked nested instruction files during size checks, leading UTF-8 BOM handling, segment-aware `claudeMdExcludes` matching, and per-item error isolation in `check`.
+- Skill accuracy fixes across `mpa-python`, `mpa-php`, `mpa-kubernetes`, `mpa-secure-coding`, and `mpa-rust`.
+- `tools/hygiene.py`: IPv4 detection after `=`, non-git `.git` pruning and POSIX paths, CRLF scissors lines, and CLI mode conflict validation.
+
+### Security
+
+- `mpa.py check` runs zero `git` subprocesses, removing `.git/config` exposure during read-only checks.
+- `tools/hygiene.py`: upgraded link validation to full-token parsing with exact HTTPS repository root allowlisting for `docs/external-skills.md`, rejecting quote, backtick, userinfo, port, query, fragment, and path-traversal bypasses.
+
 ## 7.2.0 - 2026-11-16
 
 The block is unchanged. Run `mpa.py update` to install the revised skills; until then `check` reports them as different from the shipped text.
