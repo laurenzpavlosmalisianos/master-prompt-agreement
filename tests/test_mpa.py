@@ -1,7 +1,6 @@
 """Tests for mpa.py and the shipped files."""
 
 import contextlib
-import hashlib
 import io
 import json
 import os
@@ -10,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -19,13 +19,11 @@ sys.path.insert(0, str(ROOT))
 
 import mpa
 
-# Largest size in bytes of the files that load into every session, and of each skill.
-CAPS = {"templates/block.md": 1500, "templates/AGENTS.template.md": 1700}
-SKILL_CAP = 5000
-DESCRIPTION_CAP = 320
+sys.path.insert(0, str(ROOT / "tools"))
+
+import hygiene
+
 BOM = "\ufeff"
-# Change together with BLOCK_VERSION in mpa.py whenever templates/block.md changes.
-BLOCK_SHA256 = "d74b676d76c8ec1e8325ee31271d242d2191ca0cf14fd48c277c4395d6057dc3"
 
 
 def run(*argv):
@@ -160,7 +158,8 @@ class InitTests(ProjectCase):
         self.put("CLAUDE.md", "# Existing\n")
         code, text = self.init("--runtime", "agents")
         self.assertEqual(code, 0, text)
-        self.assertIn("CLAUDE.md exists without an AGENTS.md import and claude is not selected", text)
+        self.assertIn("CLAUDE.md exists without an AGENTS.md import and claude is not selected; by default Claude Code"
+                      " reads only CLAUDE.md files when one exists, so AGENTS.md loads only through an import.", text)
         self.assertTrue((self.dir / ".agents/skills/mpa-review/SKILL.md").is_file())
         self.assertFalse((self.dir / ".claude").exists())
 
@@ -222,6 +221,25 @@ class InitTests(ProjectCase):
             self.assertTrue(all(f"{folder}/{n}/SKILL.md" in files for n in mpa.CATALOG["core"]))
         self.assert_clean()
 
+    def test_copilot_and_gemini_runtimes_install_the_agents_layout(self):
+        for names in ("copilot", "gemini", "agents,copilot", "copilot,gemini"):
+            with self.subTest(names=names):
+                self.assertEqual(mpa.select_runtimes(names, required=True), ["agents"])
+        self.assertEqual(mpa.select_runtimes("claude,gemini", required=True), ["claude", "agents"])
+        code, text = self.init("--runtime", "copilot")
+        self.assertEqual(code, 0, text)
+        self.assertEqual(mpa.installed(self.dir, ".agents/skills"), sorted(mpa.CATALOG["core"]))
+        self.assertFalse((self.dir / ".claude").exists())
+        self.assert_clean()
+        self.assertNotIn("context.fileName", text)
+        with tempfile.TemporaryDirectory() as holder:
+            code, text = run("init", holder, "--runtime", "claude,gemini")
+            self.assertEqual(code, 0, text)
+            self.assertIn("note     Gemini CLI reads AGENTS.md only when its context.fileName setting lists it.", text)
+        code, text = run("init", self.dir, "--runtime", "copilots")
+        self.assertEqual(code, 2)
+        self.assertIn("agents, codex, antigravity, generic, claude, copilot, gemini", text)
+
     def test_individual_only_categories_are_refused_with_skill_list_hint(self):
         for category in mpa.INDIVIDUAL_ONLY:
             with self.subTest(category=category):
@@ -263,6 +281,75 @@ class InitTests(ProjectCase):
     def test_oversized_file_is_refused(self):
         self.put("AGENTS.md", "x" * mpa.MAX_SIZE)
         self.assert_refused()
+
+    def test_init_keeps_an_oversized_agents_file_that_it_does_not_change(self):
+        self.init("--skills=none")
+        self.agents.write_text(self.agents.read_text() + "x" * mpa.MAX_SIZE + "\n")
+        before = self.agents.read_bytes()
+        code, text = self.init("--skills", "review")
+        self.assertEqual(code, 0, text)
+        self.assertRegex(text, r"keep +AGENTS.md  \(managed block present\)")
+        self.assertIn("AGENTS.md exceeds 32 KiB. Codex stops reading instruction files at that size by default,"
+                      " Antigravity truncates a rule file at 24,000 bytes, and check reports it as an error.", text)
+        self.assertNotIn("exceeds 16 KiB", text)
+        self.assertEqual(self.agents.read_bytes(), before)
+        self.assertTrue((self.dir / ".agents/skills/mpa-review/SKILL.md").is_file())
+        self.assertIn("32 KiB", self.assert_refused("init", "--runtime", "generic", "--skills", "review"))
+
+    def test_init_notes_a_kept_agents_file_above_16_kib(self):
+        self.init("--skills=none")
+        self.agents.write_text(self.agents.read_text() + "x" * mpa.NOTE_SIZE + "\n")
+        code, text = self.init("--skills=none")
+        self.assertEqual(code, 0, text)
+        self.assertIn("AGENTS.md exceeds 16 KiB", text)
+        self.assertNotIn("exceeds 32 KiB", text)
+
+    def test_symbolic_link_loops_are_refused_without_a_traceback(self):
+        (self.dir / "CLAUDE.md").symlink_to("CLAUDE.md")
+        for command in ("init", "check"):
+            with self.subTest(command):
+                code, text = run(command, self.dir)
+                self.assertEqual(code, 1, text)
+                self.assertIn("CLAUDE.md is a symbolic link", text)
+                self.assertNotIn("Traceback", text)
+        loop = self.tmp / "loop"
+        loop.symlink_to("loop")
+        for command in ("init", "update", "check"):
+            with self.subTest(command, project="loop"):
+                code, text = run(command, loop)
+                self.assertEqual(code, 1, text)
+                self.assertTrue(text.startswith("refused: "), text)
+
+    def test_runtime_errors_from_path_handling_are_refusals(self):
+        with mock.patch.object(mpa, "cmd_check", side_effect=RuntimeError("Symlink loop from 'x'")):
+            code, text = run("check", self.dir)
+        self.assertEqual(code, 1)
+        self.assertEqual(text, "refused: RuntimeError: Symlink loop from 'x'\n")
+
+    @unittest.skipUnless(hasattr(os, "O_NOFOLLOW"), "the platform has no O_NOFOLLOW")
+    def test_read_does_not_follow_a_link_that_replaces_a_checked_file(self):
+        outside = self.tmp / "outside.md"
+        outside.write_text("outside\n")
+        self.agents.symlink_to(outside)
+        with mock.patch.object(mpa, "target", return_value=self.agents):
+            with self.assertRaises(OSError):
+                mpa.read(self.dir, "AGENTS.md")
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "the platform has no named pipes")
+    def test_read_refuses_a_file_that_is_not_regular_once_opened(self):
+        os.mkfifo(self.agents)
+        with mock.patch.object(mpa, "target", return_value=self.agents):
+            with self.assertRaisesRegex(mpa.Refuse, "AGENTS.md is not a regular file"):
+                mpa.read(self.dir, "AGENTS.md")
+
+    def test_each_claude_file_selects_the_claude_runtime_and_an_empty_claude_folder_does_not(self):
+        (self.dir / ".claude").mkdir()
+        self.assertEqual(mpa.default_runtimes(self.dir), ["agents"])
+        for rel in ("CLAUDE.md", ".claude/CLAUDE.md", ".claude/settings.json"):
+            with self.subTest(rel):
+                path = self.put(rel, "{}\n")
+                self.assertEqual(mpa.default_runtimes(self.dir), ["claude"])
+                path.unlink()
 
     def test_block_of_another_version_is_left_to_update(self):
         self.init()
@@ -326,6 +413,29 @@ class InitTests(ProjectCase):
         heads = [title for _, title in mpa.outline(result)[0]]
         self.assertEqual(heads, ["Working agreement", "Approvals", "Commands", "Constraints"])
         self.assertIn("- Keep changes small.\n", result)
+        self.assert_clean()
+
+    def test_adoption_recognizes_indented_closed_and_tab_separated_headings(self):
+        for text, titles in (
+            ("   ## Approvals ##\n", ["Approvals"]),
+            ("##\tCommands\n", ["Commands"]),
+            ("## Constraints #  \n", ["Constraints"]),
+            ("## C#\n", ["C#"]),
+            ("    ## Code\n", []),
+            ("## ##\n", []),
+            ("### Deeper\n", []),
+            ("##Tight\n", []),
+        ):
+            self.assertEqual([title for _, title in mpa.outline(text)[0]], titles, text)
+        self.put("AGENTS.md", "# T\n\n  ## Approvals ##\n\nAsk.\n\n##\tCommands\n\n- Test: make\n\n## Constraints #\n\n- Keep.\n")
+        code, text = self.init("--skills=none")
+        self.assertEqual(code, 0, text)
+        self.assertNotIn("sections after the block", text)
+        result = self.agents.read_text()
+        heads = [title for _, title in mpa.outline(result)[0]]
+        self.assertEqual(heads, ["Working agreement", "Approvals", "Commands", "Constraints"])
+        self.assertNotIn("<!-- Exact commands", result)
+        self.assertNotIn("- Scope:", result)
         self.assert_clean()
 
     def test_adoption_without_title_puts_block_and_sections_first(self):
@@ -552,6 +662,85 @@ class UpdateTests(ProjectCase):
         self.assertIn("up to date", run("update", self.dir)[1])
         self.assert_clean()
 
+    def test_marker_lines_inside_code_fences_are_text(self):
+        begin = mpa.BEGIN.format(mpa.BLOCK_VERSION)
+        doc = f"\n## Markers\n\n```md\n{begin}\n{mpa.END}\n```\n\n~~~\n{mpa.END}\n~~~\n"
+        self.agents.write_text(self.agents.read_text() + doc)
+        self.assertIn("up to date", run("update", self.dir)[1])
+        self.assertIn("nothing to do", self.init()[1])
+        self.assert_clean()
+
+        self.agents.write_text("# Mine\n" + doc)
+        self.assertIsNone(mpa.find_block(self.agents.read_text()))
+        code, text = self.init("--skills=none")
+        self.assertEqual(code, 0, text)
+        self.assertTrue(self.agents.read_text().endswith(doc))
+        self.assert_clean()
+
+    def test_markers_only_inside_code_fences_are_named_as_a_possibly_hidden_block(self):
+        text, start, _ = self.block()
+        self.agents.write_text(text[:start] + "```\n" + text[start:] + "\n## Commands\n\n```\nnpm test\n```\n")
+        message = "block marker lines appear only inside code fences, and a fence may be hiding the block"
+        code, report = self.check()
+        self.assertEqual(code, 1)
+        self.assertIn(message, report)
+        self.assertNotIn("run init", report)
+        self.assertIn(message, self.assert_refused("update"))
+        self.assertIn(f"note     AGENTS.md: {message}. Review it before adding a block.\n", self.init()[1])
+        self.agents.write_text(text)
+        self.assertNotIn(message, self.init()[1])
+
+    def test_a_fence_opened_inside_the_block_does_not_hide_the_end_marker(self):
+        text, _, end = self.block()
+        cut = end - len(mpa.END)
+        self.agents.write_text(text[:cut] + "```\n" + text[cut:])
+        self.assertIn("managed block differs", self.check()[1])
+        self.assertEqual(run("update", self.dir, "--write", "--force")[0], 0)
+        self.assert_clean()
+
+    def test_a_marker_inside_an_unclosed_fence_is_refused(self):
+        text, start, _ = self.block()
+        self.agents.write_text(text[:start] + "```text\nsample\n\n" + text[start:])
+        message = "a block marker is inside an unclosed code fence"
+        self.assertIn(message, self.assert_refused("update"))
+        self.assertIn(message, self.assert_refused("init"))
+        code, report = self.check()
+        self.assertEqual(code, 1)
+        self.assertIn(message, report)
+        self.assertEqual(self.agents.read_text().count("mpa:begin"), 1)
+
+    def test_line_feeds_and_carriage_returns_end_lines_when_finding_the_block_and_headings(self):
+        block = mpa.block_text()
+        text = "# T\n\nSee page 2\x0c```\n" + block + "\n\nEnd\x0c```\n"
+        start = text.index(block)
+        self.assertEqual(mpa.find_block(text), (start, start + len(block), mpa.VERSION))
+        self.agents.write_text(text)
+        self.assertIn("up to date", run("update", self.dir)[1])
+        self.assertIn("nothing to do", self.init()[1])
+        self.assertEqual(self.agents.read_text().count("mpa:begin"), 1)
+        self.assertNotIn("no managed block", self.check()[1])
+        for sep in ("\x0b", "\x1c", "\x85", "\u2028", "\u2029"):
+            sample = f"# T\nNote{sep}```\n## Approvals\n```\n## Deploy\n"
+            self.assertEqual(mpa.titles(sample), {"Approvals"}, repr(sep))
+        self.agents.write_text("# T\x0cpage\n\n" + block + "\n")
+        self.assert_clean()
+        for nl in ("\r", "\r\n"):
+            text = f"# T{nl}{nl}" + block.replace("\n", nl) + nl
+            start = text.index("<!--")
+            self.assertEqual(mpa.find_block(text), (start, start + len(block.replace("\n", nl)), mpa.VERSION))
+            self.assertEqual(mpa.titles(f"# T{nl}## Approvals{nl}```{nl}## Deploy{nl}```{nl}"), {"Approvals"})
+        self.assertEqual(mpa.lines("a\rb\r\nc\nd\x0ce\u2028f"), ["a\r", "b\r\n", "c\n", "d\x0ce\u2028f"])
+        self.agents.write_text("# T\rExtra rules before the block\r\n\n" + block + "\n", newline="")
+        self.assertIn("error    AGENTS.md: text other than one H1 line precedes the managed block", self.check()[1])
+
+
+    def test_a_closed_fence_with_a_marker_does_not_mark_a_later_unclosed_fence(self):
+        sample = f"\n## Markers\n\n```md\n{mpa.END}\n```\n\n```text\nunclosed sample\n"
+        self.agents.write_text(self.agents.read_text() + sample)
+        self.assertIsNotNone(mpa.find_block(self.agents.read_text()))
+        self.assertIn("up to date", run("update", self.dir)[1])
+        self.assert_clean()
+
     def test_block_that_holds_other_headings_needs_force(self):
         text, _, end = self.block()
         moved = text[:end - len(mpa.END)] + text[end:] + "\n## Deploy\n\nMine.\n" + mpa.END + "\n"
@@ -694,12 +883,6 @@ class UpdateTests(ProjectCase):
         self.assertIn("applied: 1 change\n", text)
         self.assertNotIn("git diff", text)
 
-    def test_retired_skill_is_removed(self):
-        self.put(".agents/skills/mpa-old/SKILL.md", "old\n")
-        with mock.patch.object(mpa, "RETIRED", ("mpa-old",)):
-            self.assertEqual(run("update", self.dir, "--write", "--force")[0], 0)
-        self.assertFalse((self.dir / ".agents/skills/mpa-old").exists())
-
     def test_update_rejects_overlapping_add_and_remove_skills(self):
         code, text = run("update", self.dir, "--add-skill", "python", "--remove-skill", "mpa-python")
         self.assertEqual(code, 2)
@@ -719,6 +902,25 @@ class UpdateTests(ProjectCase):
         self.assertIn("exceeds 16 KiB", text)
         self.agents.unlink()
         self.assertIn("AGENTS.md is missing", self.assert_refused("update", "--force"))
+
+    def test_update_notes_an_unchanged_agents_file_above_16_kib_and_32_kib_as_init_does(self):
+        base = self.agents.read_text()
+        for extra, shown, hidden in ((mpa.NOTE_SIZE, "AGENTS.md exceeds 16 KiB. Antigravity truncates", "exceeds 32 KiB"),
+                                     (mpa.MAX_SIZE, "AGENTS.md exceeds 32 KiB. Codex stops reading instruction files"
+                                                    " at that size by default, Antigravity truncates a rule file"
+                                                    " at 24,000 bytes, and check reports it as an error.",
+                                      "exceeds 16 KiB")):
+            with self.subTest(extra=extra):
+                self.agents.write_text(base + "x" * extra + "\n")
+                before = self.agents.read_bytes()
+                code, text = run("update", self.dir, "--write")
+                self.assertEqual(code, 0, text)
+                self.assertIn(shown, text)
+                self.assertNotIn(hidden, text)
+                self.assertEqual(self.agents.read_bytes(), before)
+                self.assertEqual([row for row in run("init", self.dir, "--skills=none")[1].splitlines()
+                                  if row.startswith("note") and "KiB" in row],
+                                 [row for row in text.splitlines() if row.startswith("note")])
 
     def test_update_handles_non_directory_mpa_entry_across_modes(self):
         self.put(".agents/skills/mpa-python", "not a dir\n")
@@ -773,6 +975,37 @@ class GitTests(ProjectCase):
         self.assertIn("applied: 1 change\nreview with: git status and git diff\n",
                       run("update", self.dir, "--write", "--force")[1])
         self.assert_clean()
+
+    def test_conflicted_file_is_refused_as_conflicted(self):
+        self.git("init", "-q", "-b", "main")
+        self.git("add", "-f", ".")
+        self.git("commit", "-q", "-m", "setup")
+        self.git("checkout", "-q", "-b", "other")
+        self.skill.write_text("other\n")
+        self.git("commit", "-q", "-a", "-m", "other")
+        self.git("checkout", "-q", "main")
+        self.skill.write_text("mine\n")
+        self.git("commit", "-q", "-a", "-m", "mine")
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.git("merge", "-q", "other")
+        text = self.assert_refused("update")
+        self.assertIn("these files are conflicted in the index: .agents/skills/mpa-review/SKILL.md;", text)
+        self.assertNotIn("unstaged", text)
+
+    def test_a_single_index_entry_at_a_merge_stage_is_refused_as_conflicted(self):
+        self.git("init", "-q")
+        self.git("add", "-f", ".")
+        self.git("commit", "-q", "-m", "setup")
+        self.skill.write_text("edited\n")
+        rel = ".agents/skills/mpa-review/SKILL.md"
+        blob = mpa.blob_id(self.skill.read_bytes(), 40)
+        self.git("hash-object", "-w", rel)
+        self.git("update-index", "--force-remove", rel)
+        env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull}
+        subprocess.run(["git", "-C", str(self.dir), "update-index", "--index-info"], check=True,
+                       input=f"100644 {blob} 2\t{rel}\n".encode(), capture_output=True, env=env)
+        text = self.assert_refused("update")
+        self.assertIn(f"these files are conflicted in the index: {rel};", text)
 
     def test_staged_file_is_replaced_and_stays_in_the_index(self):
         self.git("init", "-q")
@@ -875,6 +1108,57 @@ class LineEndingTests(ProjectCase):
         self.assertEqual(code, 0, text)
         self.assertIn(b"\r\n", self.agents.read_bytes())
 
+    def test_insert_top_cuts_after_the_first_line_and_keeps_its_line_ending(self):
+        for nl in ("\n", "\r\n", "\r"):
+            self.assertEqual(mpa.insert_top(f"# T{nl}Body{nl}", "A\nB"),
+                             (f"# T{nl}{nl}A{nl}B{nl}{nl}Body{nl}", "after line 1"))
+            self.assertEqual(mpa.insert_top(f"Body{nl}", "A"), (f"A{nl}{nl}Body{nl}", "at the top"))
+        self.assertEqual(mpa.insert_top("# T", "A"), ("# T\n\nA\n", "after line 1"))
+
+    def test_text_added_after_a_lone_carriage_return_keeps_the_blank_line_and_line_feed_endings(self):
+        top = mpa.insert_top("# T\rBody\n", "A")
+        self.assertEqual(top, ("# T\r\rA\n\nBody\n", "after line 1"))
+        end = mpa.append_end("a\nb\r", "X")
+        self.assertEqual(end, "a\nb\r\rX\n")
+        self.assertEqual((mpa.newline(top[0]), mpa.newline(end)), ("\n", "\n"))
+
+    @unittest.skipUnless(shutil.which("git"), "git is not installed")
+    def test_update_keeps_line_feed_block_lines_after_a_lone_carriage_return_heading(self):
+        self.agents.write_bytes(b"# T\rfoo\nbar\n")
+        code, text = self.init("--skills=none")
+        self.assertEqual(code, 0, text)
+        self.git("init", "-q")
+        self.git("add", ".")
+        self.git("commit", "-q", "-m", "setup")
+        self.agents.write_bytes(self.agents.read_bytes().replace(mpa.BLOCK_VERSION.encode(), b"8.0.0"))
+        self.git("add", ".")
+        code, text = run("update", self.dir, "--write")
+        self.assertEqual(code, 0, text)
+        data = self.agents.read_bytes()
+        self.assertNotIn(b"\r\n", data)
+        self.assertIn(f"# T\r\r{mpa.BEGIN.format(mpa.BLOCK_VERSION)}\n".encode(), data)
+        self.assert_clean()
+
+    def test_carriage_return_files_keep_their_import_and_sections(self):
+        self.init()
+        claude = self.put("CLAUDE.md", "# Team notes\r\r@AGENTS.md\r")
+        self.assert_clean()
+        self.assertIn("import present", run("init", self.dir, "--runtime", "claude", "--skills", "none")[1])
+        self.assertEqual(claude.read_bytes(), b"# Team notes\r\r@AGENTS.md\r")
+        claude.unlink()
+        original = "# Proj\r\rIntro\r\r## Approvals\r\rAsk first: x.\r\r## Commands\r\r- Test: y\r\r## Constraints\r\r- z\r"
+        self.agents.write_bytes(original.encode())
+        code, text = run("init", self.dir, "--runtime", "agents", "--skills", "none", "--write")
+        self.assertEqual(code, 0, text)
+        self.assertNotIn("sections after the block", text)
+        data = self.agents.read_bytes().decode()
+        self.assertNotIn("\n", data)
+        self.assertTrue(data.startswith("# Proj\r\r<!-- mpa:begin "))
+        self.assertTrue(data.endswith("\r\r" + original[len("# Proj\r\r"):]))
+        self.assertEqual([title for _, title in mpa.outline(data)[0]].count("Approvals"), 1)
+        self.assert_clean()
+        self.assertIn("up to date", run("update", self.dir)[1])
+
 
 @unittest.skipUnless(shutil.which("git"), "git is not installed")
 class GitDiscoveryTests(ProjectCase):
@@ -909,6 +1193,15 @@ class CheckTests(ProjectCase):
     def test_edited_block_is_an_error(self):
         self.agents.write_text(self.agents.read_text().replace(mpa.END, "- Added rule.\n" + mpa.END))
         self.assertIn("managed block differs", self.errors())
+
+    def test_agents_file_size_notes_and_error_name_codex_and_antigravity(self):
+        base = self.agents.read_text()
+        self.agents.write_text(base + "x" * mpa.NOTE_SIZE + "\n")
+        self.assertIn("AGENTS.md is larger than 16 KiB; Antigravity truncates a rule file at 24,000 bytes,"
+                      " and Codex stops reading at 32 KiB by default", self.check()[1])
+        self.agents.write_text(base + "x" * mpa.MAX_SIZE + "\n")
+        self.assertIn("AGENTS.md is larger than 32 KiB; Codex stops reading instruction files at that size by default,"
+                      " and Antigravity truncates a rule file at 24,000 bytes", self.errors())
 
     def test_text_before_the_block_is_an_error(self):
         self.agents.write_text("Intro\n\n" + self.agents.read_text())
@@ -1011,82 +1304,14 @@ class CheckTests(ProjectCase):
         self.put(".agents/skills/mpa-python/SKILL.md", mpa.shipped("mpa-python").decode())
         self.assertIn("different mpa-* skill sets", self.check()[1])
 
-    def test_other_instruction_files_are_notes(self):
-        for rel in ("CLAUDE.local.md", ".claude/rules/a.md", "GEMINI.md", ".agents/rules/a.md",
-                    "pkg/AGENTS.md", "node_modules/x/AGENTS.md"):
+    def test_agents_files_in_subdirectories_are_a_note(self):
+        for rel in ("pkg/AGENTS.md", "pkg/CLAUDE.md", "node_modules/x/AGENTS.md", ".cache/AGENTS.md"):
             self.put(rel, "x\n")
-        self.put(".codex/config.toml", "model = 'x'\n")
         code, text = self.check()
         self.assertEqual(code, 0, text)
-        for part in ("CLAUDE.local.md", ".claude/rules", "GEMINI.md", ".agents/rules",
-                     ".codex/config.toml", "beside it: pkg/AGENTS.md\n"):
-            self.assertIn(part, text)
-
-    def test_nested_claude_only_note_names_claude_code(self):
-        self.put("pkg/CLAUDE.md", "x\n")
-        self.assertIn("CLAUDE.md files in subdirectories load in Claude Code only: pkg/CLAUDE.md", self.check()[1])
-
-    def test_nested_gemini_and_single_file_rule_size_notes(self):
-        self.put("pkg/GEMINI.md", "x" * (mpa.RULE_SIZE + 1))
-        code, text = self.check()
-        self.assertEqual(code, 0, text)
-        self.assertIn("GEMINI.md files in subdirectories load in Antigravity alongside AGENTS.md: pkg/GEMINI.md", text)
-        self.assertNotIn("Codex reads an AGENTS.md in a subdirectory", text)
-        self.assertIn("pkg/GEMINI.md is 24,001 bytes; Antigravity truncates a rule file at 24,000 bytes", text)
-
-        self.put("GEMINI.md", "x" * (mpa.RULE_SIZE + 1))
-        self.put("pkg/AGENTS.md", "x" * (mpa.RULE_SIZE + 1))
-        code, text = self.check()
-        self.assertEqual(code, 0, text)
-        self.assertIn("GEMINI.md is 24,001 bytes; Antigravity truncates a rule file at 24,000 bytes", text)
-        self.assertIn("pkg/AGENTS.md is 24,001 bytes; Antigravity truncates a rule file at 24,000 bytes", text)
-
-    def test_ancestor_chain_instruction_size_and_override_replacement(self):
-        root_size = self.agents.stat().st_size
-        self.put("a/AGENTS.md", "x" * 10000)
-        self.put("b/AGENTS.md", "x" * 10000)
-        code, text = self.check()
-        self.assertEqual(code, 0, text)
-        self.assertNotIn("combined instruction files", text)
-
-        self.put("a/sub/AGENTS.md", "x" * 7000)
-        code, text = self.check()
-        self.assertEqual(code, 0, text)
-        chain_16k = root_size + 10000 + 7000
-        self.assertIn(
-            f"combined instruction files along AGENTS.md -> a/AGENTS.md -> a/sub/AGENTS.md"
-            f" total {chain_16k:,} bytes, exceeding 16 KiB",
-            text,
-        )
-
-        # AGENTS.override.md replaces AGENTS.md in its directory instead of summing both.
-        self.put("a/AGENTS.override.md", "x" * 100)
-        code, text = self.check()
-        self.assertEqual(code, 0, text)
-        self.assertNotIn("combined instruction files", text)
-
-        self.put("a/AGENTS.override.md", "x" * 24001)
-        code, text = self.check()
-        self.assertEqual(code, 0, text)
-        chain_32k = root_size + 24001 + 7000
-        self.assertIn(
-            f"combined instruction files along AGENTS.md -> a/AGENTS.override.md -> a/sub/AGENTS.md"
-            f" total {chain_32k:,} bytes, exceeding 32 KiB",
-            text,
-        )
-        # AGENTS.override.md is Codex-only and must not emit Antigravity's 24,000-byte single-file note.
-        self.assertNotIn("a/AGENTS.override.md is 24,001 bytes; Antigravity", text)
-
-        # Root AGENTS.override.md replaces root AGENTS.md in the ancestor chain.
-        self.put("AGENTS.override.md", "x" * 5000)
-        code, text = self.check()
-        self.assertEqual(code, 1, text)
-        root_override_chain = 5000 + 24001 + 7000
-        self.assertIn(
-            f"combined instruction files along AGENTS.override.md -> a/AGENTS.override.md -> a/sub/AGENTS.md"
-            f" total {root_override_chain:,} bytes, exceeding 32 KiB",
-            text,
-        )
+        self.assertRegex(text, r"note +AGENTS.md files in subdirectories: pkg/AGENTS.md\. A tool that reads the nearest"
+                               r" file may not apply the working agreement there\.\n")
+        self.assertIn("check: 0 errors, 1 note", text)
 
     def test_symlinked_nested_agents_file_is_skipped_safely(self):
         outside = self.tmp / "outside.md"
@@ -1099,16 +1324,15 @@ class CheckTests(ProjectCase):
         self.assertEqual(code, 0, text)
         self.assertNotIn("sub/AGENTS.md", text)
         self.assertNotIn("sub2/AGENTS.md", text)
-        self.assertEqual(mpa.nested_files(self.dir), ([], [], [], False))
+        self.assertEqual(mpa.nested_files(self.dir), ([], False))
 
     def test_bfs_nested_files_discovers_shallow_files_before_deep_trees(self):
         self.put("a/d1/d2/d3/d4/d5/AGENTS.md", "deep\n")
         self.put("z/AGENTS.md", "shallow\n")
         with mock.patch.object(mpa, "MAX_WALK", 4):
-            agents, claude, gemini, stopped = mpa.nested_files(self.dir)
+            found, stopped = mpa.nested_files(self.dir)
         self.assertTrue(stopped)
-        self.assertEqual(agents, ["z/AGENTS.md"])
-        self.assertEqual((claude, gemini), ([], []))
+        self.assertEqual(found, ["z/AGENTS.md"])
 
     def test_missing_claude_file_is_a_note_where_claude_code_is_set_up(self):
         self.init("--runtime", "claude")
@@ -1126,7 +1350,7 @@ class CheckTests(ProjectCase):
         self.assertNotIn("stopped", self.check()[1])
         with mock.patch.object(mpa, "MAX_WALK", 2):
             text = self.check()[1]
-        self.assertIn("beside it: a/AGENTS.md\n", text)
+        self.assertIn("AGENTS.md files in subdirectories: a/AGENTS.md. A tool that reads", text)
         self.assertRegex(text, r"note +the scan for instruction files in subdirectories stopped after 2 directories")
 
     def test_check_runs_no_git_commands(self):
@@ -1139,45 +1363,32 @@ class CheckTests(ProjectCase):
 
 
 class ShippedContentTests(unittest.TestCase):
-    def test_always_loaded_files_stay_within_caps(self):
-        for rel, cap in CAPS.items():
-            with self.subTest(rel):
-                self.assertLessEqual(len(mpa.lf((ROOT / rel).read_bytes())), cap)
-
-    def test_block_template_stays_within_cap_hash_and_bullet_limit(self):
-        raw = mpa.lf((ROOT / "templates/block.md").read_bytes())
-        self.assertLessEqual(len(raw), CAPS["templates/block.md"])
-        digest = hashlib.sha256(raw).hexdigest()
-        self.assertEqual(digest, BLOCK_SHA256, "templates/block.md changed: raise BLOCK_VERSION and BLOCK_SHA256")
-        body = raw.decode("utf-8").splitlines()
-        bullets = [row for row in body if row.startswith("- **")]
-        self.assertLessEqual(len(bullets), 3)
-        self.assertEqual(len([row for row in body if row.startswith("- ")]), len(bullets))
-        self.assertFalse([row for row in body if row.isupper()])
-
     def test_a_tool_release_alone_leaves_the_block_current(self):
+        source = (ROOT / "mpa.py").read_text(encoding="utf-8")
+        line = f'__version__ = "{mpa.__version__}"\n'
+        self.assertEqual(source.count(line), 1)
+        release = types.ModuleType("mpa_release")
+        release.__file__ = str(ROOT / "mpa.py")
+        exec(compile(source.replace(line, '__version__ = "99.0.0"\n'), release.__file__, "exec"), release.__dict__)
+        self.assertEqual((release.__version__, release.BLOCK_VERSION), ("99.0.0", mpa.BLOCK_VERSION))
         with tempfile.TemporaryDirectory() as empty:
-            run("init", empty, "--write", "--skills=none")
-            with mock.patch.object(mpa, "__version__", "99.0.0"):
-                code, text = run("check", empty)
-            self.assertEqual(code, 0, text)
+            self.assertEqual(run("init", empty, "--write", "--skills", "review")[0], 0)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+                checked = release.main(["check", empty])
+                updated = release.main(["update", empty])
+            self.assertEqual((checked, updated), (0, 0), out.getvalue())
+            self.assertIn("check: 0 errors", out.getvalue())
+            self.assertIn("up to date", out.getvalue())
 
     def test_readme_shows_the_block(self):
         self.assertIn(mpa.template("block.md").strip(), (ROOT / "README.md").read_text(encoding="utf-8"))
-
-    def test_skeleton_has_the_placeholders_and_adopted_sections(self):
-        skeleton = mpa.template("AGENTS.template.md")
-        self.assertTrue(skeleton.startswith("# {name}\n\n{block}\n"))
-        for title in mpa.ADOPTED:
-            self.assertTrue(mpa.section(skeleton, title), title)
 
     def test_repository_passes_its_own_check(self):
         code, text = run("check", ROOT)
         self.assertEqual(code, 0, text)
 
     def test_skills_match_the_catalogue(self):
-        expected_bundles = {cat: items for cat, items in mpa.CATALOG.items() if cat not in mpa.INDIVIDUAL_ONLY}
-        self.assertEqual(mpa.BUNDLES, expected_bundles)
         names = sorted(name for items in mpa.CATALOG.values() for name in items)
         self.assertEqual(len(names), len(set(names)))
         self.assertEqual(sorted(p.name for p in mpa.SKILLS.iterdir() if p.is_dir()), names)
@@ -1193,16 +1404,43 @@ class ShippedContentTests(unittest.TestCase):
             with self.subTest(name):
                 self.assertEqual([p.name for p in (mpa.SKILLS / name).iterdir()], ["SKILL.md"])
                 data = mpa.shipped(name)
-                self.assertLessEqual(len(data), SKILL_CAP)
                 match = re.match(r"---\nname: (.+)\ndescription: (.+)\n---\n", data.decode("utf-8"))
                 self.assertIsNotNone(match)
                 self.assertEqual(match.group(1), name)
                 raw_desc = match.group(2)
                 self.assertRegex(raw_desc, r'^"(?:[^"\\]|\\.)*"$')
                 description = json.loads(raw_desc)
-                self.assertLessEqual(len(description), DESCRIPTION_CAP)
                 self.assertNotIn("<", description)
                 self.assertNotIn(">", description)
+
+    def test_stack_skills_open_with_a_coverage_line_no_later_than_the_newest_release(self):
+        pattern = re.compile(r"^Current to .+, checked (\d{4}-\d{2}-\d{2})\. For a newer .+, read what changed after .+"
+                             r" in the release notes \(https:/{2}\S+(, https:/{2}\S+)*\) before relying on this file;"
+                             r" up to .+ no lookup is needed\.$")
+        changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+        newest = max(re.findall(r"^## \d+\.\d+\.\d+ - (\d{4}-\d{2}-\d{2})$", changelog, re.M))
+        names = sorted(name for items in mpa.CATALOG.values() for name in items)
+        self.assertLessEqual(set(hygiene.SKILL_SOURCES), set(names))
+        for name in names:
+            with self.subTest(name):
+                text = mpa.shipped(name).decode("utf-8")
+                body = text.split("\n---\n", 1)[1]
+                lines = [row for row in body.splitlines() if row.startswith("Current to")]
+                if name not in hygiene.SKILL_SOURCES:
+                    self.assertEqual(lines, [])
+                    continue
+                self.assertEqual(len(lines), 1)
+                match = pattern.match(lines[0])
+                self.assertIsNotNone(match, lines[0])
+                self.assertLessEqual(match[1], newest)
+                first = next(row for row in body.splitlines() if row.strip() and not row.startswith("#"))
+                self.assertEqual(first, lines[0])
+                description = json.loads(re.search(r"^description: (.+)$", text, re.M)[1])
+                # A version that the description names is covered by the line, at the same or a finer level.
+                claim = re.search(r"(?:through|current to) (.+?)(?: and checks|\. Use)", description)
+                covered = lines[0].split(", checked ")[0]
+                for version in re.findall(r"\bv?\d+(?:\.\d+)*\b", claim[1] if claim else ""):
+                    self.assertRegex(covered, rf"(?<![\w.]){re.escape(version)}(?!\w)")
 
     def test_skill_cross_references_resolve(self):
         known = {name for items in mpa.CATALOG.values() for name in items}
@@ -1216,60 +1454,18 @@ class ShippedContentTests(unittest.TestCase):
                 self.assertIn(ref, known, f"{name} references unknown skill {ref}")
         self.assertGreater(matched, len(known))
 
-    def test_startup_listing_budgets_and_no_inline_shouting(self):
-        shouting = re.compile(r"\b(?:MANDATORY|CRITICAL|MUST|NEVER|ALWAYS|DO NOT)\b")
-        self.assertEqual(shouting.findall(mpa.template("block.md")), [])
-        names = sorted(name for items in mpa.CATALOG.values() for name in items)
-        self.assertEqual(len(names), 29)
-        for name in names:
-            text = mpa.shipped(name).decode("utf-8")
-            match = re.match(r'^---\nname: .+\ndescription: ("(?:[^"\\]|\\.)*")\n---\n', text)
-            self.assertIsNotNone(match, name)
-            self.assertEqual(shouting.findall(json.loads(match.group(1))), [], name)
-            body_plain = re.sub(r"`[^`]*`", "", text[match.end():])
-            self.assertEqual(shouting.findall(body_plain), [], name)
-
-        all_chars = sum(mpa.skill_listing_size(name) for name in names)
-        self.assertGreater(all_chars, 8000)
-
+    def test_skills_in_both_folders_are_a_note_and_differing_sets_another(self):
         with tempfile.TemporaryDirectory() as holder:
             project = Path(holder).resolve() / "project"
             project.mkdir()
             code, text = run("init", project, "--write", "--runtime", "claude,agents", "--skills", "all")
             self.assertEqual(code, 0, text)
-
-            # Non-mpa directories (including symlinked skill directories) are counted without opening any file inside them.
-            for rel in (".agents/skills/vendor-one/SKILL.md", ".agents/skills/vendor-two/SKILL.md",
-                        ".claude/skills/vendor-one/SKILL.md"):
-                path = project / rel
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_bytes(b"\xff\xfe")
-            linked_target = Path(holder).resolve() / "linked-vendor"
-            linked_target.mkdir()
-            (linked_target / "SKILL.md").write_bytes(b"\xff\xfe")
-            (project / ".claude/skills/vendor-linked").symlink_to(linked_target)
-            (project / ".agents/skills/README.txt").write_text("ignored file\n", encoding="utf-8")
-            (project / ".agents/skills/.hidden").mkdir()
-
-            real_open = io.open
-
-            def guarded_open(file, *args, **kwargs):
-                if "vendor-" in os.fspath(file) or "linked-vendor" in os.fspath(file):
-                    raise AssertionError(f"check_skills opened third-party file: {file}")
-                return real_open(file, *args, **kwargs)
-
             errors, notes = [], []
-            with mock.patch.object(io, "open", side_effect=guarded_open), \
-                 mock.patch.object(Path, "open", lambda self_, *a, **kw: guarded_open(self_, *a, **kw)):
-                mpa.check_skills(project, errors, notes)
+            mpa.check_skills(project, errors, notes)
             self.assertEqual(errors, [])
             joined = "\n".join(notes)
-            self.assertIn(f".agents/skills: mpa-* startup skill listings total {all_chars:,} characters, exceeding 8,000", joined)
-            self.assertIn(f".claude/skills: mpa-* startup skill listings total {all_chars:,} characters, exceeding 8,000", joined)
             self.assertIn("both .claude/skills and .agents/skills hold mpa-* skills", joined)
             self.assertNotIn("different mpa-* skill sets", joined)
-            self.assertIn(".agents/skills: 2 non-mpa skill directories also share the startup budget", joined)
-            self.assertIn(".claude/skills: 2 non-mpa skill directories also share the startup budget", joined)
 
             shutil.rmtree(project / ".claude/skills/mpa-hugo")
             errors, notes = [], []
@@ -1324,3 +1520,23 @@ class ShippedContentTests(unittest.TestCase):
             code, text = run("check", project)
             self.assertEqual(code, 0, text)
             self.assertIn("check: 0 errors, 0 notes", text)
+
+
+class ListingBudgetTests(ProjectCase):
+    def test_a_listing_of_names_and_descriptions_above_8000_characters_is_a_note(self):
+        names = sorted(mpa.CATALOG["core"])
+
+        def fixture(name, length):
+            (self.skills / name / "SKILL.md").write_text(
+                f'---\nname: {name}\ndescription: "{"d" * length}"\n---\nBody.\n', encoding="utf-8")
+
+        for name in names:
+            fixture(name, 100)
+        rest = sum(len(name) + 100 for name in names[1:]) + len(names[0])
+        fixture(names[0], 8000 - rest)
+        self.assertEqual(self.init()[0], 0)
+        self.assertNotIn("startup skill listings", self.check()[1])
+        fixture(names[0], 8001 - rest)
+        self.assertEqual(run("update", self.dir, "--write", "--force")[0], 0)
+        self.assertIn(".agents/skills: mpa-* startup skill listings total 8,001 characters, exceeding 8,000",
+                      self.check()[1])

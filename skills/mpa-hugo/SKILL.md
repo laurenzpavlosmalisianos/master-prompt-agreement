@@ -1,32 +1,28 @@
 ---
 name: mpa-hugo
-description: "Checks for Hugo templates, rendering security, and site builds. Use when changing Hugo layouts, shortcodes, Goldmark Markdown rendering, Hugo Pipes, Tailwind or JS asset builds, Hugo Modules, or site configuration. Pair with mpa-web-frontend for HTML/CSS/ARIA and mpa-seo for metadata or indexing."
+description: "Hugo release changes through v0.170 and checks that are easy to miss: changed defaults, security settings, layout folders, and build tools. Use for any work on a Hugo site: templates, shortcodes, configuration, asset pipelines, modules, or a Hugo version upgrade."
 ---
 
 # Hugo
 
-Hugo config keys, template lookups, and defaults shift across minor releases, escalating deprecations from `INFO` to `WARN` to `ERROR`. Check the repo's pinned Hugo version and edition (standard or deploy; older pre-v0.170 pins may also use extended) against current official Hugo docs (`mpa-research`).
+Current to Hugo v0.170.1, checked 2026-11-27. For a newer Hugo release, read what changed after v0.170.1 in the release notes (https://gohugo.io/news/) before relying on this file; up to v0.170.1 no lookup is needed.
 
 ## Templates and build behaviour
 
 - Match template paths to the pinned Hugo version: v0.146+ restructures `layouts/` and places shortcodes, partials, and render hooks under `_shortcodes`, `_partials`, and `_markup` rather than legacy `_default/`, `shortcodes/`, or `partials/` directories.
-- Avoid removed or deprecated globals (such as `.Site.IsServer`), and check `hugo.IsProduction` and `hugo.IsServer` accurately instead of treating server mode as an environment check.
-- Validate with a clean production build (`hugo --gc --minify --cleanDestinationDir`) rather than relying on `hugo server`, which runs in development mode and can mask stale files in `public/`, minification errors, or missing assets.
 - Check Hugo Pipes builds (Sass/SCSS, Tailwind CSS, PostCSS, `js.Build`) against the edition and external tools the pinned Hugo version requires (such as Dart Sass on v0.170+, where separate extended editions and LibSass are discontinued and WebP encoding is built in), and verify CSS purging reads current `hugo_stats.json` output.
-- Verify multilingual sites and non-HTML output formats (RSS, JSON), where template lookup precedence and escaping contexts differ from HTML.
 
 ## Content and rendering security
 
-- Preserve Hugo's trust model: templates, config, assets, and data are trusted; Markdown content and untrusted frontmatter are untrusted.
-- Keep `markup.goldmark.renderer.unsafe = false` and `security.enableInlineShortcodes = false` unless explicitly approved for trusted-author-only content; either setting lets Markdown authors inject scripts or execute templates.
+- `security.allowContent` (v0.162+) limits the media types content files may have. Its default is `['! ^text/html$']` in v0.162 and `['! ^text/html$', '! ^text/org$']` from v0.166, because Hugo passes HTML files and Org export blocks through verbatim; `.html` and `.org` content files are refused until the list is changed. Keep the default for content that is not fully trusted.
+- Keep `markup.goldmark.renderer.unsafe = false` and `security.enableInlineShortcodes = false` unless every content author is trusted; either setting lets Markdown authors inject scripts or execute templates. Say so in the report when a change turns one on.
+- From v0.169, `pre` and `post` of menu entries defined in front matter are HTML-escaped unless `security.allowContent` allows `text/html`; entries in the project configuration are not affected. From v0.170, Goldmark passthrough content without a passthrough render hook is escaped unless `markup.goldmark.renderer.unsafe` is on; an older pin writes it to the page as raw HTML.
 - Audit `_markup` render hooks and `safeHTML`, `safeHTMLAttr`, `safeURL`, `safeJS`, and `safeCSS` casts so untrusted frontmatter or Markdown cannot bypass Go `html/template` auto-escaping, evade URL-scheme filtering, or inject scripts.
-- Validate or context-escape shortcode parameters and `.Inner` interpolated into attributes, URLs, scripts, or styles instead of applying blanket `safe*` casts (`mpa-web-frontend`).
+- Validate or context-escape shortcode parameters and `.Inner` interpolated into attributes, URLs, scripts, or styles instead of applying blanket `safe*` casts.
 
 ## Modules, pipelines, and configuration
 
-- Pin Hugo Modules via `go.mod` and `go.sum`, and treat third-party themes and modules as privileged build code because their templates, mounts, and config run inside the trust boundary (`mpa-dependency-change`).
-- Inspect `module.replacements` and `module.mounts`: only the main project may mount paths outside its root and downloaded Go modules strip symlinks, while broad mounts or local replacements can shadow templates or expose unintended files.
-- Keep `security.exec.allow` and `security.funcs.getenv` (defaults `^HUGO_`, `^CI$`) narrow so templates, modules, and asset pipelines cannot run arbitrary binaries or leak CI secrets.
-- Narrow `security.http.urls` (which permits public HTTP(S) URLs by default) when templates or modules call `resources.GetRemote` to prevent build-time SSRF or secret exfiltration (`mpa-secure-coding`).
-- Verify `baseURL`, multilingual URLs, and enabled output formats against canonical, sitemap, and redirect expectations (`mpa-seo`).
-- Fingerprint built CSS and JS with `resources.Fingerprint` and emit matching Subresource Integrity (`.Data.Integrity`) attributes where templates serve bundled or cross-origin assets.
+- On v0.161+, PostCSS, Babel, and Tailwind run under Node's permission model. Keep `security.node.permissions.disable = false` and keep `allowRead` (default `['.']`) and `allowWrite` (default empty) narrow; a build tool that fails to read or write a path needs that path added, not the model switched off.
+- On v0.166+, keep the default `security.http.urls` where `resources.GetRemote` runs. The default allows `http` and `https` hosts that start with a letter or digit and denies numeric hosts, `localhost`, and URLs with user info; Hugo also rejects hosts that resolve to private, loopback, or metadata addresses, and an override of `urls` or `http.proxyFromEnvironment = true` turns that check off. On older pins (before v0.161 the default allows every URL), or where an override is needed, list only exact, anchored hosts.
+- From v0.170, a command-line flag overrides the matching `HUGO_` environment variable, which overrides the configuration file. v0.168 ignores `module.replacements` set in a theme, and v0.170.0 confines vendored module paths to `_vendor`, a security fix.
+- Verify `baseURL` (from v0.167 an unset one defaults to a placeholder on example.org), multilingual URLs, and enabled output formats against canonical, sitemap, and redirect expectations.

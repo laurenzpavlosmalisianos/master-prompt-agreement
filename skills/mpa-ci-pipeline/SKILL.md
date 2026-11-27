@@ -9,26 +9,18 @@ Default token permissions, trigger semantics, OIDC claims, and cache isolation d
 
 ## Untrusted input
 
-- Untrusted in a workflow: pull requests from forks, issue and comment text, commit messages, branch and tag names, external payloads, and artifacts or caches written by other workflows.
-- Do not interpolate those fields into shell commands, workflow expressions, or generated code; pass them through environment variables or quoted inputs. Expression injection in a privileged job hands over that job's secrets and token.
-- A trigger that runs with secrets or a write token and also checks out or runs code from a fork is an escalation path. Avoid it; if unavoidable, run the untrusted step with no secrets and no write token.
 - Chained workflows are a trust boundary: a low-privilege workflow can influence a privileged one through artifacts, caches, outputs, names, and status.
-- Separate jobs that run untrusted code, jobs that hold secrets, and publish jobs. Untrusted code does not get container sockets, host mounts, persistent workspaces, or privileged self-hosted runners.
 
 ## Identity and pinning
 
 - Set the workflow token to read-only at the top level and grant write scopes per job; do not rely on the platform default. Every step in a job can read every token and secret that job has.
 - Prefer short-lived OIDC federation to stored cloud, registry, or publishing secrets. When several trust configurations match one publishing identity, each grants on its own; they do not narrow one another.
 - Anyone who can edit a workflow file can exfiltrate every secret it reaches. Protect workflow files with required review.
-- The identity that triggers a build does not approve its own protected release step. Configure branch and environment protection so a CI token cannot approve or merge to a protected branch or delete run logs.
-- Pin third-party actions, reusable workflows, setup tools, and runner images to a commit or digest; a tag can move.
+- Pin third-party actions, reusable workflows, setup tools, and runner images to a commit or digest; a tag can move. A commit pin does not cover the actions, images, or downloads the pinned action pulls in.
 - For each cache, check who can write and read it. A step whose cache or artifact a lower-trust job can read holds no secrets.
+- GitHub workflow dependency lockfile (2026, where the plan offers it): `gh actions-lock`, from the `github/gh-actions-lock` extension, writes `.github/workflows/actions.lock`, which pins every action of each workflow onboarded to it, transitive ones included, so those need no SHA in the workflow file. Rerun it when a `uses:` line changes and do not edit the file by hand. It does not pin a local `./` action, which runs whatever is checked out; an action that the local action uses fails the job unless the workflow has a lockfile entry for it. A `$/` reference (not on GitHub Enterprise Server) cannot carry a ref and resolves to the commit of the file that contains it, so it needs no pin. The lockfile does not lock the actions inside a called reusable workflow, which that workflow's repository must lock or pin; the reusable workflow call itself, runner and container images, and anything an action downloads still need their own pins.
 
 ## Artifacts and claims
 
 - Bind each release artifact to its source revision, workflow identity, and an immutable digest.
-- An attached SBOM, signature, or attestation is not verification; check the signer identity against the trust policy and the subject digest against the artifact.
-- Set retention and access on logs and artifacts to avoid leaking secrets or personal data (`mpa-data-privacy`).
-- A green run does not review permission or trigger changes; inspect them directly in the diff.
-- Call a build hermetic or offline only when network isolation was enforced and checked.
-- Changes to branch protection, environment protection, release credentials, or who may publish need explicit approval, even when the edit is one line of configuration.
+- Set retention and access on logs and artifacts to avoid leaking secrets or personal data.

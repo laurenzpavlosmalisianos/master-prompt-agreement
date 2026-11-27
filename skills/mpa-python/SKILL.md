@@ -1,15 +1,14 @@
 ---
 name: mpa-python
-description: "Checks for Python packaging, threads, archives, annotations, and untrusted input. Use when changing pyproject.toml or supported versions, building wheels, extracting tarfile/zipfile archives, inspecting annotations, writing free-threaded Python, or running in an untrusted directory."
+description: "Python release changes through 3.15 and checks that are easy to miss. Use for any work on Python code or packaging: pyproject.toml, supported versions, archive extraction, untrusted input, or a Python version upgrade."
 ---
 
 # Python
 
-- Type annotations, `TypedDict`, standard-library `@dataclass`, and unvalidated constructors (such as `model_construct`) do not validate untrusted input at run time.
-- Archives: validate member paths, link targets, member counts, and total uncompressed sizes against the extraction root before extracting. Pass `filter="data"` to `tarfile` extraction where supported (3.12+ and backported 3.8.17+/3.9.17+/3.10.12+/3.11.4+; default from 3.14) alongside path and size checks, because filters do not stop decompression bombs and unpatched builds have had filter bypasses. `zipfile` has no `filter` parameter and `zipfile.Path` does not sanitize.
-- `urljoin(base, untrusted)` can replace the host (`mpa-secure-coding` covers SSRF controls).
-- Evaluating annotations or forward references from untrusted code—including `get_type_hints()` and `annotationlib` in 3.14+ (even `Format.STRING` executes `__annotate__`)—can execute arbitrary code; parse untrusted source statically (such as with `ast.parse`) instead of importing or introspecting live objects.
-- When running Python inside a directory that others control, pass `-I` (or `-P`, 3.11+). Without it the interpreter imports modules planted next to the script or in the working directory.
+Current to Python 3.15.2, checked 2026-11-27. For a newer Python release, read what changed after 3.15.2 in the release notes (https://docs.python.org/3/whatsnew/) before relying on this file; up to 3.15.2 no lookup is needed.
+
+- Archives: validate member paths, link targets, member counts, and total uncompressed sizes against the extraction root before extracting. Pass `filter="data"` to `tarfile` extraction where supported (test `hasattr(tarfile, "data_filter")`, not the version number; default from 3.14) alongside path and size checks, because filters do not stop decompression bombs and unpatched builds have had filter bypasses. `zipfile` has no `filter` parameter and `zipfile.Path` does not sanitize.
+- `urljoin(base, untrusted)` can replace the host.
 - Do not rely on the global interpreter lock for thread safety; free-threaded builds run without it.
-- For a library, test the built wheel and sdist installed into a clean environment; importing from the source tree hides missing files and packaging errors.
-- Do not widen or drop supported Python versions as a side effect.
+- 3.15 reads and writes text as UTF-8 when no `encoding` is given, whatever the locale (PEP 686). Pass `encoding` in code that runs on several versions; `encoding="locale"` keeps the old behaviour for one call, and `PYTHONUTF8=0` for a process. `base64.urlsafe_b64decode()` accepts unpadded input unless `padded=True` is passed.
+- Security releases of 2026-10-25: 3.15.2, 3.14.10, and 3.13.18. The `tar` extraction filter now rejects a link member that resolves to the destination directory itself (CVE-2026-114583). 3.15.2 also fixes a deadlock in 3.15.0 and 3.15.1 when threads import `package.submodule` for the first time at once.

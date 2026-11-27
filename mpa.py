@@ -14,9 +14,9 @@ from collections import deque
 from pathlib import Path
 from typing import NamedTuple
 
-__version__ = "8.0.0"
+__version__ = "8.1.0"
 # The version of templates/block.md. It changes only when the block text changes.
-BLOCK_VERSION = "8.0.0"
+BLOCK_VERSION = "8.1.0"
 
 FRAMEWORK_DIR = Path(__file__).resolve().parent
 TEMPLATES = FRAMEWORK_DIR / "templates"
@@ -24,7 +24,6 @@ SKILLS = FRAMEWORK_DIR / "skills"
 VERSION = tuple(int(part) for part in BLOCK_VERSION.split("."))
 MAX_READ = 1 << 20
 NOTE_SIZE, MAX_SIZE = 16 << 10, 32 << 10
-RULE_SIZE = 24000
 SKILL_BUDGET = 8000
 MAX_WALK = 2000
 SKILL_DIRS = {
@@ -34,23 +33,23 @@ SKILL_DIRS = {
     "generic": ".agents/skills",
     "claude": ".claude/skills",
 }
+# Runtime names that select another runtime's layout.
+RUNTIME_ALIASES = {"copilot": "agents", "gemini": "agents"}
 IMPORTS = (("CLAUDE.md", "@AGENTS.md"), (".claude/CLAUDE.md", "@../AGENTS.md"))
 CATALOG = {
     "core": ("mpa-review", "mpa-external-contribution", "mpa-incident", "mpa-dependency-change",
              "mpa-root-cause", "mpa-migration", "mpa-release", "mpa-research"),
     "security": ("mpa-secure-coding", "mpa-security-audit"),
-    "agents": ("mpa-agent-inputs", "mpa-agent-instructions"),
+    "agents": ("mpa-agent-inputs", "mpa-agent-instructions", "mpa-delegation"),
     "data": ("mpa-database", "mpa-data-privacy"),
     "infra": ("mpa-ci-pipeline", "mpa-containers", "mpa-kubernetes", "mpa-infrastructure-as-code"),
     "web": ("mpa-web-frontend", "mpa-seo"),
     "languages": ("mpa-python", "mpa-javascript-typescript", "mpa-go", "mpa-rust", "mpa-swift",
                   "mpa-php", "mpa-shell"),
-    "platforms": ("mpa-hugo", "mpa-wordpress"),
+    "platforms": ("mpa-hugo", "mpa-wordpress", "mpa-apache-httpd", "mpa-nginx"),
 }
 INDIVIDUAL_ONLY = ("languages", "platforms")
 BUNDLES = {name: items for name, items in CATALOG.items() if name not in INDIVIDUAL_ONLY}
-# Skill names that update removes from a project without --remove-skill.
-RETIRED = ()
 ADOPTED = ("Approvals", "Commands", "Constraints")
 BEGIN = "<!-- mpa:begin {} (replaced by mpa.py update; edit outside this block) -->"
 END = "<!-- mpa:end -->"
@@ -58,10 +57,16 @@ BEGIN_RE = re.compile(r"^<!-- mpa:begin (\d{1,4})\.(\d{1,4})\.(\d{1,4}) [^\r\n]*
 END_RE = re.compile(r"^<!-- mpa:end -->\r?$", re.M)
 MARK_RE = re.compile(r"^<!-- mpa:(?:begin|end)\b", re.M)
 H1_RE = re.compile(r"#[ \t]+\S")
+# An ATX H2 heading line: up to three spaces of indentation, ##, then a space or tab.
+H2_RE = re.compile(r" {0,3}##[ \t]+(.*)")
+# The optional closing sequence of an ATX heading: #s after a space or tab, or alone.
+CLOSING_RE = re.compile(r"(?:^|[ \t]+)#+[ \t]*$")
 NAME_RE = re.compile(r"mpa-[a-z0-9]+(-[a-z0-9]+)*")
 TITLE_RE = re.compile(r"[A-Za-z0-9 ._-]+")
 FENCE_RE = re.compile(r" {0,3}(`{3,}|~{3,})(.*)")
 COMMENT_RE = re.compile(r" {0,3}<!--")
+HIDDEN_BLOCK = "block marker lines appear only inside code fences, and a fence may be hiding the block"
+LINE_RE = re.compile(r"[^\r\n]*(?:\r\n?|\n)|[^\r\n]+\Z")
 GUIDES = ("## Guides\n\nTask guides are the `SKILL.md` files in the `mpa-*` directories under `.agents/skills/`."
           " Each has a `description` line at the top that says when it applies."
           " Read a guide before work that its description matches.")
@@ -107,33 +112,32 @@ def target(root, rel, is_dir=False):
         if path.exists() and not (path.is_dir() if folder else path.is_file()):
             kind = "a directory" if folder else "a regular file"
             raise Refuse(f"{rel}: {path.relative_to(root).as_posix()} is not {kind}")
-    if root not in path.resolve().parents:
+    if root not in Path(os.path.realpath(path)).parents:
         raise Refuse(f"{rel}: outside the project")
     return path
 
 
 def read(root, rel):
-    """Return the bytes of root/rel, or None when the file is absent."""
+    """Return the bytes of root/rel, or None when the file is absent.
+
+    The file opens without following a final symbolic link where the platform allows it,
+    so a link that replaces the file after target() checked it fails to open."""
     path = target(root, rel)
     if not path.exists():
         return None
-    if path.stat().st_size > MAX_READ:
-        raise Refuse(f"{rel}: larger than 1 MiB")
-    return path.read_bytes()
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
+    with os.fdopen(os.open(path, flags), "rb") as handle:
+        info = os.fstat(handle.fileno())
+        if not stat.S_ISREG(info.st_mode):
+            raise Refuse(f"{rel}: {rel} is not a regular file")
+        if info.st_size > MAX_READ:
+            raise Refuse(f"{rel}: larger than 1 MiB")
+        return handle.read()
 
 
 def lf(data):
     """Return data with CRLF line endings turned into LF; None stays None."""
     return None if data is None else data.replace(b"\r\n", b"\n")
-
-
-def regular_size(path):
-    """Return the byte size of path when it is a regular file (not a symbolic link), else None."""
-    try:
-        info = os.lstat(path)
-    except OSError:
-        return None
-    return info.st_size if stat.S_ISREG(info.st_mode) else None
 
 
 def decode(data, rel):
@@ -212,7 +216,41 @@ def template(name):
 
 
 def newline(text):
-    return "\r\n" if "\r\n" in text else "\n"
+    """Return the line ending for text added to text: \\r\\n when it holds one, else \\r when
+    it holds a carriage return and no line feed, else \\n."""
+    if "\r\n" in text:
+        return "\r\n"
+    return "\r" if "\r" in text and "\n" not in text else "\n"
+
+
+def unified(text):
+    """Return text with each \\r\\n and \\r line ending replaced by \\n."""
+    return re.sub(r"\r\n?", "\n", text)
+
+
+def advance(fence, comment, bare):
+    """Return (fence, comment, kind) after one line, given the open fence and comment state before it.
+    kind is "fence" for a line of a code fence, "comment" for a line of an HTML comment that starts
+    a line, and "plain" otherwise."""
+    opener = FENCE_RE.match(bare)
+    if fence:
+        if re.fullmatch(rf" {{0,3}}{fence[0]}{{{len(fence)},}}[ \t]*", bare):
+            fence = ""
+        return fence, comment, "fence"
+    if comment:
+        return fence, "-->" not in bare, "comment"
+    if opener and not (opener[1][0] == "`" and "`" in opener[2]):
+        return opener[1], comment, "fence"
+    if COMMENT_RE.match(bare):
+        return fence, "-->" not in bare.split("<!--", 1)[1], "comment"
+    return fence, comment, "plain"
+
+
+def lines(text):
+    """Return the lines of text with their endings. Only \\n, \\r\\n, and \\r end a line; other
+    characters that str.splitlines treats as line breaks, such as form feed and U+2028, stay inside
+    the line."""
+    return LINE_RE.findall(text)
 
 
 def scan(text):
@@ -220,21 +258,10 @@ def scan(text):
     or an HTML comment that starts a line. plain is false for the lines of a fence or such a comment."""
     skip = 1 if text.startswith("\ufeff") else 0
     rows, fence, comment, offset = [], "", False, skip
-    for row in text[skip:].splitlines(keepends=True):
-        bare, plain = row.rstrip("\r\n"), False
-        opener = FENCE_RE.match(bare)
-        if fence:
-            if re.fullmatch(rf" {{0,3}}{fence[0]}{{{len(fence)},}}[ \t]*", bare):
-                fence = ""
-        elif comment:
-            comment = "-->" not in bare
-        elif opener and not (opener[1][0] == "`" and "`" in opener[2]):
-            fence = opener[1]
-        elif COMMENT_RE.match(bare):
-            comment = "-->" not in bare.split("<!--", 1)[1]
-        else:
-            plain = True
-        rows.append((offset, bare, plain))
+    for row in lines(text[skip:]):
+        bare = row.rstrip("\r\n")
+        fence, comment, kind = advance(fence, comment, bare)
+        rows.append((offset, bare, kind == "plain"))
         offset += len(row)
     return rows, bool(fence) or comment
 
@@ -243,8 +270,12 @@ def outline(text):
     """Return the (offset, title) pairs of the H2 headings outside code fences and HTML comments,
     and whether the text ends inside either."""
     rows, unclosed = scan(text)
-    heads = [(offset, bare[3:].strip()) for offset, bare, plain in rows
-             if plain and bare.startswith("## ") and bare[3:].strip()]
+    heads = []
+    for offset, bare, plain in rows:
+        match = H2_RE.match(bare) if plain else None
+        title = CLOSING_RE.sub("", match[1]).strip() if match else ""
+        if title:
+            heads.append((offset, title))
     return heads, unclosed
 
 
@@ -254,7 +285,7 @@ def titles(text):
 
 def section(text, title):
     """Return one H2 section of text, heading included, or "" when it is absent."""
-    text = text.replace("\r\n", "\n")
+    text = unified(text)
     heads = outline(text)[0]
     for index, (offset, name) in enumerate(heads):
         if name == title:
@@ -273,20 +304,22 @@ def insert_top(text, payload):
     text = text[len(bom):]
     nl = newline(text)
     payload = payload.replace("\n", nl)
-    cut = text.find("\n") + 1 or len(text)
     if not H1_RE.match(text):
         return bom + payload + nl + (nl + text if text else ""), "at the top"
-    head, rest = text[:cut], text[cut:]
-    if not head.endswith("\n"):
+    head = lines(text)[0]
+    rest = text[len(head):]
+    if not head.endswith(("\n", "\r")):
         head += nl
-    gap = "" if not rest or rest.startswith(("\n", "\r\n")) else nl
-    return bom + head + nl + payload + nl + gap + rest, "after line 1"
+    sep = "\r" if nl == "\n" and head.endswith("\r") else nl
+    gap = "" if not rest or rest.startswith(("\n", "\r")) else nl
+    return bom + head + sep + payload + nl + gap + rest, "after line 1"
 
 
 def append_end(text, payload):
     nl = newline(text)
-    gap = "" if text.endswith("\n") else nl
-    return text + gap + nl + payload.replace("\n", nl) + nl
+    gap = "" if text.endswith(("\n", "\r")) else nl
+    sep = "\r" if nl == "\n" and text.endswith("\r") else nl
+    return text + gap + sep + payload.replace("\n", nl) + nl
 
 
 def has_import(text, line):
@@ -295,19 +328,59 @@ def has_import(text, line):
 
 
 def find_block(text):
-    """Return (start, end, version) of the managed block, or None when no marker line exists."""
+    """Return (start, end, version) of the managed block, or None when no marker line exists.
+
+    Marker lines inside code fences are text. Between a begin marker and the next end marker,
+    fences are not tracked, because update replaces that text. A marker line inside a code fence
+    that is still open at the end of the text is refused, because the fence may be a mistake that
+    hides the block."""
+    return scan_markers(text)[0]
+
+
+def fenced_only(text):
+    """Report whether the AGENTS.md text has no marker line outside code fences but some inside."""
+    found, fenced = scan_markers(text)
+    return found is None and fenced > 0
+
+
+def no_block(text):
+    """Return the message for AGENTS.md text without a managed block."""
+    if fenced_only(text):
+        return f"AGENTS.md has no managed block outside code fences; {HIDDEN_BLOCK}"
+    return "AGENTS.md has no managed block; run init"
+
+
+def scan_markers(text):
+    """Return find_block's result and the number of marker lines skipped inside code fences."""
     skip = len("\ufeff") if text.startswith("\ufeff") else 0
-    body = text[skip:]
-    marks = len(MARK_RE.findall(body))
+    marks, begins, ends, fenced = 0, [], [], 0
+    fence, comment, inside, hidden, offset = "", False, False, False, skip
+    for row in lines(text[skip:]):
+        bare, at = row.rstrip("\r\n"), offset
+        offset += len(row)
+        if not inside:
+            fence, comment, kind = advance(fence, comment, bare)
+            if kind == "fence":
+                fenced += bool(MARK_RE.match(bare))
+                hidden = bool(fence) and (hidden or bool(MARK_RE.match(bare)))
+                continue
+        if not MARK_RE.match(bare):
+            continue
+        marks += 1
+        begin, end = BEGIN_RE.match(bare), END_RE.match(bare)
+        if begin:
+            begins.append((at, tuple(int(part) for part in begin.groups())))
+            inside = True
+        elif end:
+            ends.append(at + len(bare))
+            inside = False
+    if fence and hidden:
+        raise Refuse("AGENTS.md: a block marker is inside an unclosed code fence")
     if marks == 0:
-        return None
-    begins, ends = list(BEGIN_RE.finditer(body)), list(END_RE.finditer(body))
-    if marks != 2 or len(begins) != 1 or len(ends) != 1 or ends[0].start() < begins[0].end():
+        return None, fenced
+    if marks != 2 or len(begins) != 1 or len(ends) != 1 or ends[0] < begins[0][0]:
         raise Refuse("AGENTS.md: block markers are malformed or duplicated")
-    end = ends[0].end()
-    if body[end - 1] == "\r":
-        end -= 1
-    return skip + begins[0].start(), skip + end, tuple(int(part) for part in begins[0].groups())
+    return (begins[0][0], ends[0], begins[0][1]), fenced
 
 
 def indent(text):
@@ -394,9 +467,16 @@ def select_skills(raw, *, allow_all_none=True, require_shipped=True):
 
 
 def select_runtimes(spec, required):
-    names = [part.strip() for part in spec.split(",") if part.strip()]
-    if [name for name in names if name not in SKILL_DIRS] or (required and not names):
-        raise Usage(f"--runtime takes a comma list of {', '.join(SKILL_DIRS)}")
+    names = []
+    for part in (part.strip() for part in spec.split(",") if part.strip()):
+        if part not in SKILL_DIRS and part not in RUNTIME_ALIASES:
+            names = None
+            break
+        name = RUNTIME_ALIASES.get(part, part)
+        if name not in names:
+            names.append(name)
+    if names is None or (required and not names):
+        raise Usage(f"--runtime takes a comma list of {', '.join([*SKILL_DIRS, *RUNTIME_ALIASES])}")
     return names
 
 
@@ -497,6 +577,8 @@ def plan_agents(root, runtimes, skills):
         steps.append(Step("note", "AGENTS.md keeps its existing ## Approvals section. Review it."))
     if "Constraints" in present:
         steps.append(Step("note", "AGENTS.md keeps its existing ## Constraints section; add a scope rule if desired."))
+    if fenced_only(text):
+        steps.append(Step("note", f"AGENTS.md: {HIDDEN_BLOCK}. Review it before adding a block."))
     return steps, new.encode()
 
 
@@ -513,7 +595,7 @@ def claude_files(root, errors=None):
             if parent != Path("."):
                 target(root, parent.as_posix(), is_dir=True)
             path = root / rel
-            if path.is_symlink() and path.resolve() == root / "AGENTS.md":
+            if path.is_symlink() and Path(os.path.realpath(path)) == root / "AGENTS.md":
                 found.append((rel, line, None, True))
                 continue
             data = read(root, rel)
@@ -575,7 +657,7 @@ def plan_init(root, runtimes, skills):
                 conflicts.append(path)
     if conflicts:
         raise Refuse("existing files differ from the shipped skills: " + ", ".join(conflicts))
-    if len(agents) > MAX_SIZE:
+    if steps[0].data is not None and len(agents) > MAX_SIZE:
         raise Refuse("AGENTS.md would exceed 32 KiB, the default size at which Codex stops reading instruction files")
     existing = [name for name, content in held.items() if content is not None]
     if existing and adopted:
@@ -587,9 +669,7 @@ def plan_init(root, runtimes, skills):
     if len(skill_dirs) > 1:
         steps.append(Step("note", "holding skills in both .claude/skills and .agents/skills doubles startup"
                                   " skill listings in tools that scan both."))
-    if len(agents) > NOTE_SIZE:
-        steps.append(Step("note", "AGENTS.md exceeds 16 KiB. Antigravity truncates a rule file at 24,000 bytes,"
-                                  " and Codex stops reading instruction files at 32 KiB by default."))
+    steps.extend(size_notes(agents))
     if (root / "AGENTS.override.md").exists():
         steps.append(Step("note", "AGENTS.override.md exists. Codex reads it in place of AGENTS.md in this directory."))
     if claude and (root / "CLAUDE.local.md").exists():
@@ -611,7 +691,8 @@ def plan_init(root, runtimes, skills):
             names = " and ".join(rel for rel, _, _, _ in found_claude)
             verb = "exists" if len(found_claude) == 1 else "exist"
             steps.append(Step("note", f"{names} {verb} without an AGENTS.md import and claude is not selected;"
-                                      " Claude Code does not read AGENTS.md unless it imports it."))
+                                      " by default Claude Code reads only CLAUDE.md files when one exists,"
+                                      " so AGENTS.md loads only through an import."))
     return sorted(steps, key=lambda item: item.verb == "note")
 
 
@@ -619,9 +700,9 @@ def plan_block(text, force):
     """Return the step that replaces the managed block in the AGENTS.md text, or None."""
     found = find_block(text)
     if found is None:
-        raise Refuse("AGENTS.md has no managed block; run init")
+        raise Refuse(no_block(text))
     start, end, version = found
-    old, new = text[start:end].replace("\r\n", "\n"), block_text()
+    old, new = unified(text[start:end]), block_text()
     label = ".".join(map(str, version))
     if version > VERSION:
         raise Refuse(f"block version {label} is newer than {BLOCK_VERSION}; use a newer checkout."
@@ -636,6 +717,18 @@ def plan_block(text, force):
     detail = (f"managed block {label} -> {BLOCK_VERSION}; {count(len(old.splitlines()), 'line')}"
               f" replaced by {len(new.splitlines())}")
     return Step("replace", "AGENTS.md", detail, (text[:start] + new.replace("\n", newline(text)) + text[end:]).encode())
+
+
+def size_notes(agents):
+    """Return the note for an AGENTS.md of this content, kept or written, above 16 KiB or 32 KiB."""
+    if len(agents) > MAX_SIZE:
+        return [Step("note", "AGENTS.md exceeds 32 KiB. Codex stops reading instruction files at that size"
+                             " by default, Antigravity truncates a rule file at 24,000 bytes,"
+                             " and check reports it as an error.")]
+    if len(agents) > NOTE_SIZE:
+        return [Step("note", "AGENTS.md exceeds 16 KiB. Antigravity truncates a rule file at 24,000 bytes,"
+                             " and Codex stops reading instruction files at 32 KiB by default.")]
+    return []
 
 
 def plan_update(root, add, remove, runtimes, force):
@@ -668,7 +761,7 @@ def plan_update(root, add, remove, runtimes, force):
                     target(root, rel, is_dir=True)
                 steps.append(Step("note", f"{folder}/{name} is not a skill directory and is kept; check reports it as an error."))
                 continue
-            if name in remove or name in RETIRED:
+            if name in remove:
                 if name not in held[folder]:
                     continue
                 if other_files(root, rel):
@@ -693,12 +786,9 @@ def plan_update(root, add, remove, runtimes, force):
             first = Step("append", "AGENTS.md", f"Guides section {where}", new.encode())
         else:
             first = first._replace(detail=f"{first.detail}; Guides section {where}", data=new.encode())
-    if first is not None:
-        if len(first.data) > MAX_SIZE:
-            raise Refuse("AGENTS.md would exceed 32 KiB, the default size at which Codex stops reading instruction files")
-        if len(first.data) > NOTE_SIZE:
-            steps.append(Step("note", "AGENTS.md exceeds 16 KiB. Antigravity truncates a rule file at 24,000 bytes,"
-                                      " and Codex stops reading instruction files at 32 KiB by default."))
+    if first is not None and len(first.data) > MAX_SIZE:
+        raise Refuse("AGENTS.md would exceed 32 KiB, the default size at which Codex stops reading instruction files")
+    steps.extend(size_notes(raw if first is None else first.data))
     return ([] if first is None else [first]) + steps
 
 
@@ -719,13 +809,18 @@ def guard(root, steps):
     index = {}
     for row in filter(None, listed.split("\0")):
         entry, _, rel = row.partition("\t")
-        index.setdefault(rel, []).append(entry.split()[1])
+        _, blob, stage = entry.split()
+        index.setdefault(rel, []).append((blob, stage))
     loose = [rel for rel in paths if rel not in index]
     if loose:
         return ("git does not track these files, so it cannot restore them: " + ", ".join(loose)
                 + "; commit them or pass --force")
-    changed = [rel for rel in paths if len(index[rel]) != 1 or index[rel][0] not in
-               {blob_id(data, len(index[rel][0])) for data in (read(root, rel), lf(read(root, rel)))}]
+    conflicted = [rel for rel in paths if len(index[rel]) != 1 or index[rel][0][1] != "0"]
+    if conflicted:
+        return ("these files are conflicted in the index: " + ", ".join(conflicted)
+                + "; resolve the conflict or pass --force")
+    changed = [rel for rel in paths if index[rel][0][0] not in
+               {blob_id(data, len(index[rel][0][0])) for data in (read(root, rel), lf(read(root, rel)))}]
     if changed:
         return ("these files have unstaged changes: " + ", ".join(changed)
                 + "; stage or commit them or pass --force")
@@ -741,9 +836,9 @@ def check_agents(root, errors, notes):
     text = decode(data, "AGENTS.md")
     found = find_block(text)
     if found is None:
-        raise Refuse("AGENTS.md has no managed block; run init")
+        raise Refuse(no_block(text))
     start, end, version = found
-    before = [row for row in text[:start].lstrip("\ufeff").splitlines() if row.strip()]
+    before = [row for row in lines(text[:start].lstrip("\ufeff")) if row.strip()]
     if len(before) > 1 or (before and not H1_RE.match(before[0])):
         errors.append("AGENTS.md: text other than one H1 line precedes the managed block")
     label = ".".join(map(str, version))
@@ -751,10 +846,11 @@ def check_agents(root, errors, notes):
         errors.append(f"AGENTS.md: block version {label} is older than {BLOCK_VERSION}; run update")
     elif version > VERSION:
         errors.append(f"AGENTS.md: block version {label} is newer than {BLOCK_VERSION}; use a newer checkout")
-    elif text[start:end].replace("\r\n", "\n") != block_text():
+    elif unified(text[start:end]) != block_text():
         errors.append("AGENTS.md: managed block differs from the shipped text; run update")
     if len(data) > MAX_SIZE:
-        errors.append("AGENTS.md is larger than 32 KiB; Codex stops reading instruction files at that size by default")
+        errors.append("AGENTS.md is larger than 32 KiB; Codex stops reading instruction files at that size by default,"
+                      " and Antigravity truncates a rule file at 24,000 bytes")
     elif len(data) > NOTE_SIZE:
         notes.append("AGENTS.md is larger than 16 KiB; Antigravity truncates a rule file at 24,000 bytes,"
                      " and Codex stops reading at 32 KiB by default")
@@ -856,32 +952,14 @@ def check_skills(root, errors, notes):
                 current = read(root, rel + "SKILL.md")
                 if current is None:
                     errors.append(f"{rel}SKILL.md is missing; run update")
-                elif lf(current) != shipped(name):
+                    continue
+                if lf(current) != shipped(name):
                     errors.append(f"{rel}SKILL.md differs from the shipped text; run update")
             except Refuse as exc:
                 errors.append(str(exc))
         chars = sum(skill_listing_size(name) for name in by_folder[folder])
         if chars > SKILL_BUDGET:
             notes.append(f"{folder}: mpa-* startup skill listings total {chars:,} characters, exceeding {SKILL_BUDGET:,}")
-        path = root / folder
-        if path.is_dir():
-            non_mpa = 0
-            try:
-                with os.scandir(path) as entries:
-                    for entry in entries:
-                        if entry.name.startswith(".") or NAME_RE.fullmatch(entry.name):
-                            continue
-                        try:
-                            if entry.is_dir(follow_symlinks=True):
-                                non_mpa += 1
-                        except OSError:
-                            pass
-            except OSError:
-                pass
-            if non_mpa:
-                word = "directory" if non_mpa == 1 else "directories"
-                verb = "shares" if non_mpa == 1 else "share"
-                notes.append(f"{folder}: {non_mpa} non-mpa skill {word} also {verb} the startup budget")
     sets = [names for names in by_folder.values() if names]
     if len(sets) == 2:
         notes.append("both .claude/skills and .agents/skills hold mpa-* skills;"
@@ -916,15 +994,15 @@ def check_settings(root, errors, notes):
 
 
 def nested_files(root):
-    """Return nested instruction files by kind, outside hidden and node_modules directories,
+    """Return the AGENTS.md files in subdirectories, outside hidden and node_modules directories,
     and whether the breadth-first scan stopped at the directory limit."""
-    agents, claude, gemini = [], [], []
+    found = []
     queue, seen = deque([root]), 0
     while queue:
         folder = queue.popleft()
         seen += 1
         if seen > MAX_WALK:
-            return agents, claude, gemini, True
+            return found, True
         try:
             with os.scandir(folder) as entries:
                 items = sorted(entries, key=lambda entry: entry.name)
@@ -938,18 +1016,12 @@ def nested_files(root):
                 if entry.is_dir(follow_symlinks=False):
                     if not entry.name.startswith(".") and entry.name != "node_modules":
                         dirs.append(Path(entry.path))
-                elif folder != root and entry.is_file(follow_symlinks=False):
-                    rel = Path(entry.path).relative_to(root).as_posix()
-                    if entry.name in ("AGENTS.md", "AGENTS.override.md"):
-                        agents.append(rel)
-                    elif entry.name == "CLAUDE.md":
-                        claude.append(rel)
-                    elif entry.name == "GEMINI.md":
-                        gemini.append(rel)
+                elif folder != root and entry.name == "AGENTS.md" and entry.is_file(follow_symlinks=False):
+                    found.append(Path(entry.path).relative_to(root).as_posix())
             except OSError:
                 continue
         queue.extend(dirs)
-    return agents, claude, gemini, False
+    return found, False
 
 
 def preview(items):
@@ -960,54 +1032,10 @@ def preview(items):
 def check_surfaces(root, errors, notes):
     if (root / "AGENTS.override.md").exists():
         errors.append("AGENTS.override.md exists; Codex reads it in place of AGENTS.md in this directory")
-    if (root / "CLAUDE.local.md").exists():
-        notes.append("CLAUDE.local.md exists; Claude Code loads it together with CLAUDE.md")
-    if (root / ".claude/rules").exists():
-        notes.append(".claude/rules exists; Claude Code loads the rule files in it")
-    if (root / "GEMINI.md").exists():
-        notes.append("GEMINI.md exists; Antigravity loads it alongside AGENTS.md")
-    if (root / ".agents/rules").exists():
-        notes.append(".agents/rules exists; Antigravity loads the rule files in it")
-    if (root / ".codex/config.toml").exists():
-        notes.append(".codex/config.toml exists; Codex applies it in a trusted project")
-    agents, claude, gemini, stopped = nested_files(root)
-    if agents:
-        notes.append("Codex reads an AGENTS.md in a subdirectory, and Claude Code reads it only through a CLAUDE.md"
-                     f" beside it: {preview(agents)}")
-        by_dir = {}
-        root_override = regular_size(root / "AGENTS.override.md")
-        root_agents = regular_size(root / "AGENTS.md")
-        if root_override is not None:
-            by_dir[()] = ("AGENTS.override.md", root_override)
-        elif root_agents is not None:
-            by_dir[()] = ("AGENTS.md", root_agents)
-        for rel in agents:
-            size = regular_size(root / rel)
-            if size is None:
-                continue
-            parts = Path(rel).parent.parts
-            if parts not in by_dir or Path(rel).name == "AGENTS.override.md":
-                by_dir[parts] = (rel, size)
-        best_total, best_chain = 0, []
-        for leaf in sorted(key for key in by_dir if key):
-            chain = [by_dir[leaf[:i]] for i in range(len(leaf) + 1) if leaf[:i] in by_dir]
-            total = sum(size for _, size in chain)
-            if total > best_total:
-                best_total, best_chain = total, [rel for rel, _ in chain]
-        if best_total > MAX_SIZE:
-            notes.append(f"combined instruction files along {' -> '.join(best_chain)} total {best_total:,} bytes,"
-                         " exceeding 32 KiB; Codex stops reading instruction files at that size by default")
-        elif best_total > NOTE_SIZE and (root_agents or 0) <= NOTE_SIZE:
-            notes.append(f"combined instruction files along {' -> '.join(best_chain)} total {best_total:,} bytes,"
-                         " exceeding 16 KiB; Codex stops reading instruction files at 32 KiB by default")
-    if claude:
-        notes.append(f"CLAUDE.md files in subdirectories load in Claude Code only: {preview(claude)}")
-    if gemini:
-        notes.append(f"GEMINI.md files in subdirectories load in Antigravity alongside AGENTS.md: {preview(gemini)}")
-    for rel in ("GEMINI.md", *(r for r in agents if Path(r).name == "AGENTS.md"), *gemini):
-        size = regular_size(root / rel)
-        if size is not None and size > RULE_SIZE:
-            notes.append(f"{rel} is {size:,} bytes; Antigravity truncates a rule file at 24,000 bytes")
+    nested, stopped = nested_files(root)
+    if nested:
+        notes.append(f"AGENTS.md files in subdirectories: {preview(nested)}."
+                     " A tool that reads the nearest file may not apply the working agreement there.")
     if stopped:
         notes.append(f"the scan for instruction files in subdirectories stopped after {MAX_WALK} directories")
 
@@ -1021,6 +1049,8 @@ def cmd_init(root, args):
             and any(item.verb in ("create", "insert") and item.rel == "AGENTS.md" for item in steps)):
         steps.append(Step("note", "using --runtime agents (.agents/skills/); pass --runtime claude for Claude Code,"
                                   " or --runtime claude,agents for both."))
+    if args.runtime and "gemini" in [part.strip() for part in args.runtime.split(",")]:
+        steps.append(Step("note", "Gemini CLI reads AGENTS.md only when its context.fileName setting lists it."))
     preflight(root, steps)
     for item in [item for item in steps if item.verb in ("insert", "append")]:
         if guard(root, [item._replace(verb="replace")]):
@@ -1088,8 +1118,9 @@ def main(argv=None):
                                             " a second run adds what is missing")
     init.add_argument("project", metavar="PROJECT", help="project directory")
     init.add_argument("--runtime", default=None, metavar="LIST",
-                      help="comma list of agents, codex, antigravity, generic, claude"
-                           " (default: existing mpa-* skills, claude if CLAUDE.md/.claude exists, else agents)")
+                      help="comma list of agents, codex, antigravity, generic, claude, copilot, gemini"
+                           " (default: the runtimes of existing mpa-* skills, else claude if CLAUDE.md,"
+                           " .claude/CLAUDE.md, or .claude/settings.json exists, else agents)")
     init.add_argument("--skills", default="core", metavar="SPEC",
                       help=f"all, none, or a comma list of skill names and bundles: {', '.join(BUNDLES)} (default: core)")
     init.add_argument("--write", action="store_true", help="apply the plan; without it the plan is printed and nothing changes")
@@ -1116,7 +1147,7 @@ def main(argv=None):
     except Refuse as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return exc.code
-    except (OSError, ValueError, RecursionError) as exc:
+    except (OSError, ValueError, RecursionError, RuntimeError) as exc:
         print(f"refused: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
 

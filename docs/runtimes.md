@@ -1,50 +1,43 @@
 # Runtimes
 
-How the installed files load in each tool, how startup budgets and OS sandboxes compare across runtimes, and how cloud sessions differ. For CLI flags, file ownership, and `mpa.py check` output, see [docs/cli.md](cli.md). Tool behaviour changes between releases; the linked official pages are the reference.
+How the installed files load in each tool, what limits the startup skill listing, and starter permission settings. For CLI flags, file ownership, and `mpa.py check` output, see [docs/cli.md](cli.md). Tool behaviour changes between releases; the linked official pages are the reference.
 
-## How instructions load
+## What each tool reads
 
-**Claude Code** reads `CLAUDE.md`. When `--runtime claude` is selected, `mpa.py init` installs a one-line `CLAUDE.md` containing `@AGENTS.md` (or `@../AGENTS.md` in an existing `.claude/CLAUDE.md`) so Claude Code imports `AGENTS.md` in every case. From version 2.1.277 Claude Code also reads `AGENTS.md` directly when no `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md` exists in the working directory or above it; keeping the import avoids silent drops when a parent directory holds a `CLAUDE.md`. `CLAUDE.local.md` and user-level files load in addition and hold personal instructions. See [memory and imports](https://code.claude.com/docs/en/memory).
+| Tool | Instruction file | Skill folder | `--runtime` |
+|---|---|---|---|
+| Claude Code | `CLAUDE.md`, which imports `AGENTS.md` | `.claude/skills/` | `claude` |
+| Codex | `AGENTS.md` | `.agents/skills/` | `agents` or `codex` |
+| Antigravity | `AGENTS.md` | `.agents/skills/` | `agents` or `antigravity` |
+| GitHub Copilot | `AGENTS.md` | `.agents/skills/` | `agents` or `copilot` |
+| Gemini CLI | `AGENTS.md`, once `context.fileName` lists it | `.agents/skills/` | `agents` or `gemini` |
+| Other tools that read `AGENTS.md` | `AGENTS.md` | `.agents/skills/` | `agents`, or `generic` where the tool lists no skills |
 
-**Codex** reads `AGENTS.md` files from the repository root down to the working directory, one file per directory, up to a combined default limit of 32 KiB. An `AGENTS.override.md` in a directory replaces the `AGENTS.md` in that directory. `mpa.py check` reports a root `AGENTS.override.md` and a root `AGENTS.md` above 32 KiB as errors, and notes both a root `AGENTS.md` above 16 KiB and any nested root-to-leaf ancestor chain exceeding 16 KiB or 32 KiB. See [AGENTS.md in Codex](https://learn.chatgpt.com/docs/agent-configuration/agents-md).
-
-**Antigravity** (app, IDE, and `agy` CLI) reads `AGENTS.md` and `GEMINI.md` in the workspace folder and parent folders up to the repository root, plus nested directory rules when operating on files in subdirectories. It loads skills natively from `.agents/skills/`, so `--runtime antigravity` and `--runtime agents` map to the same single-copy layout. Antigravity truncates any single rule file above 24,000 bytes and keeps all rules within a 20,000-token budget, beyond which it replaces the largest files with pointers; `mpa.py check` notes root `GEMINI.md` and nested `AGENTS.md` or `GEMINI.md` files above 24,000 bytes. See [rules](https://antigravity.google/docs/rules), [customization discovery](https://antigravity.google/docs/customization-discovery), and [skills](https://antigravity.google/docs/skills).
-
-**Other tools** that follow the [AGENTS.md convention](https://agents.md) read `AGENTS.md` as plain Markdown. Tools that also load `.agents/skills/` natively need only `--runtime agents`. For tools without native skill listing, `--runtime generic` installs skills under `.agents/skills/` and adds a `## Guides` pointer in `AGENTS.md`.
+- **Claude Code** reads `CLAUDE.md`. With `--runtime claude`, `mpa.py init` installs a one-line `CLAUDE.md` containing `@AGENTS.md` (or adds `@../AGENTS.md` to an existing `.claude/CLAUDE.md`). From version 2.1.277 Claude Code also reads `AGENTS.md` directly when no `CLAUDE.md`, `.claude/CLAUDE.md`, or `CLAUDE.local.md` exists in the working directory or a directory above it; keeping the import avoids silent drops when a parent directory holds a `CLAUDE.md`. See [memory and imports](https://code.claude.com/docs/en/memory).
+- **Codex** reads `AGENTS.md` files from the repository root down to the working directory, one file per directory, up to a combined default limit of 32 KiB. An `AGENTS.override.md` in a directory replaces the `AGENTS.md` in that directory. See [AGENTS.md in Codex](https://learn.chatgpt.com/docs/agent-configuration/agents-md).
+- **Antigravity** reads `AGENTS.md` in the workspace folder and in each parent folder up to the repository root, and truncates any single rule file above 24,000 bytes. See [rules](https://antigravity.google/docs/rules).
+- **GitHub Copilot** reads `AGENTS.md` files anywhere in the repository in the features that support agent instructions, and the nearest `AGENTS.md` in the directory tree takes precedence, so a nested `AGENTS.md` can override the root file and its managed block. See [repository instructions](https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/add-custom-instructions/add-repository-instructions).
+- **Gemini CLI** reads `GEMINI.md` by default and reads `AGENTS.md` only when the `context.fileName` setting (for example in the project's `.gemini/settings.json`) lists it. See [GEMINI.md files](https://geminicli.com/docs/cli/gemini-md/).
+- **Other tools** that follow the [AGENTS.md convention](https://agents.md) read `AGENTS.md` as plain Markdown. For tools without native skill listing, `--runtime generic` installs skills under `.agents/skills/` and adds a `## Guides` pointer in `AGENTS.md`.
 
 The managed block is project-level text. The tool's own system instructions outrank it. `AGENTS.md` is committed; keep private facts out of it.
 
-## Skills and startup budgets
+## Skills and the startup listing
 
-| Runtime | Skill directory | `CLAUDE.md` import |
-|---|---|---|
-| `agents` (fresh default), `codex`, `antigravity`, `generic` | `.agents/skills/mpa-*/SKILL.md` | Not written |
-| `claude` | `.claude/skills/mpa-*/SKILL.md` | Written (`@AGENTS.md` or `@../AGENTS.md`) |
+Tools with native skill support load each skill's `name` and `description` at session startup and read the full `SKILL.md` body on demand when a task matches. The format is the [Agent Skills](https://agentskills.io) format. Because the descriptions load in every session, install only the bundles and the individual `languages` and `platforms` skills the repository uses.
 
-Tools with native skill support load each skill's `name` and `description` at session startup and read the full `SKILL.md` body on demand when a task matches. The format is the [Agent Skills](https://agentskills.io) format; see [skills in Claude Code](https://code.claude.com/docs/en/skills) and [skills in Codex](https://learn.chatgpt.com/docs/build-skills).
+- **Codex** by default limits the startup skill listing to 2% of the model's context window, or 8,000 characters when the window size is unknown. Over the budget it shortens descriptions first and can leave skills out with a warning.
+- **Claude Code** sets the startup skill listing budget at 1% of the model's context window. Over the budget, every skill name stays listed and descriptions are dropped, starting with the least-invoked skills.
+- `mpa.py check` sums the `name` and `description` characters of the `mpa-*` skills in each skill directory and emits a note above 8,000 characters. The default `core` bundle stays far below that; all 32 skills together exceed it. Skills without the `mpa-` prefix share the same budget.
+- `--runtime claude,agents` commits identical copies into `.claude/skills/` and `.agents/skills/`. Tools that scan both directories list every installed skill twice at startup; `mpa.py init` and `mpa.py check` emit a note.
 
-### Single vs. dual skill directories
+## Permissions and starter snippets
 
-- **Fresh repositories** default to single-copy `.agents/skills/` (`--runtime agents`), which covers Codex, Antigravity, and compatible Agent Skills tools without duplicating skill files.
-- **Claude Code repositories** use `--runtime claude`, which installs `CLAUDE.md` and `.claude/skills/mpa-*/`. Omitting `--runtime` during `init` automatically selects `claude` when `CLAUDE.md`, `.claude/CLAUDE.md`, or `.claude/settings.json` already exists (and preserves existing `mpa-*` directories first).
-- **Dual installs (`--runtime claude,agents`)** commit identical copies into both `.claude/skills/` and `.agents/skills/`. Tools that scan both directories list every installed skill twice at startup, doubling startup metadata; `mpa.py init` and `mpa.py check` emit a note when both directories hold `mpa-*` skills.
+MPA installs plain-text instructions and skills only; it does not generate or merge runtime permission files. For real boundaries, enable each runtime's native OS sandbox and configure its permission mode. Prefix-matched shell prompt rules are friction, not a security boundary: they miss alternative flags, shell redirections, and scripts that open files directly. The snippets below can be copied and adapted by hand.
 
-### Calibrated startup listing budgets
+From version 2.1.283 interactive terminal and VS Code sessions of Claude Code start in auto mode, where a classifier decides in place of prompts. In auto mode a push to the working repository, including its default branch, runs without a prompt. The classifier reads the `CLAUDE.md` content the session loads, so an Approvals list imported there steers it, but only a `permissions.ask` rule such as `Bash(git push *)` creates a prompt. A Claude Code cloud session delivers work by pushing a branch, so such a rule stops it there. See [permission modes](https://code.claude.com/docs/en/permission-modes).
 
-Because skill descriptions load on every turn, install only the bundles and individual `languages` / `platforms` skills the repository uses (see [docs/cli.md](cli.md#init) and the [skill catalogue](../skills/README.md)):
-
-- **Codex** allocates roughly 2% of context (about 8 KB) for startup skill listings.
-- **Claude Code** allocates roughly 1% of the context window for startup skill descriptions (roughly 8,000 characters on a 200K-token window); when over budget, skill names remain loaded while the least-used descriptions are trimmed.
-- `mpa.py check` sums shipped `name` + `description` characters per skill directory (`.agents/skills/` and `.claude/skills/`) and emits a note above `8,000` characters. The default `core` bundle totals ~2.2 KB; all 29 shipped skills total ~8.2 KB.
-- **Non-`mpa-*` skills** (custom workspace skills or pinned [external companions](external-skills.md)) share the same startup listing budget. `mpa.py check` counts non-`mpa-*` directories (including symlinked skill directories) per skill folder without opening or parsing their files.
-
-## Sandboxes, permission modes, and starter snippets
-
-MPA installs plain-text instructions and skills only; it does not generate or merge runtime permission files. Prefix-matched shell prompt rules are convenience friction rather than a security boundary—they miss alternative flags, shell redirections, and scripts that open files directly.
-
-For real boundaries, enable each runtime's native OS sandbox (Seatbelt on macOS, seccomp / Linux sandboxing on Linux) and configure its permission mode (such as `default`, `auto`, or `dontAsk` in Claude Code, or Codex's sandbox mode and approval policy). The short starter snippets below can be copied and adapted by hand when a team also wants prompt or deny friction on `.env` files and destructive `git` commands.
-
-### Claude Code starter snippet
+### Claude Code
 
 Copy or merge into `.claude/settings.json` (committed) or `.claude/settings.local.json` (personal, git-ignored):
 
@@ -72,13 +65,11 @@ Copy or merge into `.claude/settings.json` (committed) or `.claude/settings.loca
 }
 ```
 
-Claude Code evaluates `deny`, then `ask`, then `allow`; an `allow` in `.claude/settings.local.json` does not outrank a `deny` or `ask` in the committed file, and `deny` rules do not support `!` negation exceptions. The `./` patterns above match the repository root; in a monorepo with nested `.env` files, add `Read(**/.env)`, `Read(**/.env.*)`, `Edit(**/.env)`, and `Edit(**/.env.*)`. If a repository commits a sample env file that agents need to read, either name it without a leading dot (such as `env.example`) or replace `.env.*` with explicit secret env patterns (such as `Read(./.env.local)` and `Read(./.env.production)`). `Read` and `Edit` deny rules block built-in file tools rather than arbitrary shell scripts run via `Bash`; rely on OS sandboxing and keeping production secrets out of the work tree. If you add `Bash(git push *)` to the committed file, note that Claude Code cloud sessions deliver work by pushing a branch and pause at that prompt (teams whose cloud or headless sessions push branches also allow non-default branch pushes under `## Approvals` in `AGENTS.md`).
+Claude Code evaluates `deny`, then `ask`, then `allow`; an `allow` in `.claude/settings.local.json` does not outrank a `deny` or `ask` in the committed file. The `./` patterns above resolve against the directory the session starts in, normally the repository root, and match only there. `Read` and `Edit` deny rules block built-in file tools rather than arbitrary shell scripts run via `Bash`. See [permissions](https://code.claude.com/docs/en/permissions) and [sandboxing](https://code.claude.com/docs/en/sandboxing).
 
-For OS sandboxing, permission modes (`default`, `auto`, `dontAsk`), and hard command blocks via hooks, see [permissions](https://code.claude.com/docs/en/permissions), [settings](https://code.claude.com/docs/en/settings), [sandboxing](https://code.claude.com/docs/en/sandboxing), and [hooks](https://code.claude.com/docs/en/hooks).
+### Codex
 
-### Codex starter snippets
-
-Codex loads `.codex/` only after the project is marked trusted. To keep default secret-like environment variables (`KEY`, `SECRET`, `TOKEN`) excluded from shell commands, add to `.codex/config.toml`:
+Codex loads `.codex/` only after the project is marked trusted. By default Codex passes environment variables whose names contain `KEY`, `SECRET`, or `TOKEN` to shell commands. To remove them before other filters run, add to `.codex/config.toml`:
 
 ```toml
 [shell_environment_policy]
@@ -99,22 +90,11 @@ prefix_rule(
 )
 ```
 
-Codex rules match command prefixes and are marked experimental in Codex's documentation: reordered flags, shell redirections, variables, globs, and command substitutions are not split into matched commands. Rely on Codex's OS sandbox and approval policy for enforcement. See the [configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference) and [rules](https://learn.chatgpt.com/docs/agent-configuration/rules).
+Codex rules match command prefixes and are marked experimental in Codex's documentation. Rely on Codex's OS sandbox and approval policy for enforcement. See the [configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference).
 
-## Trust
+## Cloud and pull request sessions
 
-- Claude Code applies `ask` and `deny` rules from project settings before the workspace is trusted. `allow` rules wait for trust.
-- Codex loads the project's `.codex/` directory only after the project is marked trusted.
-
-## Cloud sessions
-
-A Claude Code cloud session starts from a clone of the repository.
-
-- A session on a single repository reads the committed `CLAUDE.md`, `.claude/settings.json`, and `.claude/skills/`.
-- Project threads read the instruction files at the repository root, but not the repository's permission rules, hooks, or `.claude/skills/`. A session on several repositories does not read the repositories' permission rules or hooks either.
-- User-level files, `.claude/settings.local.json`, and files ignored by git are absent.
-
-See [Claude Code on the web](https://code.claude.com/docs/en/claude-code-on-the-web).
+A cloud or pull request session exists to deliver through its own branch or pull request. The template's `## Approvals` lets such a session, when the user started it, commit, push that branch without rewriting its pushed history, and comment on that pull request without asking; remove that line where every push needs a yes.
 
 ## Where the checkout lives
 

@@ -6,7 +6,7 @@ Version 8.x.
 
 ## Scope
 
-This policy covers `mpa.py`, the templates, the skills, and `tools/hygiene.py` in this repository.
+This policy covers `mpa.py`, the templates, and the skills in this repository.
 
 ## What the script does to a project
 
@@ -37,20 +37,11 @@ The script refuses a target that is a symbolic link, that has a symbolic link in
 - Enforcement of command and filesystem boundaries belongs to each runtime's native OS sandbox and permission modes; see [docs/runtimes.md](docs/runtimes.md).
 - Nothing installed defends against prompt injection.
 - Text that a project already has in `AGENTS.md` or `CLAUDE.md` is kept and loads together with the working agreement. The script does not review it.
-- A skill directory contains one Markdown file and no executable files or external URLs.
-
-## Repository hygiene
-
-`tools/hygiene.py` scans repository files, staged changes, and commit messages for secrets, local paths, email addresses, non-loopback IPv4 addresses, working-state paths, and disallowed links. It extracts full non-whitespace URL tokens, rejects tokens containing interior quotes, backticks, angle brackets, backslashes, or non-printable characters, and validates parsed components with `urllib.parse.urlsplit`:
-
-- `LICENSE`: HTTP(S) licence URLs allowed.
-- `docs/runtimes.md`: HTTPS only on seven allowlisted official runtime documentation hosts, rejecting userinfo and explicit ports.
-- `docs/external-skills.md`: HTTPS only on exact allowlisted first-party vendor repository root paths with empty query and fragment strings, rejecting arbitrary subpaths, path traversal, userinfo, ports, and unvetted repositories.
-- All other files (including `templates/` and `skills/`): zero URLs permitted.
+- A skill directory contains one Markdown file and no executable files. A stack skill holds one link: the official release-notes address, or addresses, in its coverage line. An agent that follows it reads that page, which is outside this repository's control.
 
 ## Protecting the files that direct agents
 
-Agent instruction, skill, or permission files, tool or MCP configs—such as `AGENTS.md` and `AGENTS.override.md` at any depth, `CLAUDE.md`, `GEMINI.md`, `.claude/`, `.codex/`, `.agents/`, `.gemini/`, `.mcp.json`—and CI workflow files decide what an agent is told, which tools it reaches, and what it may do without asking. A change to them deserves the same review as a change to code. Protect them with branch protection or a code-owners rule.
+Agent instruction, skill, hook, or permission files, tool or MCP configs—such as `AGENTS.md` and `AGENTS.override.md` at any depth, `CLAUDE.md`, `GEMINI.md`, `REVIEW.md`, `.claude/`, `.codex/`, `.agents/`, `.gemini/`, `.mcp.json`, `.vscode/mcp.json`, GitHub Copilot's `.github/copilot-instructions.md`, `.github/instructions/`, `.github/skills/`, `.github/agents/`, `.github/hooks/`, and `.github/prompts/`, and Antigravity's alternative `.agent/`, `_agents/`, and `_agent/` folders—and CI workflow files decide what an agent is told, which tools it reaches, and what it may do without asking. A change to them deserves the same review as a change to code. Protect them with branch protection or a code-owners rule.
 
 ## Reporting a vulnerability
 

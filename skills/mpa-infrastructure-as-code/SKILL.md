@@ -1,40 +1,32 @@
 ---
 name: mpa-infrastructure-as-code
-description: "Checks for infrastructure as code and cloud platform changes. Use when changing Terraform, OpenTofu, Pulumi, CloudFormation, or CDK source, state, drift, IAM, plans, apply steps, or gateway configuration."
+description: "Terraform and OpenTofu release changes through Terraform 1.17 and OpenTofu 1.13 and checks that are easy to miss. Use for any work on Terraform, OpenTofu, Pulumi, CloudFormation, or CDK source, state, IAM, plans, or a tool upgrade."
 ---
 
 # Infrastructure as code
 
+Current to Terraform 1.17.2 and OpenTofu 1.13.10, checked 2026-11-27. For a newer release of either, read what changed after it in the release notes (https://developer.hashicorp.com/terraform/language/upgrade-guides, https://opentofu.org/blog/) before relying on this file; up to those versions no lookup is needed.
+
 ## What a command does
 
-- Judge a command by its effects, not its name. `plan`, `preview`, `synth`, `validate`, and `diff` can read credentials, contact providers, lock or refresh state, run data sources, hooks, or project code, write sensitive files, and incur cost. A run that uses credentials or contacts a provider needs approval; a local offline run does not. Without approval, review source statically or read an existing plan file and report what live evidence is missing.
-- These change real state and need approval for the specific operation: apply, deploy, destroy, import, move, state removal or edit, forced unlock, refresh-only update, backend migration, and direct provider actions. Applying a saved plan is the change and usually runs without a further prompt.
-- Auto-approve, disabled locking, targeted apply, forced replacement, and a broad admin identity are not ways past a failing review.
+- These change real state, which takes effect outside the repository: apply, deploy, destroy, import, move, state removal or edit, forced unlock, refresh-only update, backend migration, and direct provider actions. Applying a saved plan is the change and usually runs without a further prompt.
 
 ## What to inspect
 
 - Read the evaluated output. For synthesized or transformed templates, review the processed result and the identity that runs the transform.
-- Pin provider and module versions and check lockfile checksums; an uninvited provider upgrade in a plan is a defect.
-- Lifecycle, protection, retention, and ignore-changes settings can hide drift, block deletion, force replacement, or orphan resources; check that they are not making a plan look safer than it is.
-- Apply-time hooks and custom resources run code whose side effects appear in neither state nor plan. Identify when they run, as whom, and what they can change.
 
 ## Plans and drift
 
-- Classify every create, update, replace, delete, import, move, permission change, public exposure, and encryption change. A resource the preview skipped or could not evaluate is not shown to be unchanged.
 - Confirm the plan belongs to the intended workspace, account, region, variables, and source revision; reject unrelated drift. A successful plan does not guarantee a successful apply.
-- Before reconciling drift, ask which side is authoritative, the live state or the source; overwriting live infrastructure to match code changes a live system.
-- Name the rollback, repair, or import path before a destroy or replace, and confirm recovery for stateful stores (`mpa-migration`).
+- A plan made with `-refresh=false` or with `-minimal-refresh` (Terraform 1.17+, which refreshes only resources that already have planned changes) does not show drift on the rest. Do not take it as a drift check, and do not use either across a provider upgrade.
+- Module `source` and `version` (Terraform 1.15+, OpenTofu 1.8+) and provider requirements (Terraform 1.17+) may reference locals and variables, so the code a plan runs can depend on variable values. Review the resolved versions in the lock file and the module manifest, not only the configuration.
+- Name the rollback, repair, or import path before a destroy or replace, and confirm recovery for stateful stores.
+- `lifecycle { destroy = false }` (Terraform 1.16+, OpenTofu 1.12+) is not a guard like `prevent_destroy`: a destroy or replace then removes the object from state and leaves it running, unmanaged and still billed, and a replace creates a second one beside it.
+- An upgrade can change a plan without any change in the configuration. From OpenTofu 1.12 `replace_triggered_by` also fires when the referenced resource is replaced, not only when it is updated. From OpenTofu 1.13 `base64gzip` returns different bytes for the same input, so resources that take its result, such as instance user data, show an update or a replace.
 
 ## State and secrets
 
 - State files, saved plans, previews, and stack exports hold secrets and resource attributes; keep them out of source control and public artifacts.
-- Values marked sensitive or ephemeral can still leak through state or logs; check what the mechanism covers.
+- `sensitive` only redacts display; Terraform and OpenTofu still store the value in plain text in state and plan files, so protect the state with backend access control and with encryption at rest or OpenTofu state encryption (1.7+). Ephemeral values (Terraform 1.10+, OpenTofu 1.11+) and write-only arguments (Terraform 1.11+, OpenTofu 1.11+) stay out of state and plans, with two exceptions: OpenTofu 1.11 writes ephemeral resources into a saved plan (1.12 does not), and a `store` block in `terraform_data` (Terraform 1.16+) copies its input into state on purpose. Check logs and command output separately.
 - The deployment identity does not need every permission the tool can grant, and neither do the resources it creates.
-
-## Platform and gateway configuration
-
-- Look for paths around a gateway; gateway auth or policy does not replace service authorization (`mpa-secure-coding`).
-- For dynamic configuration or routing, define propagation delay, validation, rollback, and behaviour while the control plane is unavailable.
-- A platform running agents or other untrusted workloads must not let the workload change or impersonate its own policy, approval, or credential source; containment must hold when the control channel is lost (`mpa-agent-inputs`).
-- Privileged and service identities are not exempt from anomaly containment. Where disabling one would cause an outage, narrow what it can do; keep emergency access narrow, time-limited, and alerted on every use.
-- Do not claim tolerance of a failure mode without a test or recovery record for it; a redundancy diagram is not that record.
+- Module and provider installation trusts the registries and git hosts it contacts. Fixes for hostile ones: Terraform 1.16.6 (CVE-2026-78669, HTTP/2 resource exhaustion); OpenTofu 1.12.3 (a crafted git address reads an arbitrary file), 1.12.6 (credentials resent to the target of a redirect from an OCI registry), and 1.12.8 and 1.13.2 (CPU exhaustion during `tofu init`).

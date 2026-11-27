@@ -9,11 +9,12 @@ Ask first:
 - deleting files or data, or discarding uncommitted changes, that this task did not create
 - adding, removing, or upgrading a dependency
 - anything that takes effect outside this repository: deploying, publishing a package or release, posting to issue trackers, pull requests, or chat on the user's behalf, sending project code, secrets, or user data to an external service, changing accounts or paid services
-- changing agent instruction, skill, or permission files, tool or MCP configs (such as `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.claude/`, `.codex/`, `.agents/`, `.gemini/`, `.mcp.json`), or CI workflows
+- changing files that instruct or configure agents (instruction, skill, hook, permission, and tool or MCP configuration files), or CI workflows
 - committing when the request did not ask for a commit
 
 No approval needed:
 - reading, creating, and editing other files in this repository, and running tests, linters, builds, and other commands that change nothing outside it except temporary and cache files
+- despite the list above, in a cloud or pull request session that the user started to deliver through its own branch or pull request: committing, pushing that branch without rewriting its pushed history, and commenting on that pull request
 
 ## Project
 

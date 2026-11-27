@@ -20,7 +20,7 @@ Adds the managed working-agreement block, any required `CLAUDE.md` import, and t
 
 | Option | Values | Default |
 |---|---|---|
-| `--runtime LIST` | Comma list of `agents`, `codex`, `antigravity`, `generic`, `claude` | Resolved from the project (see below) |
+| `--runtime LIST` | Comma list of `agents`, `codex`, `antigravity`, `generic`, `claude`, `copilot`, `gemini` | Resolved from the project (see below) |
 | `--skills SPEC` | `all`, `none`, or a comma list of skill names and installable bundles (`core`, `security`, `agents`, `data`, `infra`, `web`) | `core` |
 | `--write` | Applies the plan | Off (dry run) |
 
@@ -30,9 +30,10 @@ Adds the managed working-agreement block, any required `CLAUDE.md` import, and t
 
 | `--runtime` value | Files written | Notes |
 |---|---|---|
-| `agents` | `AGENTS.md`, `.agents/skills/mpa-*/SKILL.md` | Fresh-project default; single-copy Agent Skills layout (Codex, Antigravity, compatible tools) |
+| `agents` | `AGENTS.md`, `.agents/skills/mpa-*/SKILL.md` | Fresh-project default; single-copy Agent Skills layout (Codex, Antigravity, GitHub Copilot, Gemini CLI, other tools that load `.agents/skills/`) |
 | `codex` | `AGENTS.md`, `.agents/skills/mpa-*/SKILL.md` | Alias for `.agents/skills/` |
 | `antigravity` | `AGENTS.md`, `.agents/skills/mpa-*/SKILL.md` | Alias for `.agents/skills/` |
+| `copilot`, `gemini` | `AGENTS.md`, `.agents/skills/mpa-*/SKILL.md` | Names for `agents` (GitHub Copilot and Gemini CLI load `.agents/skills/`); repeated with `agents`, they count once. With `gemini`, `init` notes that Gemini CLI reads `AGENTS.md` only when its `context.fileName` setting lists it |
 | `generic` | `AGENTS.md` (with `## Guides`), `.agents/skills/mpa-*/SKILL.md` | Adds a `## Guides` pointer when `.agents/skills/` holds or receives an `mpa-*` skill |
 | `claude` | `AGENTS.md`, `CLAUDE.md` (`@AGENTS.md`), `.claude/skills/mpa-*/SKILL.md` | Native Claude Code layout; uses `.claude/CLAUDE.md` (`@../AGENTS.md`) when only that file already exists |
 | `claude,agents` (or `claude,codex`, `claude,antigravity`) | `AGENTS.md`, `CLAUDE.md`, `.claude/skills/mpa-*/`, `.agents/skills/mpa-*/` | Prints a note that holding skills in both directories doubles startup listings in tools that scan both |
@@ -42,21 +43,21 @@ Adds the managed working-agreement block, any required `CLAUDE.md` import, and t
 When `--runtime` is omitted, `init` resolves the target runtimes in order:
 
 1. Existing non-symlink `mpa-*` skill directories under `.claude/skills/` and `.agents/skills/` (`claude`, `agents`, or both).
-2. Otherwise, if `CLAUDE.md`, `.claude/CLAUDE.md`, or `.claude/settings.json` exists in the project root, `claude`.
+2. Otherwise, if `CLAUDE.md`, `.claude/CLAUDE.md`, or `.claude/settings.json` exists in the project root, `claude`. A `.claude/` directory without one of these files, such as one holding only `settings.local.json` or skills without the `mpa-` prefix, does not select `claude`.
 3. Otherwise, `agents`.
 
 ### Skill selection
 
-Skill names are accepted with or without the `mpa-` prefix. The six installable bundles (`core`, `security`, `agents`, `data`, `infra`, `web`) install their full category. Note that `agents` is both a `--runtime` value and a `--skills` bundle (`mpa-agent-inputs` and `mpa-agent-instructions`); the flag selects which meaning applies.
+Skill names are accepted with or without the `mpa-` prefix. The six installable bundles (`core`, `security`, `agents`, `data`, `infra`, `web`) install their full category. Note that `agents` is both a `--runtime` value and a `--skills` bundle (`mpa-agent-inputs`, `mpa-agent-instructions`, and `mpa-delegation`); the flag selects which meaning applies.
 
 `languages` and `platforms` are individual-only pick-lists in the [skill catalogue](../skills/README.md), not installable bundles. Passing `languages` or `platforms` as a bundle token exits with code `2` and prints the individual skill names in that category.
 
 ### Adopting existing instruction files
 
-- **Existing `AGENTS.md` without a managed block:** `init` inserts the managed block after a leading H1 line (or at the top if there is none), places any missing adopted sections (`## Approvals`, `## Commands`, `## Constraints`, and `## Guides` for `generic` with skills) directly after `<!-- mpa:end -->`, and preserves all existing text, byte-order marks, and CRLF line endings. It prints notes when existing `## Approvals` or `## Constraints` sections are kept and reminds that existing text is not reviewed.
+- **Existing `AGENTS.md` without a managed block:** `init` inserts the managed block after a leading H1 line (or at the top if there is none), places any missing adopted sections (`## Approvals`, `## Commands`, `## Constraints`, and `## Guides` for `generic` with skills) directly after `<!-- mpa:end -->`, and preserves all existing text, byte-order marks, and CRLF or CR line endings. It prints notes when existing `## Approvals` or `## Constraints` sections are kept, when block marker lines appear only inside code fences (a fence may be hiding the block), and reminds that existing text is not reviewed.
 - **Existing `AGENTS.md` with a managed block:** keeps a block of the current version (or appends `## Guides` when `--runtime generic` is used with skills and the heading is missing). Refuses a block of another version with a prompt to run `update`.
 - **Existing `CLAUDE.md` or `.claude/CLAUDE.md` (with `claude` selected):** keeps the setup if either file already symlinks to `AGENTS.md` or contains its exact import line (`@AGENTS.md` or `@../AGENTS.md`) outside code fences and HTML comments; otherwise inserts the import line into `CLAUDE.md` (or `.claude/CLAUDE.md` when only that file exists).
-- **Existing skills and limits:** refuses if an existing `mpa-*` `SKILL.md` differs from the shipped copy, or if `AGENTS.md` would exceed 32 KiB. Notes when `AGENTS.md` exceeds 16 KiB, when a fresh or adoption run omits `--runtime` and defaults to `agents` (naming `--runtime claude` and `--runtime claude,agents`), when `AGENTS.override.md` or `CLAUDE.local.md` (with `claude`) exists, when an existing `CLAUDE.md` or `.claude/CLAUDE.md` has no `AGENTS.md` import while `claude` is not selected, and when an existing file that `init` modifies is not committed in git.
+- **Existing skills and limits:** refuses if an existing `mpa-*` `SKILL.md` differs from the shipped copy, or if `AGENTS.md` would exceed 32 KiB once written. An `AGENTS.md` above 32 KiB that `init` leaves unchanged is kept with a note that Codex stops reading it, Antigravity truncates it at 24,000 bytes, and `check` reports it as an error. Notes when `AGENTS.md` exceeds 16 KiB but not 32 KiB, when a fresh or adoption run omits `--runtime` and defaults to `agents` (naming `--runtime claude` and `--runtime claude,agents`), when `AGENTS.override.md` or `CLAUDE.local.md` (with `claude`) exists, when an existing `CLAUDE.md` or `.claude/CLAUDE.md` has no `AGENTS.md` import while `claude` is not selected, and when an existing file that `init` modifies is not committed in git.
 
 ## update
 
@@ -64,7 +65,9 @@ Skill names are accepted with or without the `mpa-` prefix. The six installable 
 python3 -B /path/to/master-prompt-agreement/mpa.py update PROJECT [--add-skill NAME ...] [--remove-skill NAME ...] [--runtime LIST] [--write] [--force]
 ```
 
-Replaces the managed block in `AGENTS.md` and every installed shipped `mpa-*` `SKILL.md` that differs from the checkout. Everything outside the managed block in `AGENTS.md`, `CLAUDE.md`, and custom non-`mpa-*` skill directories is left untouched.
+Replaces the managed block in `AGENTS.md` and every installed shipped `mpa-*` `SKILL.md` that differs from the checkout. Everything outside the managed block in `AGENTS.md`, `CLAUDE.md`, and custom non-`mpa-*` skill directories is left untouched, including the `## Approvals` section.
+
+`update` takes one project. To update several projects, run it once for each: `for p in site-a site-b; do python3 -B mpa.py update "$p" --write; done`.
 
 ### Options
 
@@ -83,7 +86,7 @@ Replaces the managed block in `AGENTS.md` and every installed shipped `mpa-*` `S
 - An empty `mpa-*` directory with a shipped name gets its `SKILL.md` recreated by `update` unless removed.
 - An unshipped `mpa-*` directory is kept with a note (`check` reports it as an error until it is removed or renamed without the `mpa-` prefix). A non-directory or symlink `mpa-*` entry is kept with a note, or refused if named in `--add-skill` or `--remove-skill`.
 - A managed block whose version is newer than the checkout is refused even with `--force`, and the existing block text is printed so nothing newer is overwritten silently.
-- An updated `AGENTS.md` larger than 32 KiB is refused; larger than 16 KiB produces a note.
+- An `AGENTS.md` that `update` would write larger than 32 KiB is refused. One above 32 KiB that `update` leaves unchanged is kept with the same note as `init`, and one above 16 KiB but not 32 KiB, written or unchanged, produces the 16 KiB note.
 
 ## check
 
@@ -107,11 +110,11 @@ After an MPA release that changes the managed block or a shipped skill, `check` 
 
 | Subject | Error | Note |
 |---|---|---|
-| Managed block in `AGENTS.md` | Missing `AGENTS.md`, missing/malformed/duplicated markers, text other than one H1 line before the block, block version older or newer than the checkout, block text differing from the shipped block | |
-| Root `AGENTS.md` | Larger than 32 KiB (Codex default limit) | Larger than 16 KiB (early warning before Antigravity's 24,000-byte single-file cap and Codex's 32 KiB limit); missing `## Approvals` heading |
+| Managed block in `AGENTS.md` | Missing `AGENTS.md`, missing/malformed/duplicated markers (naming a possibly hidden block when marker lines appear only inside code fences), a marker inside a code fence left open to the end of the file, text other than one H1 line before the block, block version older or newer than the checkout, block text differing from the shipped block | |
+| Root `AGENTS.md` | Larger than 32 KiB (Codex default limit, and above Antigravity's 24,000-byte single-file cap) | Larger than 16 KiB (early warning before Antigravity's 24,000-byte single-file cap and Codex's 32 KiB limit); missing `## Approvals` heading |
 | `CLAUDE.md` and `.claude/CLAUDE.md` | Invalid symlink, wrong file type, unreadable, or neither existing file symlinks to `AGENTS.md` nor contains its exact import line (`@AGENTS.md` / `@../AGENTS.md`) outside code fences and HTML comments | No `CLAUDE.md` / `.claude/CLAUDE.md` while `CLAUDE.local.md`, `.claude/skills/mpa-*`, or `.claude/settings.json` exists; both `CLAUDE.md` and `.claude/CLAUDE.md` exist |
-| Skills | Symlinked skill path, non-directory `mpa-*` entry, unshipped `mpa-*` directory, extra files beside `SKILL.md`, missing `SKILL.md`, or `SKILL.md` differing from the shipped copy | Shipped `mpa-*` startup listing total (`name` + `description`) exceeding 8,000 characters in `.agents/skills` or `.claude/skills`; non-`mpa-*` subdirectories (including symlinks to directories) sharing a skill directory's startup budget (counted without opening their files); both `.claude/skills` and `.agents/skills` holding `mpa-*` skills (double listing); different `mpa-*` skill sets between the two directories |
+| Skills | Symlinked skill path, non-directory `mpa-*` entry, unshipped `mpa-*` directory, extra files beside `SKILL.md`, missing `SKILL.md`, or `SKILL.md` differing from the shipped copy | Shipped `mpa-*` startup listing total (`name` + `description`) exceeding 8,000 characters in `.agents/skills` or `.claude/skills`; both `.claude/skills` and `.agents/skills` holding `mpa-*` skills (double listing); different `mpa-*` skill sets between the two directories |
 | Claude Code settings | `.claude/settings.json` or `.claude/settings.local.json` unreadable or not a JSON object; a `claudeMdExcludes` glob matching `AGENTS.md` or an existing `CLAUDE.md` / `.claude/CLAUDE.md` | |
-| Other instruction files | `AGENTS.override.md` in the project root | Root `CLAUDE.local.md`, `.claude/rules`, `GEMINI.md`, `.agents/rules`, `.codex/config.toml`; breadth-first scan (skipping hidden directories, `node_modules`, and symlinks) finding nested `AGENTS.md`/`AGENTS.override.md`, `CLAUDE.md`, or `GEMINI.md`; deepest root-to-leaf `AGENTS.md`/`AGENTS.override.md` ancestor chain (with `AGENTS.override.md` replacing `AGENTS.md` per directory) exceeding 32 KiB, or exceeding 16 KiB when root `AGENTS.md` is at most 16 KiB; root `GEMINI.md` or any nested `AGENTS.md` or `GEMINI.md` exceeding 24,000 bytes; breadth-first scan stopping after 2,000 directories |
+| Other instruction files | `AGENTS.override.md` in the project root | `AGENTS.md` files in subdirectories, found by a breadth-first scan that skips hidden directories, `node_modules`, and symbolic links; the scan stopping after 2,000 directories |
 
 For how each runtime loads these files and enforces sandboxes and permissions, see [docs/runtimes.md](runtimes.md).
