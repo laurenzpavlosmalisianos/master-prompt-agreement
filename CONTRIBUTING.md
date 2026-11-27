@@ -20,7 +20,7 @@ Python 3.10 or newer, standard library only. Run Python with `-B`. Without `uv`,
 - A line is in a skill because it changes what an agent does. Sentences are plain imperatives, with the reason attached where it is not obvious.
 - A rule lives in one skill. Another skill refers to it by skill name.
 - A statement about a tool's behaviour is true for the versions it names.
-- A stack skill carries release knowledge of named products and opens with a coverage line: `Current to <products and versions>, checked <date>. For a newer <product> release, read what changed after <version> in the release notes (<official address>) before relying on this file; up to <version> no lookup is needed.` Entries run newest first and give the version, the exact name of the setting or directive, and what breaks. The line moves only when the release notes were read again. Its address is the only link a skill holds and is listed in `SKILL_SOURCES` in `tools/hygiene.py`.
+- A stack skill carries release knowledge of named products and opens with a coverage line: `Current to <products and versions>, checked <date>. For a newer <product> release, read what changed after <version> in the release notes (<official address>) before relying on this file. The entries are the changes that are easy to miss, not the full release notes.` Entries run newest first and give the version, the exact name of the setting or directive, and what breaks. The line moves only when the release notes were read again. Its addresses are the only links a skill holds and are listed in `SKILL_SOURCES` in `tools/hygiene.py`.
 - A new skill is added to `CATALOG` in `mpa.py` and to the table in `skills/README.md`.
 
 ## The block

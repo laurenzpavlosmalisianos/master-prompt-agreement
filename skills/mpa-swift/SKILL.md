@@ -5,7 +5,7 @@ description: "Swift release changes through 6.4 and checks that are easy to miss
 
 # Swift and Apple platforms
 
-Current to Swift 6.4.3, checked 2026-11-27. For a newer Swift release, read what changed after 6.4.3 in the release notes (https://raw.githubusercontent.com/swiftlang/swift/main/CHANGELOG.md) before relying on this file; up to 6.4.3 no lookup is needed.
+Current to Swift 6.4.3, checked 2026-11-27. For a newer Swift release, read what changed after 6.4.3 in the release notes (https://raw.githubusercontent.com/swiftlang/swift/main/CHANGELOG.md) before relying on this file. The entries are the changes that are easy to miss, not the full release notes.
 
 - In Swift 6 mode, or with the `DynamicActorIsolation` upcoming feature, the compiler adds run-time checks of actor isolation where Objective-C or pre-concurrency code calls in, including synchronous isolated witnesses of `@preconcurrency` protocol conformances, so a delegate method or callback that arrives off the expected actor traps. A clean build does not show these entry points are safe; after raising the language mode or enabling the feature, exercise them.
 - 6.4: a `Task { try ... }` whose result is neither stored nor explicitly ignored warns (`NoUseUnstructuredThrowingTask`), because the unstructured task initializers now use typed throws. A closure can no longer refer to a local variable declared below it from a `lazy` variable or a macro-rewritten initializer, nor to a local computed variable declared below it. With library evolution, module interfaces use module selectors by default, and the flags that worked around name collisions there can go. `defer` may contain `await`, and `withTaskCancellationShield` lets cleanup run to completion in a cancelled task.

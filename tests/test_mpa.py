@@ -1,6 +1,7 @@
 """Tests for mpa.py and the shipped files."""
 
 import contextlib
+import hashlib
 import io
 import json
 import os
@@ -24,6 +25,11 @@ sys.path.insert(0, str(ROOT / "tools"))
 import hygiene
 
 BOM = "\ufeff"
+# Largest size in bytes of the always-loaded templates, and in characters of each skill description.
+CAPS = {"templates/block.md": 1100, "templates/AGENTS.template.md": 1700}
+DESCRIPTION_CAP = 320
+# Change together with BLOCK_VERSION in mpa.py whenever templates/block.md changes.
+BLOCK_SHA256 = "b92c0fde420e1f732a7ebc725f9c1ca9db311096c26b539aba8a71985e69e6b5"
 
 
 def run(*argv):
@@ -883,6 +889,12 @@ class UpdateTests(ProjectCase):
         self.assertIn("applied: 1 change\n", text)
         self.assertNotIn("git diff", text)
 
+    def test_retired_skill_is_removed(self):
+        self.put(".agents/skills/mpa-old/SKILL.md", "old\n")
+        with mock.patch.object(mpa, "RETIRED", ("mpa-old",)):
+            self.assertEqual(run("update", self.dir, "--write", "--force")[0], 0)
+        self.assertFalse((self.dir / ".agents/skills/mpa-old").exists())
+
     def test_update_rejects_overlapping_add_and_remove_skills(self):
         code, text = run("update", self.dir, "--add-skill", "python", "--remove-skill", "mpa-python")
         self.assertEqual(code, 2)
@@ -1410,13 +1422,23 @@ class ShippedContentTests(unittest.TestCase):
                 raw_desc = match.group(2)
                 self.assertRegex(raw_desc, r'^"(?:[^"\\]|\\.)*"$')
                 description = json.loads(raw_desc)
+                self.assertLessEqual(len(description), DESCRIPTION_CAP)
                 self.assertNotIn("<", description)
                 self.assertNotIn(">", description)
 
+    def test_always_loaded_templates_stay_within_caps(self):
+        for rel, cap in CAPS.items():
+            with self.subTest(rel):
+                self.assertLessEqual(len(mpa.lf((ROOT / rel).read_bytes())), cap)
+
+    def test_block_template_matches_its_recorded_digest(self):
+        digest = hashlib.sha256(mpa.lf((ROOT / "templates/block.md").read_bytes())).hexdigest()
+        self.assertEqual(digest, BLOCK_SHA256, "templates/block.md changed: raise BLOCK_VERSION and BLOCK_SHA256")
+
     def test_stack_skills_open_with_a_coverage_line_no_later_than_the_newest_release(self):
         pattern = re.compile(r"^Current to .+, checked (\d{4}-\d{2}-\d{2})\. For a newer .+, read what changed after .+"
-                             r" in the release notes \(https:/{2}\S+(, https:/{2}\S+)*\) before relying on this file;"
-                             r" up to .+ no lookup is needed\.$")
+                             r" in the release notes \(https:/{2}\S+(, https:/{2}\S+)*\) before relying on this file\."
+                             r" The entries are the changes that are easy to miss, not the full release notes\.$")
         changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
         newest = max(re.findall(r"^## \d+\.\d+\.\d+ - (\d{4}-\d{2}-\d{2})$", changelog, re.M))
         names = sorted(name for items in mpa.CATALOG.values() for name in items)
@@ -1437,9 +1459,10 @@ class ShippedContentTests(unittest.TestCase):
                 self.assertEqual(first, lines[0])
                 description = json.loads(re.search(r"^description: (.+)$", text, re.M)[1])
                 # A version that the description names is covered by the line, at the same or a finer level.
-                claim = re.search(r"(?:through|current to) (.+?)(?: and checks|\. Use)", description)
+                claim = re.search(r"(?:through|current to) (.+?)(?: and (?:easy-to-miss )?checks|\. Use)", description)
+                self.assertIsNotNone(claim, description)
                 covered = lines[0].split(", checked ")[0]
-                for version in re.findall(r"\bv?\d+(?:\.\d+)*\b", claim[1] if claim else ""):
+                for version in re.findall(r"\bv?\d+(?:[.-]\d+)*\b", claim[1]):
                     self.assertRegex(covered, rf"(?<![\w.]){re.escape(version)}(?!\w)")
 
     def test_skill_cross_references_resolve(self):

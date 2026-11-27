@@ -9,6 +9,8 @@ If a suspicious package, install hook, or suggested recovery command has already
 
 ## Check the artifact that will be installed
 
+- Confirm the package exists under that exact name, scope, and registry. Models produce plausible package names that do not exist, and attackers register them; do not resolve a missing import by installing the closest-looking name.
+- Editor extensions and agent plugins, skills, and tool servers are dependencies with broad access: pin versions, turn off unreviewed auto-update, and read activation scripts and bundled binaries.
 - With public and private registries together, map each private name to its registry, or use an index policy that fails closed. Public fallback for a private name is the dependency-confusion path.
 - A release that is hours old has had little time for a malicious publish to be noticed. Where the project has a minimum release age, an urgent fix goes through an explicit exception, not around the gate. Quarantine and minimum-release-age settings differ by registry, package manager, and version; check the current official documentation of the one in use before relying on either.
 

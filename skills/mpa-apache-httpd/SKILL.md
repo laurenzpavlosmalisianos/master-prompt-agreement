@@ -5,7 +5,7 @@ description: "Apache HTTP Server release changes through 2.4.71 and easy-to-miss
 
 # Apache HTTP Server
 
-Current to Apache HTTP Server 2.4.71, checked 2026-11-27. For a newer Apache release, read what changed after 2.4.71 in the release notes (https://downloads.apache.org/httpd/CHANGES_2.4, https://httpd.apache.org/security/vulnerabilities_24.html) before relying on this file; up to 2.4.71 no lookup is needed.
+Current to Apache HTTP Server 2.4.71, checked 2026-11-27. For a newer Apache release, read what changed after 2.4.71 in the release notes (https://downloads.apache.org/httpd/CHANGES_2.4, https://httpd.apache.org/security/vulnerabilities_24.html) before relying on this file. The entries are the changes that are easy to miss, not the full release notes.
 
 ## Find out what runs
 
@@ -20,7 +20,7 @@ Current to Apache HTTP Server 2.4.71, checked 2026-11-27. For a newer Apache rel
 
 ## ETag, compression, and conditional requests
 
-- No release from 2.4.59 to 2.4.71 changes how ETags are built or sent. The directives that decide it are older, so the running version matters: `FileETag` defaults to `MTime Size`; its `Digest` keyword (2.4.47+) builds the tag from the file's content, so the tag survives a deployment that resets file times and is the same on every server behind a balancer. 2.4.48 fixes a regression that stripped `ETag` from 304 responses.
+- No release from 2.4.59 to 2.4.71 changes how ETags are built or sent. The directives that decide it are older, so the running version matters: `FileETag` defaults to `MTime Size`; its `Digest` keyword (first released in 2.4.48) builds the tag from the file's content, so the tag survives a deployment that resets file times and is the same on every server behind a balancer. 2.4.48 fixes a regression that stripped `ETag` from 304 responses.
 - mod_deflate appends `-gzip` to the ETag of each response it compresses, so the tag a client sends back never matches and a conditional request for a compressed response gets the full body again, not a 304. `DeflateAlterETag` (2.4.58+; `AddSuffix` is the default, `NoChange` keeps the tag, `Remove` drops it) controls this, and mod_brotli has `BrotliAlterETag` with the same values. Both are server configuration only: in `.htaccess` they cause a 500, and below 2.4.58 `DeflateAlterETag` does not exist. From `.htaccess`, `FileETag None` removes the tag and leaves revalidation to `Last-Modified`.
 - 2.4.66 fixes 304 responses that mod_cache hands to an HTTP/2 client. 2.4.70 stops mod_cache from storing a response whose `Vary: *` was set through `Header always`.
 

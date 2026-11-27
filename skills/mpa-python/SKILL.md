@@ -5,7 +5,7 @@ description: "Python release changes through 3.15 and checks that are easy to mi
 
 # Python
 
-Current to Python 3.15.2, checked 2026-11-27. For a newer Python release, read what changed after 3.15.2 in the release notes (https://docs.python.org/3/whatsnew/) before relying on this file; up to 3.15.2 no lookup is needed.
+Current to Python 3.15.2, checked 2026-11-27. For a newer Python release, read what changed after 3.15.2 in the release notes (https://docs.python.org/3/whatsnew/) before relying on this file. The entries are the changes that are easy to miss, not the full release notes.
 
 - Archives: validate member paths, link targets, member counts, and total uncompressed sizes against the extraction root before extracting. Pass `filter="data"` to `tarfile` extraction where supported (test `hasattr(tarfile, "data_filter")`, not the version number; default from 3.14) alongside path and size checks, because filters do not stop decompression bombs and unpatched builds have had filter bypasses. `zipfile` has no `filter` parameter and `zipfile.Path` does not sanitize.
 - `urljoin(base, untrusted)` can replace the host.

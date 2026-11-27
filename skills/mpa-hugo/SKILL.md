@@ -5,7 +5,7 @@ description: "Hugo release changes through v0.170 and checks that are easy to mi
 
 # Hugo
 
-Current to Hugo v0.170.1, checked 2026-11-27. For a newer Hugo release, read what changed after v0.170.1 in the release notes (https://gohugo.io/news/) before relying on this file; up to v0.170.1 no lookup is needed.
+Current to Hugo v0.170.1, checked 2026-11-27. For a newer Hugo release, read what changed after v0.170.1 in the release notes (https://gohugo.io/news/) before relying on this file. The entries are the changes that are easy to miss, not the full release notes.
 
 ## Templates and build behaviour
 

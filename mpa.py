@@ -50,6 +50,8 @@ CATALOG = {
 }
 INDIVIDUAL_ONLY = ("languages", "platforms")
 BUNDLES = {name: items for name, items in CATALOG.items() if name not in INDIVIDUAL_ONLY}
+# Skill names that update removes from a project without --remove-skill.
+RETIRED = ()
 ADOPTED = ("Approvals", "Commands", "Constraints")
 BEGIN = "<!-- mpa:begin {} (replaced by mpa.py update; edit outside this block) -->"
 END = "<!-- mpa:end -->"
@@ -761,7 +763,7 @@ def plan_update(root, add, remove, runtimes, force):
                     target(root, rel, is_dir=True)
                 steps.append(Step("note", f"{folder}/{name} is not a skill directory and is kept; check reports it as an error."))
                 continue
-            if name in remove:
+            if name in remove or name in RETIRED:
                 if name not in held[folder]:
                     continue
                 if other_files(root, rel):

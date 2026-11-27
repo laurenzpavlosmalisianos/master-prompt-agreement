@@ -5,7 +5,7 @@ description: "Checks for features where untrusted text reaches a model, a tool c
 
 # Untrusted input to models and agents
 
-Current to Model Context Protocol revision 2026-07-28, checked 2026-11-27. For a newer revision, read what changed after 2026-07-28 in the release notes (https://modelcontextprotocol.io/specification/) before relying on this file; up to 2026-07-28 no lookup is needed.
+Current to Model Context Protocol revision 2026-07-28, checked 2026-11-27. For a newer revision, read what changed after 2026-07-28 in the release notes (https://modelcontextprotocol.io/specification/) before relying on this file. The entries are the changes that are easy to miss, not the full release notes.
 
 Trace each untrusted input to what it can cause: a model decision, a tool call, a write to durable state, a disclosure, or another side effect. That path decides the risk. Instructions to the model and input filters lower the odds; they do not close the path.
 
@@ -33,6 +33,6 @@ Trace each untrusted input to what it can cause: a model decision, a tool call, 
 ## Model Context Protocol 2026-07-28
 
 - The revision removes protocol sessions and the `Mcp-Session-Id` header and drops the `initialize` handshake: each request carries its protocol version and client capabilities in `_meta`, and a server describes itself through `server/discover`. A server that needs state across calls mints its own handle and receives it back as an ordinary tool argument, so the server binds that handle to the authenticated user itself.
-- Server-initiated requests (`sampling/createMessage`, `elicitation/create`, `roots/list`) are gone. A server asks for more input by returning `resultType: "input_required"` with `inputRequests`, and the client answers by sending the request again; every result carries `resultType`, and a client treats a result without it as `complete`.
+- Servers no longer send requests to the client on their own: `sampling/createMessage`, `elicitation/create`, and `roots/list` travel inside a result instead (roots and sampling are deprecated). A server asks for more input by returning `resultType: "input_required"` with `inputRequests`, and the client answers by sending the request again; every result carries `resultType`, and a client treats a result without it as `complete`.
 - A broken response stream is not resumed (`Last-Event-ID` and SSE event IDs are removed): the client sends the request again under a new request ID, so a tool that changes state has to be safe to call twice.
 - A client checks a present `iss` in the authorization response against the recorded issuer before redeeming the code, keys stored client credentials by issuer, and registers again when the authorization server changes.

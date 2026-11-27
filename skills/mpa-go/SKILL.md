@@ -5,7 +5,7 @@ description: "Go release changes through 1.27 and checks that are easy to miss. 
 
 # Go
 
-Current to Go 1.27.4, checked 2026-11-27. For a newer Go release, read what changed after 1.27.4 in the release notes (https://go.dev/doc/devel/release) before relying on this file; up to 1.27.4 no lookup is needed.
+Current to Go 1.27.4, checked 2026-11-27. For a newer Go release, read what changed after 1.27.4 in the release notes (https://go.dev/doc/devel/release) before relying on this file. The entries are the changes that are easy to miss, not the full release notes.
 
 - Raising the `go` directive changes language semantics and `GODEBUG` defaults for the module and raises the floor for consumers. Do it only when the task calls for it, and check the release notes for changed defaults and removed compatibility settings.
 - Run `go test -race` on changed concurrent code; the race detector finds only races the tests execute.

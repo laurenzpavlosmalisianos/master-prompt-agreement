@@ -1,6 +1,6 @@
 ---
 name: mpa-secure-coding
-description: "Checks for app code handling auth, untrusted input, secrets, or outbound requests. Use when changing login, sessions, OIDC/JWT, IDOR/access checks, SSRF, CORS/CSRF, uploads, or HTTP, GraphQL, gRPC, and webhook endpoints. For audits, use mpa-security-audit; for PR review, use mpa-review."
+description: "Checks for app code handling auth, untrusted input, secrets, or outbound requests. Use when changing login, sessions, OIDC/JWT, IDOR/access checks, one-time links, CORS/CSRF, rate limits, or HTTP, GraphQL, gRPC, and webhook endpoints. For audits, use mpa-security-audit; for PR review, use mpa-review."
 ---
 
 # Secure coding

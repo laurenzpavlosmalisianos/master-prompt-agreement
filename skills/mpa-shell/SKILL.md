@@ -1,6 +1,6 @@
 ---
 name: mpa-shell
-description: "Checks for shell scripts and command-line wrappers. Use when writing or changing bash or sh scripts, error handling with set -e, quoting across ssh, sudo, cron, or CI fields, or destructive commands driven by variables."
+description: "Checks for shell scripts and command-line wrappers. Use when writing or changing bash or sh scripts, quoting across ssh, sudo, cron, or CI fields, or destructive commands driven by variables."
 ---
 
 # Shell scripts and command-line tools

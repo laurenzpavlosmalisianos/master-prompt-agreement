@@ -5,7 +5,7 @@ description: "Terraform and OpenTofu release changes through Terraform 1.17 and 
 
 # Infrastructure as code
 
-Current to Terraform 1.17.2 and OpenTofu 1.13.10, checked 2026-11-27. For a newer release of either, read what changed after it in the release notes (https://developer.hashicorp.com/terraform/language/upgrade-guides, https://opentofu.org/blog/) before relying on this file; up to those versions no lookup is needed.
+Current to Terraform 1.17.2 and OpenTofu 1.13.10, checked 2026-11-27. For a newer release of either, read what changed after it in the release notes (https://developer.hashicorp.com/terraform/language/upgrade-guides, https://opentofu.org/blog/) before relying on this file. The entries are the changes that are easy to miss, not the full release notes.
 
 ## What a command does
 
@@ -29,4 +29,4 @@ Current to Terraform 1.17.2 and OpenTofu 1.13.10, checked 2026-11-27. For a newe
 - State files, saved plans, previews, and stack exports hold secrets and resource attributes; keep them out of source control and public artifacts.
 - `sensitive` only redacts display; Terraform and OpenTofu still store the value in plain text in state and plan files, so protect the state with backend access control and with encryption at rest or OpenTofu state encryption (1.7+). Ephemeral values (Terraform 1.10+, OpenTofu 1.11+) and write-only arguments (Terraform 1.11+, OpenTofu 1.11+) stay out of state and plans, with two exceptions: OpenTofu 1.11 writes ephemeral resources into a saved plan (1.12 does not), and a `store` block in `terraform_data` (Terraform 1.16+) copies its input into state on purpose. Check logs and command output separately.
 - The deployment identity does not need every permission the tool can grant, and neither do the resources it creates.
-- Module and provider installation trusts the registries and git hosts it contacts. Fixes for hostile ones: Terraform 1.16.6 (CVE-2026-78669, HTTP/2 resource exhaustion); OpenTofu 1.12.3 (a crafted git address reads an arbitrary file), 1.12.6 (credentials resent to the target of a redirect from an OCI registry), and 1.12.8 and 1.13.2 (CPU exhaustion during `tofu init`).
+- Module and provider installation trusts the registries and git hosts it contacts. Fixes for hostile ones: Terraform 1.16.6 and 1.17.0 (CVE-2026-78669, HTTP/2 resource exhaustion); OpenTofu 1.12.3 (a crafted git address reads an arbitrary file), 1.12.6 (credentials resent to the target of a redirect from an OCI registry), and 1.12.8 and 1.13.2 (CPU exhaustion during `tofu init`).

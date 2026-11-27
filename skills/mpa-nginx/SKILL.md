@@ -5,7 +5,7 @@ description: "nginx release changes through stable 1.30.8 and mainline 1.31.10 a
 
 # nginx
 
-Current to nginx stable 1.30.8 and mainline 1.31.10, checked 2026-11-27. For a newer release of either, read what changed after it in the release notes (https://nginx.org/en/CHANGES, https://nginx.org/en/security_advisories.html) before relying on this file; up to those versions no lookup is needed.
+Current to nginx stable 1.30.8 and mainline 1.31.10, checked 2026-11-27. For a newer release of either, read what changed after it in the release notes (https://nginx.org/en/CHANGES, https://nginx.org/en/security_advisories.html) before relying on this file. The entries are the changes that are easy to miss, not the full release notes.
 
 ## Find out what runs
 

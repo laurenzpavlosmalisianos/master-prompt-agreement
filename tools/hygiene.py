@@ -48,8 +48,8 @@ SKILL_SOURCES = {
     "mpa-wordpress": ("wordpress.org/news/category/releases/",),
 }
 COVERAGE = re.compile(r"Current to .+, checked \d{4}-\d{2}-\d{2}\. For a newer .+, read what changed after .+"
-                      r" in the release notes \(([^()]+)\) before relying on this file;"
-                      r" up to .+ no lookup is needed\.")
+                      r" in the release notes \(([^()]+)\) before relying on this file\."
+                      r" The entries are the changes that are easy to miss, not the full release notes\.")
 STATE_NAMES = ("TODO.md", "*.log", "CLAUDE.local.md", "AGENTS.override.md")
 STATE_DIRS = (".claude", ".codex", ".agents", ".gemini", ".agent", "_agents", "_agent")
 LOCAL_ADDRESSES = ("127.0.0.1", "0.0.0.0")
@@ -124,7 +124,7 @@ def link_policy(rel, line):
     """Return the link policy for one line of a file, or None when the line may hold no link."""
     name = skill_of(rel)
     if name in SKILL_SOURCES:
-        match = COVERAGE.fullmatch(line)
+        match = COVERAGE.fullmatch(line.rstrip("\r"))
         expected = [SECURE_SCHEME + address for address in SKILL_SOURCES[name]]
         return ("exact", expected) if match and match[1].split(", ") == expected else None
     return ALLOWED_LINKS.get(rel)

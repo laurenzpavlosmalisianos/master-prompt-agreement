@@ -1,6 +1,6 @@
 ---
 name: mpa-containers
-description: "Checks for container images and OCI builds. Use when writing or changing a Dockerfile or Containerfile, BuildKit options, base images, image layers, build secrets, registries, SBOMs, or image signatures. For CI workflows, use mpa-ci-pipeline; for cluster manifests, use mpa-kubernetes."
+description: "Checks for container images and OCI builds. Use when writing or changing a Dockerfile or Containerfile, base images, downloaded installers, image layers, or build secrets. For CI workflows, use mpa-ci-pipeline; for cluster manifests, use mpa-kubernetes."
 ---
 
 # Container images

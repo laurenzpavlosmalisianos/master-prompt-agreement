@@ -5,7 +5,7 @@ description: "Rust and Cargo release changes through Rust 1.100 and checks that 
 
 # Rust
 
-Current to Rust 1.100.0 and Cargo 1.100, checked 2026-11-27. For a newer release of either, read what changed after it in the release notes (https://doc.rust-lang.org/stable/releases.html, https://doc.rust-lang.org/cargo/CHANGELOG.html) before relying on this file; up to those versions no lookup is needed.
+Current to Rust 1.100.0 and Cargo 1.100, checked 2026-11-27. For a newer release of either, read what changed after it in the release notes (https://doc.rust-lang.org/stable/releases.html, https://doc.rust-lang.org/cargo/CHANGELOG.html) before relying on this file. The entries are the changes that are easy to miss, not the full release notes.
 
 ## Cargo
 

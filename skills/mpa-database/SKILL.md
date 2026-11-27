@@ -1,6 +1,6 @@
 ---
 name: mpa-database
-description: "Checks for database access and handwritten SQL. Use when changing credentials, roles, grants, row-level security, tenancy, connection pooling, backups, or replication, or when writing raw SQL, DDL, or queries built from input. For schema migrations or rollbacks, use mpa-migration."
+description: "Checks for database access and handwritten SQL. Use when changing credentials, roles, grants, connection pooling, transactions, or backups, or when writing raw SQL, DDL, or queries built from input. For schema migrations or rollbacks, use mpa-migration."
 ---
 
 # Database

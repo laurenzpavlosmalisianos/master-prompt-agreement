@@ -1,6 +1,6 @@
 ---
 name: mpa-release
-description: "Checks before a release or deployment: what was verified against the exact candidate, what can be rolled back, and what remains open. Use when preparing a release, tagging a version, deploying, or publishing a package or image."
+description: "Checks before a release or deployment: which test failures block it and keeping readiness apart from approval. Use when preparing a release, tagging a version, deploying, or publishing a package or image."
 ---
 
 # Release

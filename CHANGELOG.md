@@ -2,21 +2,23 @@
 
 ## 8.1.0 - 2026-11-27
 
+Run `mpa.py update` once in each installed project. `update` leaves the `## Approvals` section alone, so add the new cloud and pull request line from `templates/AGENTS.template.md` by hand where it applies.
+
 ### Added
 
 - `mpa-apache-httpd` (platforms): Apache HTTP Server releases 2.4.64 through 2.4.71, with the security fixes a site configuration can reach, how ETag, compression, and conditional requests behave, which directives `.htaccess` accepts, and when to ask the host.
 - `mpa-nginx` (platforms): nginx release changes through stable 1.30.8 and mainline 1.31.10, with the changed proxy, header, and HTTP/2 defaults and the 2026 security fixes and the releases that hold them.
-- `mpa-delegation` (agents bundle): what a helper agent may change, how to split and merge parallel work, checking a helper's result instead of its summary, and the cap, check, and cleanup of an unattended run.
-- A coverage line at the top of each stack skill: the versions it is current to, the date they were checked, and the official release notes to read for anything newer. The stack skills cover Python 3.15.2; TypeScript 7.0.2 and Node.js 26.13.1; Go 1.27.4; Rust 1.100.0 and Cargo 1.100; Swift 6.4.3; PHP 8.6.0 and Laravel 13.44.1; Hugo v0.170.1; WordPress 7.1.5; Apache HTTP Server 2.4.71; nginx stable 1.30.8 and mainline 1.31.10; Kubernetes 1.37.3 and Gateway API v1.7.0; Terraform 1.17.2 and OpenTofu 1.13.10; and Model Context Protocol revision 2026-07-28.
+- `mpa-delegation` (agents bundle): what a helper agent may change, how to split and merge parallel work, checking a helper's result, not its summary, and the cap, check, and cleanup of an unattended run.
+- A coverage line at the top of each stack skill: the versions it is current to, the date they were checked, and the official release notes to read for anything newer or not listed; the entries are the changes that are easy to miss, not the full release notes. The stack skills cover Python 3.15.2; TypeScript 7.0.2 and Node.js 26.13.1; Go 1.27.4; Rust 1.100.0 and Cargo 1.100; Swift 6.4.3; PHP 8.6.0 and Laravel 13.44.1; Hugo v0.170.1; WordPress 7.1.5; Apache HTTP Server 2.4.71; nginx stable 1.30.8 and mainline 1.31.10; Kubernetes 1.37.3 and Gateway API v1.7.0; Terraform 1.17.2 and OpenTofu 1.13.10; and Model Context Protocol revision 2026-07-28.
 - Release entries in the stack skills: Model Context Protocol 2026-07-28; TypeScript 6.0 and 7.0; Node.js 25 and 26; Python 3.15; Go 1.27; Rust 1.99 and 1.100 with Cargo 1.99 and 1.100; Swift 6, 6.3, and 6.4; PHP 8.6 and Laravel 13; the Hugo security defaults and escaping changes and the releases that set them; WordPress 6.9 abilities; Kubernetes 1.33 to 1.37 with Gateway API 1.6 and 1.7; Terraform 1.15 to 1.17 with OpenTofu 1.12 and 1.13; the security releases of Node.js, Python, Go, PHP, WordPress, Terraform, and OpenTofu up to 2026-11-27; the GitHub workflow dependency lockfile in `mpa-ci-pipeline`.
 - `--runtime copilot` and `--runtime gemini` as names for `agents`. With `gemini`, `init` notes that Gemini CLI reads `AGENTS.md` only when its `context.fileName` setting lists it.
 
 ### Changed
 
-- The working agreement has two rules, `Approvals` and `Checks`, in 970 bytes. The Approvals section outranks any skill; when a yes is needed, the work that stands without it is finished first and the exact action is asked for; a headless or scheduled run skips the action and what needs it and reports both. `Checks` forbids weakening, skipping, or working around a check, a hook, or a denial, and asks which checks ran, what they showed, what went unchecked, and what remains.
-- The Approvals template names agent files by kind (instruction, skill, hook, permission, and tool or MCP configuration files) instead of listing paths, so files the list did not name, such as `REVIEW.md` and `.github/prompts/`, need a yes as well.
+- The working agreement has two rules, `Approvals` and `Checks`, in 1,045 bytes. The Approvals section outranks any skill; when a yes is needed, the work that stands without it is finished first and the exact action is asked for; a headless or scheduled run skips the action and what needs it and reports both. `Checks` asks for the checks that cover the change to run before work is reported done, forbids weakening, skipping, or working around a check, a hook, or a denial, and asks which checks ran, what they showed, what went unchecked, and what remains.
+- The Approvals template names agent files by kind (instruction, skill, hook, permission, and tool or MCP configuration files), not by path, so files the list did not name, such as `REVIEW.md` and `.github/prompts/`, need a yes as well.
 - The Approvals template lets a cloud or pull request session that the user started to deliver through its own branch or pull request commit, push that branch without rewriting its pushed history, and comment on that pull request without asking; every other push still needs a yes.
-- The 29 skills of 8.0.0 are shorter and keep the release entries and the checks that change what an agent does. Descriptions no longer ask for a second skill alongside.
+- The 29 skills of 8.0.0 are shorter and keep the release entries and the checks that change what an agent does. Descriptions no longer ask for a second skill alongside and name only what the body covers. `mpa-review` keeps how far to follow a change, whether its tests can fail, and refuting a finding before reporting it; `mpa-dependency-change` keeps the checks for package names that do not exist and for editor extensions and agent plugins.
 - `mpa-hugo`, `mpa-infrastructure-as-code`, and `mpa-web-frontend` set no approval rule of their own; the Approvals section decides what needs a yes.
 - `check` reports on the files this tool installs and on what stops them from loading. `docs/runtimes.md` is shorter and covers GitHub Copilot and Gemini CLI.
 
@@ -29,7 +31,7 @@
 ### Fixed
 
 - `mpa-hugo`: on v0.166+ keep the default `security.http.urls`. `mpa-infrastructure-as-code`: `sensitive` values are stored in plain text in state and plans. `mpa-kubernetes`: attachment to a Gateway across namespaces uses `allowedRoutes`, not `ReferenceGrant`. `mpa-wordpress`: `wp-config.php` permissions match how PHP runs. `mpa-external-contribution`: a tag is an immutable version only where the host locks it.
-- `mpa.py` recognizes section headings that are indented, separated by a tab, or closed with `#` characters; treats block markers inside code fences as text; keeps an `AGENTS.md` above 32 KiB that `init` does not change, with a note; reports files with index conflicts as conflicted; and refuses symbolic link loops with a message instead of a traceback.
+- `mpa.py` recognizes section headings that are indented, separated by a tab, or closed with `#` characters; treats block markers inside code fences as text; keeps an `AGENTS.md` above 32 KiB that `init` does not change, with a note; reports files with index conflicts as conflicted; and stops at symbolic link loops with a message, not a traceback.
 - `init --help` and the README name `CLAUDE.md`, `.claude/CLAUDE.md`, and `.claude/settings.json` as the files that select `claude`.
 
 ### Security

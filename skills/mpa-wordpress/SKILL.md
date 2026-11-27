@@ -5,7 +5,7 @@ description: "WordPress release changes through 7.1 and checks that are easy to 
 
 # WordPress
 
-Current to WordPress 7.1.5, checked 2026-11-27. For a newer WordPress release, read what changed after 7.1.5 in the release notes (https://wordpress.org/news/category/releases/) before relying on this file; up to 7.1.5 no lookup is needed.
+Current to WordPress 7.1.5, checked 2026-11-27. For a newer WordPress release, read what changed after 7.1.5 in the release notes (https://wordpress.org/news/category/releases/) before relying on this file. The entries are the changes that are easy to miss, not the full release notes.
 
 ## Plugins, themes, and APIs
 
