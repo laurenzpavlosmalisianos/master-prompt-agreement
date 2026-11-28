@@ -1,6 +1,6 @@
 ---
 name: mpa-agent-instructions
-description: "Guidance for writing instructions that agents read and evaluating prompt changes. Use when writing or editing a system prompt, AGENTS.md, CLAUDE.md, GEMINI.md, a skill, a tool description, or a prompt or skill eval. For prompt-injection or tool threats, use mpa-agent-inputs."
+description: "Guidance for writing instructions that agents read and evaluating prompt changes. Use when writing or editing a system prompt, AGENTS.md, CLAUDE.md, GEMINI.md, a skill, a tool description, or a prompt or skill eval."
 ---
 
 # Instructions for agents

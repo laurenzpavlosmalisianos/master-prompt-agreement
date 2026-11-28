@@ -1,13 +1,13 @@
 ---
 name: mpa-database
-description: "Checks for database access and handwritten SQL. Use when changing credentials, roles, grants, connection pooling, transactions, or backups, or when writing raw SQL, DDL, or queries built from input. For schema migrations or rollbacks, use mpa-migration."
+description: "Checks for database access and SQL that depends on the engine. Use when changing database credentials, grants, connection pooling, transactions, or backups, when a model generates SQL, or before destructive statements, restores, or failover. For schema migrations or rollbacks, use mpa-migration."
 ---
 
 # Database
 
 Dialect, isolation, planner, and collation behaviour differ by engine and version. Test behaviour-sensitive changes on the engine in use; SQLite or an in-memory adapter is not a substitute.
 
-## Identity, tenancy, and pooling
+## Credentials and pooling
 
 - Rotation and revocation must work while the deployment pipeline is down, and pooled connections holding a revoked credential must be closed.
 

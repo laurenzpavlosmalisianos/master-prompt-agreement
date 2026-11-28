@@ -1,11 +1,11 @@
 ---
 name: mpa-wordpress
-description: "WordPress release changes through 7.1 and checks that are easy to miss. Use for any work on WordPress plugins, themes, blocks, REST or AJAX endpoints, abilities, $wpdb queries, wp-config.php, hardening, or a core upgrade."
+description: "WordPress release changes through 7.1 and checks that are easy to miss. Use for any work on WordPress plugins, themes, blocks, REST routes, abilities, $wpdb queries, wp-config.php, hardening, or a core upgrade."
 ---
 
 # WordPress
 
-Current to WordPress 7.1.5, checked 2026-11-27. For a newer WordPress release, read what changed after 7.1.5 in the release notes (https://wordpress.org/news/category/releases/) before relying on this file. The entries are the changes that are easy to miss, not the full release notes.
+Current to WordPress 7.1.5, checked 2026-11-27. The entries are the changes that are easy to miss, not the full release notes: for a change they do not mention, and for anything newer than 7.1.5, read the release notes (https://wordpress.org/news/category/releases/) before relying on this file.
 
 ## Plugins, themes, and APIs
 

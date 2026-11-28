@@ -1,6 +1,6 @@
 ---
 name: mpa-seo
-description: "Checks for search indexing. Use when changing robots.txt, noindex, canonical URLs, redirects, sitemaps, hreflang, page metadata, or structured data, or when diagnosing why pages are not indexed. For HTML, CSS, ARIA, or DOM rendering, use mpa-web-frontend."
+description: "Checks for search indexing. Use when changing robots.txt, noindex, canonical URLs, redirects, sitemaps, hreflang, page metadata, or structured data, or when diagnosing why pages are not indexed."
 ---
 
 # Search indexing

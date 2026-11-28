@@ -1,6 +1,6 @@
 ---
 name: mpa-web-frontend
-description: "Checks for website frontend verification, accessibility, and DOM security. Use when building or changing HTML, forms, ARIA/WCAG, CSS layout, iframes, XSS sanitization, or checking rendered pages, DOM output, or responsive behaviour. For metadata, sitemaps, or indexing, use mpa-seo."
+description: "Checks for website frontend verification, accessibility, and DOM security. Use when building or changing HTML, forms, ARIA/WCAG, CSS layout, iframes, XSS sanitization, or checking rendered pages, DOM output, or responsive behaviour."
 ---
 
 # Web frontend

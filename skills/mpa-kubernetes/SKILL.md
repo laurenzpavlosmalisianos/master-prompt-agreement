@@ -5,7 +5,7 @@ description: "Kubernetes and Gateway API release changes through Kubernetes 1.37
 
 # Kubernetes
 
-Current to Kubernetes 1.37.3 and Gateway API v1.7.0, checked 2026-11-27. For a newer release of either, read what changed after it in the release notes (https://kubernetes.io/releases/, https://github.com/kubernetes-sigs/gateway-api/releases) before relying on this file. The entries are the changes that are easy to miss, not the full release notes.
+Current to Kubernetes 1.37.3 and Gateway API v1.7.0, checked 2026-11-27. The entries are the changes that are easy to miss, not the full release notes: for a change they do not mention, and for anything newer than those versions, read the release notes (https://github.com/kubernetes/kubernetes/tree/master/CHANGELOG, https://github.com/kubernetes-sigs/gateway-api/releases) before relying on this file.
 
 ## Manifests
 

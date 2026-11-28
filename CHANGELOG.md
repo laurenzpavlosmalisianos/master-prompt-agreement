@@ -1,5 +1,39 @@
 # Changelog
 
+## 9.0.0 - 2026-11-28
+
+Setup and update are file copies described in `README.md`. In a project set up with an earlier release, run the update commands once, delete the directories of the three retired skills (`mpa-release`, `mpa-containers`, `mpa-shell`), replace the cloud and pull request line in `## Approvals` by hand with the one in `templates/AGENTS.template.md` where it applies, and copy `mpa-delegation` if the project uses only `core`.
+
+### Added
+
+- `README.md` holds the commands that set up and update a project.
+- `docs/runtimes.md` lists what keeps `AGENTS.md` or a skill from loading in each tool.
+- `docs/runtimes.md` lists the user-level skill directory of each tool, for one copy of a stack skill per machine, with the limits of that route.
+- `CONTRIBUTING.md` describes how the stack skills are refreshed.
+
+### Changed
+
+- `templates/block.md` holds the block with its two marker lines, and the marker names no version. `templates/AGENTS.template.md` starts at `## Approvals`.
+- `tools/hygiene.py` reports local paths, mail addresses, IP addresses, private key headers, and token shapes, in files, staged content, and commit messages.
+- The coverage line of each stack skill sends the agent to the release notes for a change the entries do not mention as well as for anything newer. `mpa-kubernetes` and `mpa-javascript-typescript` name addresses that list patch releases.
+- `mpa-apache-httpd` and `mpa-nginx` name the patched release and the fixes that change what an agent writes or asks a host, in place of lists of single vulnerabilities.
+- `mpa-delegation` moves from `agents` to `core`.
+- `mpa-ci-pipeline` covers container image builds, `mpa-secure-coding` covers command strings built from data and secrets in command arguments, and `mpa-review` covers the test failures that block a release.
+- Descriptions name only what their bodies cover, and name another skill only where matching the wrong one would lead to a harmful step.
+- The Approvals template limits its cloud and pull request line to sessions that the user's request started and to replies about the session's own work.
+- Tests cap each skill file at 7,000 bytes.
+- `mpa-rust` is current to Rust 1.100.1.
+
+### Removed
+
+- `mpa.py` and `docs/cli.md`.
+- `mpa-release`, `mpa-containers`, and `mpa-shell`. Their remaining lines are in `mpa-review`, `mpa-ci-pipeline`, and `mpa-secure-coding`.
+
+### Fixed
+
+- `mpa-php`: Laravel 13.44.0 is the first release that supports PHP 8.6. `mpa-infrastructure-as-code`: a Terraform variable used in a module `source` or `version` is declared with `const = true`.
+- The 8.1.0 entry names Gateway API 1.5.
+
 ## 8.1.0 - 2026-11-27
 
 Run `mpa.py update` once in each installed project. `update` leaves the `## Approvals` section alone, so add the new cloud and pull request line from `templates/AGENTS.template.md` by hand where it applies.
@@ -10,7 +44,7 @@ Run `mpa.py update` once in each installed project. `update` leaves the `## Appr
 - `mpa-nginx` (platforms): nginx release changes through stable 1.30.8 and mainline 1.31.10, with the changed proxy, header, and HTTP/2 defaults and the 2026 security fixes and the releases that hold them.
 - `mpa-delegation` (agents bundle): what a helper agent may change, how to split and merge parallel work, checking a helper's result, not its summary, and the cap, check, and cleanup of an unattended run.
 - A coverage line at the top of each stack skill: the versions it is current to, the date they were checked, and the official release notes to read for anything newer or not listed; the entries are the changes that are easy to miss, not the full release notes. The stack skills cover Python 3.15.2; TypeScript 7.0.2 and Node.js 26.13.1; Go 1.27.4; Rust 1.100.0 and Cargo 1.100; Swift 6.4.3; PHP 8.6.0 and Laravel 13.44.1; Hugo v0.170.1; WordPress 7.1.5; Apache HTTP Server 2.4.71; nginx stable 1.30.8 and mainline 1.31.10; Kubernetes 1.37.3 and Gateway API v1.7.0; Terraform 1.17.2 and OpenTofu 1.13.10; and Model Context Protocol revision 2026-07-28.
-- Release entries in the stack skills: Model Context Protocol 2026-07-28; TypeScript 6.0 and 7.0; Node.js 25 and 26; Python 3.15; Go 1.27; Rust 1.99 and 1.100 with Cargo 1.99 and 1.100; Swift 6, 6.3, and 6.4; PHP 8.6 and Laravel 13; the Hugo security defaults and escaping changes and the releases that set them; WordPress 6.9 abilities; Kubernetes 1.33 to 1.37 with Gateway API 1.6 and 1.7; Terraform 1.15 to 1.17 with OpenTofu 1.12 and 1.13; the security releases of Node.js, Python, Go, PHP, WordPress, Terraform, and OpenTofu up to 2026-11-27; the GitHub workflow dependency lockfile in `mpa-ci-pipeline`.
+- Release entries in the stack skills: Model Context Protocol 2026-07-28; TypeScript 6.0 and 7.0; Node.js 25 and 26; Python 3.15; Go 1.27; Rust 1.99 and 1.100 with Cargo 1.99 and 1.100; Swift 6, 6.3, and 6.4; PHP 8.6 and Laravel 13; the Hugo security defaults and escaping changes and the releases that set them; WordPress 6.9 abilities; Kubernetes 1.33 to 1.37 with Gateway API 1.5, 1.6, and 1.7; Terraform 1.15 to 1.17 with OpenTofu 1.12 and 1.13; the security releases of Node.js, Python, Go, PHP, WordPress, Terraform, and OpenTofu up to 2026-11-27; the GitHub workflow dependency lockfile in `mpa-ci-pipeline`.
 - `--runtime copilot` and `--runtime gemini` as names for `agents`. With `gemini`, `init` notes that Gemini CLI reads `AGENTS.md` only when its `context.fileName` setting lists it.
 
 ### Changed

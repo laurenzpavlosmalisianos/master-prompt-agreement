@@ -1,6 +1,6 @@
 ---
 name: mpa-external-contribution
-description: "Assesses an external pull request, patch, or vendored or copied code without running it, including licence and provenance. Use when a change comes from a fork, an unknown contributor, or a pasted patch, or when code or assets are reused from another project. For internal reviews, use mpa-review."
+description: "Assesses an external pull request, patch, or vendored or copied code without running it, including licence and provenance. Use when a change comes from a fork, an unknown contributor, or a pasted patch, or when code or assets are reused from another project."
 ---
 
 # External contribution

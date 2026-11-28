@@ -18,6 +18,10 @@ __pycache__/
 /.claude/
 /.codex/
 /.agents/
+/.gemini/
+/.agent/
+/_agents/
+/_agent/
 /CLAUDE.local.md
 /AGENTS.override.md
 /.mcp.json

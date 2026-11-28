@@ -5,7 +5,7 @@ description: "TypeScript and Node.js release changes through TypeScript 7.0 and 
 
 # JavaScript and TypeScript
 
-Current to TypeScript 7.0.2 and Node.js 26.13.1, checked 2026-11-27. For a newer release of either, read what changed after it in the release notes (https://www.typescriptlang.org/docs/, https://nodejs.org/en/blog/release) before relying on this file. The entries are the changes that are easy to miss, not the full release notes.
+Current to TypeScript 7.0.2 and Node.js 26.13.1, checked 2026-11-27. The entries are the changes that are easy to miss, not the full release notes: for a change they do not mention, and for anything newer than those versions, read the release notes (https://github.com/microsoft/TypeScript/releases, https://nodejs.org/en/blog/release) before relying on this file.
 
 - A read followed by a write is not a lock, including across `await`; keep shared updates atomic and reconcile persisted markers with real state after a restart.
 - Browser extensions: check each context's effective permissions and behaviour after the service worker restarts or a grant is revoked.

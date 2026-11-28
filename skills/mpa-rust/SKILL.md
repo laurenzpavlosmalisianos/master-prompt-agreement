@@ -5,7 +5,7 @@ description: "Rust and Cargo release changes through Rust 1.100 and checks that 
 
 # Rust
 
-Current to Rust 1.100.0 and Cargo 1.100, checked 2026-11-27. For a newer release of either, read what changed after it in the release notes (https://doc.rust-lang.org/stable/releases.html, https://doc.rust-lang.org/cargo/CHANGELOG.html) before relying on this file. The entries are the changes that are easy to miss, not the full release notes.
+Current to Rust 1.100.1 and Cargo 1.100, checked 2026-11-27. The entries are the changes that are easy to miss, not the full release notes: for a change they do not mention, and for anything newer than those versions, read the release notes (https://doc.rust-lang.org/stable/releases.html, https://doc.rust-lang.org/cargo/CHANGELOG.html) before relying on this file.
 
 ## Cargo
 
@@ -16,7 +16,7 @@ Current to Rust 1.100.0 and Cargo 1.100, checked 2026-11-27. For a newer release
 
 ## Language
 
-- 1.100 stabilizes the never type: `Infallible` is an alias of `!`, and the fallback for a diverging expression is `!` on every edition, which can change what is inferred. Closures capture variables used in `if let` more precisely, which can bring new errors, and `box` patterns no longer parse. In 1.100.0 some types are not seen as implementing `Iterator`; the fix is listed for 1.100.1, the next release.
+- 1.100 stabilizes the never type: `Infallible` is an alias of `!`, and the fallback for a diverging expression is `!` on every edition, which can change what is inferred. Closures capture variables used in `if let` more precisely, which can bring new errors, and `box` patterns no longer parse. In 1.100.0 some types are not seen as implementing `Iterator`; 1.100.1 fixes it.
 - 1.99.0 miscompiles FFI functions that return `bool` on x86_64; 1.99.1 fixes it.
 
 ## Unsafe code

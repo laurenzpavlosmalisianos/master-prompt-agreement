@@ -5,7 +5,7 @@ description: "PHP and Laravel release changes through PHP 8.6 and Laravel 13 and
 
 # PHP and Laravel
 
-Current to PHP 8.6.0 and Laravel 13.44.1, checked 2026-11-27. For a newer release of either, read what changed after it in the release notes (https://www.php.net/ChangeLog-8.php, https://laravel.com/docs/releases) before relying on this file. The entries are the changes that are easy to miss, not the full release notes.
+Current to PHP 8.6.0 and Laravel 13.44.1, checked 2026-11-27. The entries are the changes that are easy to miss, not the full release notes: for a change they do not mention, and for anything newer than those versions, read the release notes (https://www.php.net/ChangeLog-8.php, https://laravel.com/docs/releases) before relying on this file.
 
 ## PHP
 
@@ -20,6 +20,6 @@ Current to PHP 8.6.0 and Laravel 13.44.1, checked 2026-11-27. For a newer releas
 
 ## Laravel
 
-- The Laravel support table lists PHP 8.3 to 8.5 for Laravel 13, while the framework's Composer constraint (`^8.3`) admits 8.6; run the application's tests on 8.6 before raising its PHP version.
+- Laravel 13.44.0 is the first release that supports PHP 8.6: it fixes collection sorting and validation trimming for 8.6 and tests on it. The support table in the documentation still lists PHP 8.3 to 8.5. Raise Laravel to 13.44.0 or newer before raising PHP to 8.6.
 - Avoid `$guarded = []` (or `#[Guarded([])]` and `#[Unguarded]`, Laravel 13+), `Model::unguard()`, `forceFill()`, and passing `$request->all()` into `create`/`update`/`fill`; declare `$fillable` (or `#[Fillable]`, 13+) and pass `$request->validated()`.
 - Keep the cache `serializable_classes` allowlist explicit (`false` in the Laravel 13 skeleton) and session serialization at `json`; with a leaked `APP_KEY`, PHP-serialized cache or session data is an unserialize gadget path. Switching sessions from `php` to `json` logs users out.

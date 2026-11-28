@@ -5,7 +5,7 @@ description: "Checks for features where untrusted text reaches a model, a tool c
 
 # Untrusted input to models and agents
 
-Current to Model Context Protocol revision 2026-07-28, checked 2026-11-27. For a newer revision, read what changed after 2026-07-28 in the release notes (https://modelcontextprotocol.io/specification/) before relying on this file. The entries are the changes that are easy to miss, not the full release notes.
+Current to Model Context Protocol revision 2026-07-28, checked 2026-11-27. The entries are the changes that are easy to miss, not the full release notes: for a change they do not mention, and for anything newer than 2026-07-28, read the release notes (https://modelcontextprotocol.io/specification/) before relying on this file.
 
 Trace each untrusted input to what it can cause: a model decision, a tool call, a write to durable state, a disclosure, or another side effect. That path decides the risk. Instructions to the model and input filters lower the odds; they do not close the path.
 

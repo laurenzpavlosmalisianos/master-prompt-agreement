@@ -1,7 +1,3 @@
-# {name}
-
-{block}
-
 ## Approvals
 
 Ask first:
@@ -14,7 +10,7 @@ Ask first:
 
 No approval needed:
 - reading, creating, and editing other files in this repository, and running tests, linters, builds, and other commands that change nothing outside it except temporary and cache files
-- despite the list above, in a cloud or pull request session that the user started to deliver through its own branch or pull request: committing, pushing that branch without rewriting its pushed history, and commenting on that pull request
+- despite the list above, in a cloud or pull request session that the user's request started (not an automatic trigger or someone else) to deliver through its own branch or pull request: committing, pushing that branch without rewriting its pushed history, and replying on that pull request about this work; the rest of the list still holds
 
 ## Project
 

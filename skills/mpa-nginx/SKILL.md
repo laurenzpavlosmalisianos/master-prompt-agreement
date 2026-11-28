@@ -1,11 +1,11 @@
 ---
 name: mpa-nginx
-description: "nginx release changes through stable 1.30.8 and mainline 1.31.10 and checks that are easy to miss: security fixes with fixed versions, changed proxy, header, and HTTP/2 defaults. Use for any work on nginx.conf, server and location blocks, reverse proxying, caching, TLS, HTTP/2 or HTTP/3, or an nginx upgrade."
+description: "nginx release changes through stable 1.30.8 and mainline 1.31.10 and checks that are easy to miss: the patched releases and changed proxy, header, and HTTP/2 defaults. Use for any work on nginx.conf, server and location blocks, reverse proxying, caching, TLS, HTTP/2 or HTTP/3, or an nginx upgrade."
 ---
 
 # nginx
 
-Current to nginx stable 1.30.8 and mainline 1.31.10, checked 2026-11-27. For a newer release of either, read what changed after it in the release notes (https://nginx.org/en/CHANGES, https://nginx.org/en/security_advisories.html) before relying on this file. The entries are the changes that are easy to miss, not the full release notes.
+Current to nginx stable 1.30.8 and mainline 1.31.10, checked 2026-11-27. The entries are the changes that are easy to miss, not the full release notes: for a change they do not mention, and for anything newer than those versions, read the release notes (https://nginx.org/en/CHANGES, https://nginx.org/en/security_advisories.html) before relying on this file.
 
 ## Find out what runs
 
@@ -31,9 +31,5 @@ Current to nginx stable 1.30.8 and mainline 1.31.10, checked 2026-11-27. For a n
 
 ## Security fixes
 
-- Every 2026 advisory is fixed in stable 1.30.8 and mainline 1.31.10. Advisories from May 2026 on name fixed releases in 1.30 and 1.31 only; 1.28 received its last listed fixes in 1.28.3.
-- `alias`: CVE-2026-125283 (with `try_files`; fixed in 1.30.7 and 1.31.9), CVE-2026-15176 (with `rewrite`; 1.30.6, 1.31.7), CVE-2026-27654 (DAV `COPY` and `MOVE`; 1.28.3, 1.29.7). All three are buffer overflows.
-- Rewrite and variables: CVE-2026-42945 (1.30.1, 1.31.0) and CVE-2026-9256 (1.30.2, 1.31.1), both possible code execution in the rewrite module; CVE-2026-42533 (`map` with regex; 1.30.4, 1.31.3); CVE-2026-93479 (string expressions; 1.30.6, 1.31.7).
-- HTTP/2 and HTTP/3: CVE-2026-123007 and CVE-2026-123633 (HTTP/2; 1.30.7, 1.31.9); CVE-2026-121810 (HTTP/3; 1.30.7, 1.31.9); CVE-2026-95101 (HTTP/3 request body injection past `client_max_body_size`; 1.30.6, 1.31.7); CVE-2026-90439 (HTTP/3 with OpenSSL 3.5.0 or older; 1.30.5, 1.31.6); CVE-2026-40460 (HTTP/3 address spoofing; 1.30.1, 1.31.0).
-- TLS: CVE-2026-132779 (`ssl_early_data`, CPU exhaustion; 1.30.8, 1.31.10); CVE-2026-97629 (session ticket key rotation, session forgery; 1.30.6, 1.31.7); CVE-2026-118899 (endless loop reading a request body over TLS 1.3; 1.30.7, 1.31.9).
-- Proxying: CVE-2026-1642 (data injected into the response from an SSL backend; 1.28.2, 1.29.5); CVE-2026-42926 (`proxy_set_body` with an HTTP/2 backend; 1.30.1, 1.31.0); CVE-2026-123634 (`resolver`; 1.30.7, 1.31.9); CVE-2026-42055 (HTTP/2 and gRPC backends; 1.30.3, 1.31.2).
+- Patched releases on 2026-11-27: stable 1.30.8 and mainline 1.31.10 (both 2026-11-23). They hold the fixes for all 37 advisories of 2026; the advisory page in the coverage line gives the fixed release for each. Advisories from May 2026 on name fixed releases in 1.30 and 1.31 only; 1.28 received its last listed fixes in 1.28.3.
+- What the 2026 fixes concern, so that a server below the patched release gets the upgrade before these are relied on: `alias` with `try_files`, with `rewrite`, or with DAV `COPY` and `MOVE` (buffer overflows); `rewrite` (two heap overflows with possible code execution, fixed by 1.30.2 and 1.31.1); `map` with regular expressions; `ssl_early_data`; `proxy_set_body` with an HTTP/2 backend; `resolver`; HTTP/2 and HTTP/3. No configuration change stands in for the upgrade.

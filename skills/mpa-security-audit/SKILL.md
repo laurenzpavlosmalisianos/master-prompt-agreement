@@ -1,6 +1,6 @@
 ---
 name: mpa-security-audit
-description: "Rules for a read-only security audit: approval for active testing, untrusted targets, and confirmed findings. Use when asked for a vulnerability audit, threat assessment, penetration test, or dedicated security review. For coding checks, use mpa-secure-coding; for PR review, use mpa-review."
+description: "Rules for a read-only security audit: approval for active testing, untrusted targets, and confirmed findings. Use when asked for a vulnerability audit, threat assessment, penetration test, or dedicated security review."
 ---
 
 # Security audit

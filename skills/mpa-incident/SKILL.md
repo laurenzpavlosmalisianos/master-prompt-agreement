@@ -1,6 +1,6 @@
 ---
 name: mpa-incident
-description: "Guides the response to a suspected compromise, a leaked or committed secret, data loss, or a destructive mistake. Use when a credential appears in a commit, log, or chat, a malicious package may have run, or data was deleted, and before cleaning anything up. For non-emergency debugging, use mpa-root-cause."
+description: "Guides the response to a suspected compromise, a leaked or committed secret, data loss, or a destructive mistake. Use when a credential appears in a commit, log, or chat, a malicious package may have run, or data was deleted, and before cleaning anything up."
 ---
 
 # Incident

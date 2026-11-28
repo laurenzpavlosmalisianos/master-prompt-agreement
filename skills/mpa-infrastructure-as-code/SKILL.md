@@ -5,7 +5,7 @@ description: "Terraform and OpenTofu release changes through Terraform 1.17 and 
 
 # Infrastructure as code
 
-Current to Terraform 1.17.2 and OpenTofu 1.13.10, checked 2026-11-27. For a newer release of either, read what changed after it in the release notes (https://developer.hashicorp.com/terraform/language/upgrade-guides, https://opentofu.org/blog/) before relying on this file. The entries are the changes that are easy to miss, not the full release notes.
+Current to Terraform 1.17.2 and OpenTofu 1.13.10, checked 2026-11-27. The entries are the changes that are easy to miss, not the full release notes: for a change they do not mention, and for anything newer than those versions, read the release notes (https://developer.hashicorp.com/terraform/language/upgrade-guides, https://opentofu.org/blog/) before relying on this file.
 
 ## What a command does
 
@@ -19,7 +19,7 @@ Current to Terraform 1.17.2 and OpenTofu 1.13.10, checked 2026-11-27. For a newe
 
 - Confirm the plan belongs to the intended workspace, account, region, variables, and source revision; reject unrelated drift. A successful plan does not guarantee a successful apply.
 - A plan made with `-refresh=false` or with `-minimal-refresh` (Terraform 1.17+, which refreshes only resources that already have planned changes) does not show drift on the rest. Do not take it as a drift check, and do not use either across a provider upgrade.
-- Module `source` and `version` (Terraform 1.15+, OpenTofu 1.8+) and provider requirements (Terraform 1.17+) may reference locals and variables, so the code a plan runs can depend on variable values. Review the resolved versions in the lock file and the module manifest, not only the configuration.
+- Module `source` and `version` (Terraform 1.15+, OpenTofu 1.8+) and provider requirements (Terraform 1.17+) may reference locals and variables, so the code a plan runs can depend on variable values. In Terraform such a variable is declared with `const = true`. Review the resolved versions in the lock file and the module manifest, not only the configuration.
 - Name the rollback, repair, or import path before a destroy or replace, and confirm recovery for stateful stores.
 - `lifecycle { destroy = false }` (Terraform 1.16+, OpenTofu 1.12+) is not a guard like `prevent_destroy`: a destroy or replace then removes the object from state and leaves it running, unmanaged and still billed, and a replace creates a second one beside it.
 - An upgrade can change a plan without any change in the configuration. From OpenTofu 1.12 `replace_triggered_by` also fires when the referenced resource is replaced, not only when it is updated. From OpenTofu 1.13 `base64gzip` returns different bytes for the same input, so resources that take its result, such as instance user data, show an update or a replace.
