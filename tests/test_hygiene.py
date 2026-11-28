@@ -41,7 +41,14 @@ def main(*argv):
         return hygiene.main([str(item) for item in argv]), out.getvalue()
 
 
+def in_work_tree():
+    """Return True when this repository is the top level of a git work tree."""
+    top = hygiene.git(ROOT, "rev-parse", "--show-toplevel")
+    return top is not None and Path(os.fsdecode(top.rstrip(b"\r\n"))).resolve() == ROOT
+
+
 class HygieneTests(unittest.TestCase):
+    @unittest.skipUnless(in_work_tree(), "the scanner lists files through git, and this copy is not a git work tree")
     def test_repository_is_clean(self):
         code, out = main()
         self.assertEqual(code, 0, out)

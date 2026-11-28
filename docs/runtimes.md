@@ -34,7 +34,7 @@ Tools with native skill support load each skill's `name` and `description` at se
 
 - **Codex** by default limits the startup skill listing to 2% of the model's context window, or 8,000 characters when the window size is unknown. Over the budget it shortens descriptions first and can leave skills out with a warning.
 - **Claude Code** sets the startup skill listing budget at 1% of the model's context window. Over the budget, every skill name stays listed and descriptions are dropped, starting with the least-invoked skills.
-- The `core` skills stay far below 8,000 characters, and the whole catalogue comes close to it. Skills without the `mpa-` prefix share the same budget.
+- Each installed skill adds its `name` and `description` to that listing, and skills without the `mpa-` prefix share the same budget.
 - Copies in both `.claude/skills/` and `.agents/skills/` serve a team that uses both kinds of tool. A tool that scans both directories lists every skill twice at startup.
 
 ## Permissions and starter snippets

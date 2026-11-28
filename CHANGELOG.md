@@ -1,5 +1,15 @@
 # Changelog
 
+## 9.0.1 - 2026-11-28
+
+### Fixed
+
+- The repository-clean test is skipped when the checkout is not its own git work tree, such as an unpacked release archive.
+
+### Changed
+
+- `docs/runtimes.md` no longer estimates the listing size of the catalogue against the 8,000-character fallback.
+
 ## 9.0.0 - 2026-11-28
 
 Setup and update are file copies described in `README.md`. In a project set up with an earlier release, run the update commands once, delete the directories of the three retired skills (`mpa-release`, `mpa-containers`, `mpa-shell`), replace the cloud and pull request line in `## Approvals` by hand with the one in `templates/AGENTS.template.md` where it applies, and copy `mpa-delegation` if the project uses only `core`.
